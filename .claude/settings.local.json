@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(mkdir:*)",
+      "Bash(npx tauri init:*)",
+      "Bash(npx prisma init:*)",
+      "Bash(npx prisma migrate dev:*)",
+      "Bash(npm run:*)",
+      "Bash(npx tailwindcss init:*)",
+      "Bash(cmd /c:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(cargo --version)",
+      "Bash(timeout:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

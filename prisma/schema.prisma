@@ -1,0 +1,198 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Account types for double-entry accounting
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE
+}
+
+// Account subtypes
+enum AccountSubtype {
+  BANK
+  CARD
+  PSP
+  CASH
+  GST_CONTROL
+  SAVINGS_GOAL
+  LOAN
+  INVESTMENT
+  OTHER
+}
+
+// GST codes for Australian tax
+enum GSTCode {
+  GST           // 10% GST
+  GST_FREE      // GST-free
+  INPUT_TAXED   // Input taxed
+  EXPORT        // Export
+  OTHER         // Other
+}
+
+// Transaction status
+enum TransactionStatus {
+  NORMAL
+  VOID
+}
+
+// Memorized rule match types
+enum MatchType {
+  EXACT
+  CONTAINS
+  REGEX
+}
+
+model Account {
+  id                  String          @id @default(uuid())
+  name                String
+  type                AccountType
+  subtype             AccountSubtype?
+  isReal              Boolean         @default(true) @map("is_real")
+  isBusinessDefault   Boolean         @default(false) @map("is_business_default")
+  openingBalance      Float           @default(0) @map("opening_balance")
+  openingDate         DateTime        @default(now()) @map("opening_date")
+  currency            String          @default("AUD")
+  archived            Boolean         @default(false)
+  sortOrder           Int             @default(0) @map("sort_order")
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+
+  // Relations
+  postings            Posting[]
+  reconciliations     Reconciliation[]
+  importBatches       ImportBatch[]
+  memorizedRules      MemorizedRule[]
+
+  @@unique([name, type])
+  @@index([type])
+  @@index([isReal])
+  @@map("accounts")
+}
+
+model Transaction {
+  id              String              @id @default(uuid())
+  date            DateTime
+  payee           String
+  memo            String?
+  reference       String?
+  tags            String?             // JSON array of strings
+  importBatchId   String?             @map("import_batch_id")
+  externalId      String?             @map("external_id")
+  status          TransactionStatus   @default(NORMAL)
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+
+  // Relations
+  postings        Posting[]
+  importBatch     ImportBatch?        @relation(fields: [importBatchId], references: [id])
+
+  @@index([date])
+  @@index([payee])
+  @@index([importBatchId])
+  @@index([externalId])
+  @@map("transactions")
+}
+
+model Posting {
+  id                    String        @id @default(uuid())
+  transactionId         String        @map("transaction_id")
+  accountId             String        @map("account_id")
+  amount                Float         // Signed amount (positive/negative)
+  isBusiness            Boolean       @default(false) @map("is_business")
+  gstCode               GSTCode?      @map("gst_code")
+  gstRate               Float?        @map("gst_rate")
+  gstAmount             Float?        @map("gst_amount")
+  categorySplitLabel    String?       @map("category_split_label")
+  cleared               Boolean       @default(false)
+  reconciled            Boolean       @default(false)
+  reconcileId           String?       @map("reconcile_id")
+  createdAt             DateTime      @default(now()) @map("created_at")
+
+  // Relations
+  transaction           Transaction   @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  account               Account       @relation(fields: [accountId], references: [id])
+  reconciliation        Reconciliation? @relation(fields: [reconcileId], references: [id])
+
+  @@index([transactionId])
+  @@index([accountId])
+  @@index([cleared])
+  @@index([reconciled])
+  @@index([isBusiness])
+  @@map("postings")
+}
+
+model MemorizedRule {
+  id                  String      @id @default(uuid())
+  name                String
+  matchType           MatchType   @default(CONTAINS) @map("match_type")
+  matchValue          String      @map("match_value")
+  defaultPayee        String?     @map("default_payee")
+  defaultAccountId    String?     @map("default_account_id")
+  defaultSplits       String?     @map("default_splits") // JSON array of split templates
+  applyOnImport       Boolean     @default(true) @map("apply_on_import")
+  applyOnManualEntry  Boolean     @default(true) @map("apply_on_manual_entry")
+  priority            Int         @default(0)
+  createdAt           DateTime    @default(now()) @map("created_at")
+  updatedAt           DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  defaultAccount      Account?    @relation(fields: [defaultAccountId], references: [id])
+
+  @@index([priority])
+  @@map("memorized_rules")
+}
+
+model ImportBatch {
+  id              String        @id @default(uuid())
+  sourceAccountId String        @map("source_account_id")
+  sourceName      String        @map("source_name")
+  mappingJson     String        @map("mapping_json") // JSON of column mappings
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  // Relations
+  sourceAccount   Account       @relation(fields: [sourceAccountId], references: [id])
+  transactions    Transaction[]
+
+  @@map("import_batches")
+}
+
+model Reconciliation {
+  id                    String    @id @default(uuid())
+  accountId             String    @map("account_id")
+  statementStartDate    DateTime  @map("statement_start_date")
+  statementEndDate      DateTime  @map("statement_end_date")
+  statementStartBalance Float     @map("statement_start_balance")
+  statementEndBalance   Float     @map("statement_end_balance")
+  notes                 String?
+  locked                Boolean   @default(false)
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  account               Account   @relation(fields: [accountId], references: [id])
+  postings              Posting[]
+
+  @@index([accountId])
+  @@map("reconciliations")
+}
+
+model Settings {
+  id                    String    @id @default(uuid())
+  key                   String    @unique
+  value                 String    // JSON-encoded value
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
