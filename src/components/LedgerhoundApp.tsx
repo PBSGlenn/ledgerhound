@@ -1,1202 +1,759 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { format } from 'date-fns';
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  Bell,
-  Check,
-  ChevronDown,
-  Filter,
-  Import,
-  MoreHorizontal,
-  Plus,
-  Receipt,
-  Search,
-  Settings,
-  Tag,
-  UploadCloud,
-  User,
-  X,
-} from 'lucide-react';
-import * as Dialog from '@radix-ui/react-dialog';
+import React, { useMemo, useState } from "react";
+import type { JSX } from "react";
 
-/**
- * Simple mock data driven Ledgerhound UI used for prototyping.
- * Styling aims to mirror the light theme reference shared in the brief.
- */
+// --- Simple inline icons (no external deps) ---
+const IconChevronLeft = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+    <path strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+  </svg>
+);
+const IconPlus = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+    <path strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+  </svg>
+);
+const IconUpload = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+    <path strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 9l5-5 5 5M12 4v12" />
+  </svg>
+);
+const IconListChecks = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+    <path strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01" />
+  </svg>
+);
+const IconBarChart = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+    <path strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M3 3v18h18M7 17V9M12 17V5M17 17v-7" />
+  </svg>
+);
+const IconSearch = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+    <path strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 110-15 7.5 7.5 0 010 15z" />
+  </svg>
+);
+const IconBanknote = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+    <rect x="3" y="6" width="18" height="12" rx="2" ry="2" strokeWidth="2" />
+    <circle cx="12" cy="12" r="3" strokeWidth="2" />
+  </svg>
+);
+const IconFolder = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+    <path strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v7a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+  </svg>
+);
+const IconX = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
+    <path strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+  </svg>
+);
 
-type AccountSegment = 'BUSINESS' | 'PERSONAL';
-type AccountType = 'ASSET' | 'LIABILITY' | 'INCOME' | 'EXPENSE' | 'EQUITY';
-type TransactionCategoryType = 'INCOME' | 'EXPENSE' | 'TRANSFER';
+// --- Mock data ---
+const seed = {
+  sections: [
+    {
+      title: "Assets",
+      key: "assets",
+      items: [
+        { id: "a1", name: "Personal Checking", balance: 4390 },
+        { id: "a2", name: "Business CheckingBiz", balance: 11100, business: true },
+      ],
+    },
+    {
+      title: "Liabilities",
+      key: "liabilities",
+      items: [
+        { id: "l1", name: "Personal Credit Card", balance: -150 },
+        { id: "l2", name: "Business Credit CardBiz", balance: 110, business: true },
+        { id: "l3", name: "GST ControlBiz", balance: 0, business: true },
+      ],
+    },
+    {
+      title: "Income",
+      key: "income",
+      items: [
+        { id: "i1", name: "Salary", balance: 0 },
+        { id: "i2", name: "Sales IncomeBiz", balance: -1000, business: true },
+      ],
+    },
+    {
+      title: "Expenses",
+      key: "expenses",
+      items: [
+        { id: "e1", name: "Groceries", balance: 110 },
+        { id: "e2", name: "Dining Out", balance: 59.09 },
+        { id: "e3", name: "Office SuppliesBiz", balance: 100, business: true },
+        { id: "e4", name: "Business MealsBiz", balance: 90.91, business: true },
+      ],
+    },
+  ],
+  register: [
+    {
+      id: 101,
+      date: "2025-08-20",
+      payee: "Savings Transfer",
+      memo: "Holiday fund contribution #savings",
+      category: "Holiday Fund",
+      debit: 500,
+      credit: 0,
+      balance: 3890,
+      cleared: true,
+      tags: ["#savings"],
+    },
+    { id: 102, date: "2025-06-02", payee: "Stripe Payout", memo: "May", category: "Sales IncomeBiz", debit: 0, credit: 1000, balance: 5390, business: true, cleared: true },
+    { id: 103, date: "2025-06-03", payee: "Officeworks", memo: "Printer paper", category: "Office SuppliesBiz", debit: 100, credit: 0, balance: 5290, business: true, cleared: false },
+  ],
+};
 
-type Account = {
-  id: string;
+// --- Utilities ---
+export const formatMoney = (n: number) =>
+  new Intl.NumberFormat(undefined, { style: "currency", currency: "AUD" }).format(n);
+
+export const extractTags = (memo?: string, explicit?: string[]) => {
+  if (explicit && explicit.length) return explicit;
+  if (!memo) return [] as string[];
+  return memo.match(/#[a-z0-9_]+/gi) || [];
+};
+
+// --- UI Primitives ---
+function ShellButton({
+  icon: Icon,
+  children,
+  onClick,
+}: {
+  icon?: (props: React.SVGProps<SVGSVGElement>) => JSX.Element;
+  children: React.ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 active:scale-[0.99]"
+    >
+      {Icon ? <Icon className="h-4 w-4" /> : null}
+      <span>{children}</span>
+    </button>
+  );
+}
+
+function StatCard({ label, value, icon: Icon }: { label: string; value: string; icon?: any }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between">
+        <p className="text-xs uppercase tracking-wider text-slate-500">{label}</p>
+        {Icon ? <Icon className="h-4 w-4 text-slate-400" /> : null}
+      </div>
+      <p className="mt-3 text-2xl font-semibold text-slate-800">{value}</p>
+    </div>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-6">
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{title}</h3>
+      </div>
+      <div className="space-y-2">{children}</div>
+    </div>
+  );
+}
+
+function AccountRow({
+  name,
+  amount,
+  selected,
+  onSelect,
+  business,
+}: {
   name: string;
-  number: string;
-  institution: string;
-  type: AccountType;
-  segment: AccountSegment;
-  currency: string;
-  balance: number;
-  clearedBalance: number;
-};
-
-type Transaction = {
-  id: string;
-  accountId: string;
-  date: string;
-  sequence: number;
-  payee: string;
-  memo?: string;
-  category: string;
-  categoryType: TransactionCategoryType;
   amount: number;
-  cleared: boolean;
-  reconciled?: boolean;
-  tags?: string[];
-  reference?: string;
-};
-
-type LedgerRow = {
-  transaction: Transaction;
-  runningBalance: number;
-  clearedBalance: number;
-  deposit: number;
-  withdrawal: number;
-};
-
-type SplitDraft = {
-  id: string;
-  category: string;
-  categoryType: TransactionCategoryType;
-  memo: string;
-  amount: string;
-};
-
-type TransactionDraft = {
-  accountId: string;
-  date: string;
-  payee: string;
-  amount: string;
-  memo: string;
-  reference: string;
-  includeGST: boolean;
-  tags: string[];
-  splits: SplitDraft[];
-};
-
-const currencyFormatter = new Intl.NumberFormat('en-AU', {
-  style: 'currency',
-  currency: 'AUD',
-});
-
-const formatCurrency = (value: number) => currencyFormatter.format(value);
-const formatDateDisplay = (iso: string, pattern = 'dd/MM/yyyy') => format(new Date(iso), pattern);
-const formatWeekday = (iso: string) => format(new Date(iso), 'EEE');
-
-const accountsData: Account[] = [
-  {
-    id: 'acct-business-checking',
-    name: 'Business Checking',
-    number: '.... 2384',
-    institution: 'ANZ Business One',
-    type: 'ASSET',
-    segment: 'BUSINESS',
-    currency: 'AUD',
-    balance: 48245.67,
-    clearedBalance: 45120.55,
-  },
-  {
-    id: 'acct-operating-savings',
-    name: 'Operating Savings',
-    number: '.... 1044',
-    institution: 'ANZ Business Saver',
-    type: 'ASSET',
-    segment: 'BUSINESS',
-    currency: 'AUD',
-    balance: 78500,
-    clearedBalance: 78500,
-  },
-  {
-    id: 'acct-payroll',
-    name: 'Payroll Clearing',
-    number: '.... 7712',
-    institution: 'ANZ Business One',
-    type: 'LIABILITY',
-    segment: 'BUSINESS',
-    currency: 'AUD',
-    balance: -12430.12,
-    clearedBalance: -10200,
-  },
-  {
-    id: 'acct-personal',
-    name: 'Personal Checking',
-    number: '.... 9921',
-    institution: 'Up Bank',
-    type: 'ASSET',
-    segment: 'PERSONAL',
-    currency: 'AUD',
-    balance: 4390,
-    clearedBalance: 4390,
-  },
-  {
-    id: 'acct-sales-income',
-    name: 'Sales Income',
-    number: 'Biz',
-    institution: 'Operating',
-    type: 'INCOME',
-    segment: 'BUSINESS',
-    currency: 'AUD',
-    balance: -1000,
-    clearedBalance: -1000,
-  },
-  {
-    id: 'acct-gst-control',
-    name: 'GST Control',
-    number: 'Biz',
-    institution: 'Tax',
-    type: 'LIABILITY',
-    segment: 'BUSINESS',
-    currency: 'AUD',
-    balance: 0,
-    clearedBalance: 0,
-  },
-  {
-    id: 'acct-groceries',
-    name: 'Groceries',
-    number: 'Personal',
-    institution: 'Budget',
-    type: 'EXPENSE',
-    segment: 'PERSONAL',
-    currency: 'AUD',
-    balance: 110,
-    clearedBalance: 110,
-  },
-];
-
-const transactionsData: Record<string, Transaction[]> = {
-  'acct-business-checking': [
-    {
-      id: 'txn-20250602-01',
-      accountId: 'acct-business-checking',
-      date: '2025-06-02',
-      sequence: 1,
-      payee: 'Stripe Payout',
-      category: 'Sales Income · Stripe',
-      categoryType: 'INCOME',
-      amount: 1000,
-      cleared: true,
-      reconciled: true,
-      memo: 'Online sales · May',
-      tags: ['Biz', 'Cleared'],
-    },
-    {
-      id: 'txn-20250530-01',
-      accountId: 'acct-business-checking',
-      date: '2025-05-30',
-      sequence: 1,
-      payee: 'Officeworks',
-      category: 'Office Supplies',
-      categoryType: 'EXPENSE',
-      amount: -100,
-      cleared: true,
-      memo: 'Printer paper',
-      tags: ['Biz'],
-    },
-    {
-      id: 'txn-20250524-01',
-      accountId: 'acct-business-checking',
-      date: '2025-05-24',
-      sequence: 1,
-      payee: 'ATO BAS Payment',
-      category: 'Transfer · GST Holding',
-      categoryType: 'TRANSFER',
-      amount: -4500,
-      cleared: true,
-      memo: 'April BAS remittance',
-      tags: ['ATO'],
-    },
-    {
-      id: 'txn-20250518-01',
-      accountId: 'acct-business-checking',
-      date: '2025-05-18',
-      sequence: 1,
-      payee: 'Payroll Batch',
-      category: 'Transfer · Payroll Clearing',
-      categoryType: 'TRANSFER',
-      amount: -7800,
-      cleared: false,
-      memo: 'Weekly payroll',
-      tags: ['Payroll'],
-    },
-  ],
-  'acct-operating-savings': [
-    {
-      id: 'txn-20250529-01',
-      accountId: 'acct-operating-savings',
-      date: '2025-05-29',
-      sequence: 1,
-      payee: 'Transfer from Checking',
-      category: 'Transfer · Business Checking',
-      categoryType: 'TRANSFER',
-      amount: 15000,
-      cleared: true,
-      memo: 'Monthly reserve allocation',
-      tags: ['Biz'],
-    },
-    {
-      id: 'txn-20250508-01',
-      accountId: 'acct-operating-savings',
-      date: '2025-05-08',
-      sequence: 1,
-      payee: 'Macquarie Term Deposit',
-      category: 'Transfer · Term Deposit',
-      categoryType: 'TRANSFER',
-      amount: -25000,
-      cleared: true,
-      memo: 'Term deposit rollover',
-      tags: ['Biz'],
-    },
-  ],
-  'acct-payroll': [
-    {
-      id: 'txn-20250524-02',
-      accountId: 'acct-payroll',
-      date: '2025-05-24',
-      sequence: 2,
-      payee: 'Payroll Disbursement',
-      category: 'Wages Payable',
-      categoryType: 'EXPENSE',
-      amount: -7800,
-      cleared: true,
-      memo: 'Weekly salaries',
-      tags: ['Biz'],
-    },
-    {
-      id: 'txn-20250524-01',
-      accountId: 'acct-payroll',
-      date: '2025-05-24',
-      sequence: 1,
-      payee: 'Transfer from Checking',
-      category: 'Transfer · Business Checking',
-      categoryType: 'TRANSFER',
-      amount: 7800,
-      cleared: true,
-      memo: 'Funding payroll',
-      tags: ['Biz'],
-    },
-  ],
-  'acct-personal': [
-    {
-      id: 'txn-20250602-02',
-      accountId: 'acct-personal',
-      date: '2025-06-02',
-      sequence: 2,
-      payee: 'Everyday Coffee',
-      category: 'Dining Out',
-      categoryType: 'EXPENSE',
-      amount: -18.5,
-      cleared: true,
-      memo: 'Flat white + almond croissant',
-      tags: ['Personal'],
-    },
-    {
-      id: 'txn-20250602-01',
-      accountId: 'acct-personal',
-      date: '2025-06-02',
-      sequence: 1,
-      payee: 'Transfer from Business',
-      category: 'Owner Draw',
-      categoryType: 'TRANSFER',
-      amount: 500,
-      cleared: true,
-      memo: 'Weekly stipend',
-      tags: ['Personal'],
-    },
-    {
-      id: 'txn-20250528-01',
-      accountId: 'acct-personal',
-      date: '2025-05-28',
-      sequence: 1,
-      payee: 'Woolworths',
-      category: 'Groceries',
-      categoryType: 'EXPENSE',
-      amount: -164.33,
-      cleared: false,
-      memo: 'Family groceries',
-      tags: ['Personal'],
-    },
-  ],
-};
-
-const categoryLibrary: Record<TransactionCategoryType, string[]> = {
-  INCOME: ['Sales Income · Stripe', 'Interest Income', 'GST Refund', 'Other Income'],
-  EXPENSE: ['Office Supplies', 'Software Subscriptions', 'Advertising & Marketing', 'Dining Out', 'Utilities'],
-  TRANSFER: [
-    'Transfer · GST Holding',
-    'Transfer · Payroll Clearing',
-    'Transfer · Business Checking',
-    'Transfer · Term Deposit',
-    'Owner Draw',
-  ],
-};
-
-const availableTags = ['Biz', 'Personal', 'Cleared', 'ATO', 'Payroll', 'Subscription'];
-
-interface LedgerComputation {
-  rows: LedgerRow[];
-  openingBalance: number;
-  endingBalance: number;
-  netActivity: number;
-  clearedBalance: number;
+  selected?: boolean;
+  onSelect?: () => void;
+  business?: boolean;
+}) {
+  const negative = amount < 0;
+  return (
+    <button
+      onClick={onSelect}
+      className={`w-full rounded-xl border px-3 py-2 text-left shadow-sm transition ${
+        selected
+          ? "border-emerald-500 bg-emerald-50"
+          : "border-slate-200 bg-white hover:bg-slate-50"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <IconFolder className={`h-4 w-4 ${business ? "text-emerald-600" : "text-slate-400"}`} />
+          <span className="text-sm font-medium text-slate-800">{name}</span>
+          {business ? (
+            <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">Biz</span>
+          ) : null}
+        </div>
+        <span className={`text-sm ${negative ? "text-rose-600" : "text-slate-700"}`}>{formatMoney(amount)}</span>
+      </div>
+    </button>
+  );
 }
 
-const accountTypeLabels: Record<AccountType, string> = {
-  ASSET: 'Assets',
-  LIABILITY: 'Liabilities',
-  INCOME: 'Income',
-  EXPENSE: 'Expenses',
-  EQUITY: 'Equity',
-};
-
-const accountTypeOrder: AccountType[] = ['ASSET', 'LIABILITY', 'INCOME', 'EXPENSE', 'EQUITY'];
-
-const segmentLabel: Record<AccountSegment, string> = {
-  BUSINESS: 'Biz',
-  PERSONAL: 'Personal',
-};
-
-function sortTransactionsAscending(a: Transaction, b: Transaction) {
-  const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
-  if (dateDiff !== 0) {
-    return dateDiff;
-  }
-  return a.id.localeCompare(b.id);
+function PillToggle({
+  active,
+  children,
+  onClick,
+}: {
+  active?: boolean;
+  children: React.ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+        active ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+      }`}
+    >
+      {children}
+    </button>
+  );
 }
 
-function sortTransactionsDescending(a: Transaction, b: Transaction) {
-  return sortTransactionsAscending(b, a);
-}
-
-function computeLedgerRows(transactions: Transaction[], endingBalance: number): LedgerComputation {
-  const orderedAsc = [...transactions].sort(sortTransactionsAscending);
-  const netActivity = orderedAsc.reduce((sum, txn) => sum + txn.amount, 0);
-  const openingBalance = endingBalance - netActivity;
-
-  let running = openingBalance;
-  let clearedRunning = openingBalance;
-  const runningMap = new Map<string, number>();
-  const clearedMap = new Map<string, number>();
-
-  orderedAsc.forEach((txn) => {
-    running += txn.amount;
-    runningMap.set(txn.id, running);
-
-    if (txn.cleared) {
-      clearedRunning += txn.amount;
-    }
-    clearedMap.set(txn.id, clearedRunning);
-  });
-
-  const rows: LedgerRow[] = [...transactions].sort(sortTransactionsDescending).map((txn) => ({
-    transaction: txn,
-    runningBalance: runningMap.get(txn.id) ?? endingBalance,
-    clearedBalance: clearedMap.get(txn.id) ?? clearedRunning,
-    deposit: txn.amount > 0 ? txn.amount : 0,
-    withdrawal: txn.amount < 0 ? Math.abs(txn.amount) : 0,
-  }));
-
-  return {
-    rows,
-    openingBalance,
-    endingBalance,
-    netActivity,
-    clearedBalance: clearedRunning,
-  };
-}
-
-function classNames(...values: Array<string | false | null | undefined>) {
-  return values.filter(Boolean).join(' ');
-}
-
-export default function LedgerhoundApp() {
-  const [accountFilter, setAccountFilter] = useState<'ALL' | 'BUSINESS' | 'PERSONAL'>('ALL');
-  const [selectedAccountId, setSelectedAccountId] = useState(accountsData[0].id);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [showClearedOnly, setShowClearedOnly] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-
-  const splitCounter = useRef(0);
-
-  const buildSplitDraft = (): SplitDraft => ({
-    id: `split-${splitCounter.current++}`,
-    category: '',
-    categoryType: 'EXPENSE',
-    memo: '',
-    amount: '',
-  });
-
-  const createDefaultDraft = (accountId: string): TransactionDraft => ({
-    accountId,
-    date: format(new Date(), 'yyyy-MM-dd'),
-    payee: '',
-    amount: '',
-    memo: '',
-    reference: '',
-    includeGST: false,
-    tags: [],
-    splits: [buildSplitDraft()],
-  });
-
-  const [transactionForm, setTransactionForm] = useState<TransactionDraft>(() => createDefaultDraft(selectedAccountId));
-
-  const filteredAccounts = useMemo(() => {
-    if (accountFilter === 'ALL') {
-      return accountsData;
-    }
-    return accountsData.filter((account) => account.segment === accountFilter);
-  }, [accountFilter]);
-
-  useEffect(() => {
-    if (!filteredAccounts.some((account) => account.id === selectedAccountId) && filteredAccounts.length > 0) {
-      setSelectedAccountId(filteredAccounts[0].id);
-    }
-  }, [filteredAccounts, selectedAccountId]);
-
-  useEffect(() => {
-    setTransactionForm((prev) => ({ ...prev, accountId: selectedAccountId }));
-  }, [selectedAccountId]);
-
-  const handleDrawerOpenChange = (open: boolean) => {
-    setDrawerOpen(open);
-    if (!open) {
-      splitCounter.current = 0;
-      setTransactionForm(createDefaultDraft(selectedAccountId));
-    }
-  };
-
-  const handleAddSplit = () => {
-    setTransactionForm((prev) => ({
-      ...prev,
-      splits: [...prev.splits, buildSplitDraft()],
-    }));
-  };
-
-  const handleSplitChange = (splitId: string, key: keyof SplitDraft, value: string) => {
-    setTransactionForm((prev) => ({
-      ...prev,
-      splits: prev.splits.map((split) => (split.id === splitId ? { ...split, [key]: value } : split)),
-    }));
-  };
-
-  const handleRemoveSplit = (splitId: string) => {
-    setTransactionForm((prev) => ({
-      ...prev,
-      splits: prev.splits.filter((split) => split.id !== splitId),
-    }));
-  };
-
-  const handleToggleTag = (tag: string) => {
-    setTransactionForm((prev) => {
-      const hasTag = prev.tags.includes(tag);
-      return {
-        ...prev,
-        tags: hasTag ? prev.tags.filter((existing) => existing !== tag) : [...prev.tags, tag],
-      };
+function RegisterTable({ rows }: { rows: typeof seed.register }) {
+  const toAu = (d: string) =>
+    new Date(d).toLocaleDateString("en-AU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
     });
-  };
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    console.log('Simulated transaction submission', transactionForm);
-    handleDrawerOpenChange(false);
-  };
-
-  const groupedAccounts = useMemo(() => {
-    return accountTypeOrder
-      .map((type) => {
-        const accountsForType = filteredAccounts.filter((account) => account.type === type);
-        return { type, label: accountTypeLabels[type], accounts: accountsForType };
-      })
-      .filter((group) => group.accounts.length > 0);
-  }, [filteredAccounts]);
-
-  const selectedAccount = useMemo(
-    () => accountsData.find((account) => account.id === selectedAccountId) ?? accountsData[0],
-    [selectedAccountId],
-  );
-
-  const accountTransactions = useMemo(
-    () => transactionsData[selectedAccount.id] ?? [],
-    [selectedAccount.id],
-  );
-
-  const ledger = useMemo(
-    () => computeLedgerRows(accountTransactions, selectedAccount.balance),
-    [accountTransactions, selectedAccount.balance],
-  );
-
-  const metrics = useMemo(() => {
-    const inflow = ledger.rows.reduce((sum, row) => (row.transaction.amount > 0 ? sum + row.transaction.amount : sum), 0);
-    const outflow = ledger.rows.reduce(
-      (sum, row) => (row.transaction.amount < 0 ? sum + Math.abs(row.transaction.amount) : sum),
-      0,
-    );
-    const uncleared = ledger.rows.filter((row) => !row.transaction.cleared).length;
-
-    return { inflow, outflow, uncleared };
-  }, [ledger.rows]);
-
-  const filteredRows = useMemo(() => {
-    const rows = ledger.rows;
-
-    if (!searchTerm.trim()) {
-      return rows;
-    }
-
-    const query = searchTerm.trim().toLowerCase();
-    return rows.filter(({ transaction }) => {
-      const haystack = [
-        transaction.payee,
-        transaction.category,
-        transaction.memo ?? '',
-        transaction.reference ?? '',
-        (transaction.tags ?? []).join(' '),
-      ]
-        .join(' ')
-        .toLowerCase();
-
-      return haystack.includes(query);
-    });
-  }, [ledger.rows, searchTerm]);
+  const cols = "grid grid-cols-[120px_1fr_120px_120px_140px]"; // Date Â· Payee Â· Debit Â· Credit Â· Balance
+  const endingBalance = rows.length ? rows[rows.length - 1].balance ?? 0 : 0;
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
-      <div className="flex h-screen">
-        <aside className="flex w-80 flex-col border-r border-slate-200 bg-white/95 backdrop-blur">
-          <div className="flex items-center justify-between px-6 pt-7 pb-5">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">Ledgerhound</p>
-              <p className="mt-2 text-lg font-semibold text-slate-900">Accounts</p>
-            </div>
-            <button
-              type="button"
-              className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:text-slate-900"
-            >
-              <Settings className="h-4 w-4" />
-            </button>
-          </div>
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      {/* Sticky heading row */}
+      <div className={`sticky top-[56px] z-10 ${cols} border-b bg-slate-50/95 px-4 py-2 text-[12px] font-semibold uppercase tracking-wider text-slate-500 backdrop-blur`}>
+        <div>Date</div>
+        <div>Payee</div>
+        <div className="text-right">Debit</div>
+        <div className="text-right">Credit</div>
+        <div className="text-right">Balance</div>
+      </div>
 
-          <div className="px-6 pb-4">
-            <button
-              type="button"
-              onClick={() => {
-                setAccountFilter('ALL');
-                setDrawerOpen(true);
-              }}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-400"
-            >
-              <Plus className="h-4 w-4" />
-              New account
-            </button>
-          </div>
-
-          <nav className="flex-1 overflow-y-auto px-4 pb-6">
-            <div className="flex items-center gap-2 px-2 py-2">
-              {(['ALL', 'BUSINESS', 'PERSONAL'] as const).map((filterKey) => (
-                <button
-                  key={filterKey}
-                  type="button"
-                  onClick={() => setAccountFilter(filterKey)}
-                  className={classNames(
-                    'rounded-full px-3 py-1 text-xs font-semibold transition',
-                    accountFilter === filterKey
-                      ? 'bg-emerald-500 text-white shadow-sm'
-                      : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700',
-                  )}
-                >
-                  {filterKey === 'ALL' ? 'All' : filterKey === 'BUSINESS' ? 'Business' : 'Personal'}
-                </button>
-              ))}
-            </div>
-
-            <div className="mt-2 space-y-6">
-              {groupedAccounts.map((group) => (
-                <section key={group.type}>
-                  <header className="flex items-center justify-between px-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">{group.label}</p>
-                    <span className="text-xs text-slate-400">{group.accounts.length}</span>
-                  </header>
-                  <ul className="mt-3 space-y-2">
-                    {group.accounts.map((account) => {
-                      const isSelected = account.id === selectedAccountId;
-                      const pending = account.balance - account.clearedBalance;
-                      return (
-                        <li key={account.id}>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedAccountId(account.id)}
-                            className={classNames(
-                              'w-full rounded-2xl border px-4 py-4 text-left shadow-sm transition',
-                              isSelected
-                                ? 'border-emerald-300 bg-emerald-50 ring-2 ring-emerald-200'
-                                : 'border-transparent bg-white hover:border-slate-200 hover:shadow',
-                            )}
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <p className="text-sm font-semibold text-slate-900">{account.name}</p>
-                                <p className="text-xs text-slate-500">
-                                  {account.institution} · {account.number}
-                                </p>
-                              </div>
-                              <MoreHorizontal className="h-4 w-4 text-slate-400" />
-                            </div>
-                            <div className="mt-3 flex items-center justify-between">
-                              <p className="text-lg font-semibold text-slate-900">{formatCurrency(account.balance)}</p>
-                              <span
-                                className={classNames(
-                                  'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                                  account.segment === 'BUSINESS'
-                                    ? 'bg-emerald-100 text-emerald-600'
-                                    : 'bg-sky-100 text-sky-600',
-                                )}
-                              >
-                                {segmentLabel[account.segment]}
-                              </span>
-                            </div>
-                            <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-                              <span>Cleared {formatCurrency(account.clearedBalance)}</span>
-                              <span className={pending >= 0 ? 'text-emerald-500' : 'text-rose-500'}>
-                                Pending {formatCurrency(pending)}
-                              </span>
-                            </div>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </section>
-              ))}
-            </div>
-          </nav>
-
-          <div className="border-t border-slate-200 px-6 py-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-                <User className="h-4 w-4" />
+      <ul className="divide-y">
+        {rows.map((r) => {
+          const tags = extractTags(r.memo, r.tags);
+          return (
+            <li key={r.id} className="px-4 py-3 text-sm">
+              {/* Row 1: Date Â· Payee Â· Debit Â· Credit Â· Balance */}
+              <div className={`${cols} items-center gap-x-4`}>
+                <div className="text-slate-700">{toAu(r.date)}</div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-slate-900">{r.payee}</span>
+                  {r.business ? (
+                    <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">Biz</span>
+                  ) : null}
+                  {r.cleared ? (
+                    <span className="rounded-full bg-emerald-500/90 px-1.5 py-0.5 text-[10px] text-white">âœ“ Cleared</span>
+                  ) : null}
+                </div>
+                <div className="text-right tabular-nums text-slate-700">
+                  {r.debit ? formatMoney(r.debit) : ""}
+                </div>
+                <div className="text-right tabular-nums text-slate-700">
+                  {r.credit ? formatMoney(r.credit) : ""}
+                </div>
+                <div className="text-right tabular-nums font-medium text-slate-900">
+                  {typeof r.balance === "number" ? formatMoney(r.balance) : ""}
+                </div>
               </div>
+
+              {/* Row 2: indent â†’ Category â€¢ Memo â€¢ #tags (spans the Payee column) */}
+              <div className={`mt-1 ${cols} gap-x-4 text-xs text-slate-500`}>
+                <div />
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-slate-400">â†’</span>
+                  {r.category ? (
+                    <span className="font-medium text-slate-700">{r.category}</span>
+                  ) : null}
+                  {r.category && (r.memo || tags.length) ? <span className="mx-1">â€¢</span> : null}
+                  {r.memo ? (
+                    <span>{r.memo.replace(/#[a-z0-9_]+/gi, "").trim()}</span>
+                  ) : null}
+                  {tags.length ? <span className="mx-1">â€¢</span> : null}
+                  {tags.map((t, i) => (
+                    <span key={i} className="text-slate-600">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+                {/* empty cells to line up with grid */}
+                <div />
+                <div />
+                <div />
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      {/* Footer summary */}
+      <div className="flex items-center justify-between border-t bg-slate-50 px-4 py-2 text-xs text-slate-600">
+        <span>
+          {rows.length} transaction{rows.length === 1 ? "" : "s"}
+        </span>
+        <span className="font-medium">Ending balance: {formatMoney(endingBalance || 0)}</span>
+      </div>
+    </div>
+  );
+}
+
+function TransactionForm({
+  open,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSave: (values: any) => void;
+}) {
+  const [date, setDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [payee, setPayee] = useState("");
+  const [memo, setMemo] = useState("");
+  const [isBusiness, setIsBusiness] = useState<boolean>(false);
+  const [category, setCategory] = useState<string>("");
+  const [amount, setAmount] = useState<string>("");
+  const [type, setType] = useState<"debit" | "credit">("debit");
+  const [splits, setSplits] = useState<Array<{ account: string; amount: string }>>([]);
+
+  const totalSplits = splits.reduce((acc, s) => acc + (parseFloat(s.amount || "0") || 0), 0);
+  const amt = parseFloat(amount || "0") || 0;
+  const isBalanced = Math.abs(totalSplits - amt) < 0.005 || splits.length === 0;
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-40 flex">
+      <div className="absolute inset-0 bg-slate-900/30" onClick={onClose} />
+      <div className="ml-auto h-full w-full max-w-[560px] overflow-y-auto border-l border-slate-200 bg-white shadow-xl">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white/90 px-5 py-3 backdrop-blur">
+          <h3 className="text-base font-semibold">New Transaction</h3>
+          <button onClick={onClose} className="rounded-lg border border-slate-200 p-2 hover:bg-slate-50">
+            <IconX className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="space-y-5 p-5">
+          <div className="grid grid-cols-2 gap-4">
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-600">Date</span>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-600">Business</span>
+              <div className="flex gap-2">
+                <PillToggle active={!isBusiness} onClick={() => setIsBusiness(false)}>
+                  Personal
+                </PillToggle>
+                <PillToggle active={isBusiness} onClick={() => setIsBusiness(true)}>
+                  Business
+                </PillToggle>
+              </div>
+            </label>
+          </div>
+
+          <label className="block text-sm">
+            <span className="mb-1 block text-slate-600">Payee</span>
+            <input
+              value={payee}
+              onChange={(e) => setPayee(e.target.value)}
+              placeholder="e.g., Woolworths"
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </label>
+
+          <div className="grid grid-cols-2 gap-4">
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-600">Amount</span>
+              <input
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-600">Type</span>
+              <div className="flex gap-2">
+                <PillToggle active={type === "debit"} onClick={() => setType("debit")}>
+                  Debit
+                </PillToggle>
+                <PillToggle active={type === "credit"} onClick={() => setType("credit")}>
+                  Credit
+                </PillToggle>
+              </div>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-600">Category</span>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="">Selectâ€¦</option>
+                <option>Groceries</option>
+                <option>Dining Out</option>
+                <option>Office SuppliesBiz</option>
+                <option>Sales IncomeBiz</option>
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-600">Memo (optional)</span>
+              <input
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
+                placeholder="Add a noteâ€¦"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </label>
+          </div>
+
+          {/* Splits */}
+          <div className="rounded-2xl border border-slate-200 p-4">
+            <div className="mb-3 flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">Advisor</p>
-                <p className="text-sm font-medium text-slate-700">Taylor Rhodes</p>
+                <p className="text-sm font-semibold text-slate-800">Split lines</p>
+                <p className="text-xs text-slate-500">
+                  Optional. {splits.length ? (isBalanced ? "Balanced" : "Unbalanced") : "Add lines to split this transaction."}
+                </p>
               </div>
+              <ShellButton
+                icon={IconPlus}
+                onClick={() => setSplits((s) => [...s, { account: "", amount: "" }])}
+              >
+                Add line
+              </ShellButton>
             </div>
+            <div className="space-y-2">
+              {splits.map((sp, idx) => (
+                <div key={idx} className="grid grid-cols-8 gap-2">
+                  <input
+                    placeholder="Account (e.g., Office SuppliesBiz)"
+                    value={sp.account}
+                    onChange={(e) =>
+                      setSplits((arr) =>
+                        arr.map((x, i) => (i === idx ? { ...x, account: e.target.value } : x))
+                      )
+                    }
+                    className="col-span-5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <input
+                    placeholder="Amount"
+                    value={sp.amount}
+                    onChange={(e) =>
+                      setSplits((arr) =>
+                        arr.map((x, i) => (i === idx ? { ...x, amount: e.target.value } : x))
+                      )
+                    }
+                    className="col-span-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <button
+                    className="col-span-1 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                    onClick={() => setSplits((arr) => arr.filter((_, i) => i !== idx))}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+            {splits.length > 0 ? (
+              <div className="mt-3 flex items-center justify-between text-sm">
+                <span className="text-slate-600">Split total</span>
+                <span className={`font-medium ${isBalanced ? "text-slate-800" : "text-rose-600"}`}>
+                  {formatMoney(totalSplits)}
+                </span>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>Keyboard: Tab/Shiftâ€‘Tab Â· Enter to Save Â· Esc to Cancel</span>
+            <span>Debit/Credit reflect fromâ€‘account perspective</span>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button
+              onClick={onClose}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => onSave({ date, payee, memo, isBusiness, category, amount: amt, type, splits })}
+              className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+              disabled={!payee || !amount || !category || !isBalanced}
+            >
+              Save Transaction
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Tiny runtime tests (console only) ---
+(function runTests() {
+  try {
+    // formatMoney basic
+    const f = formatMoney(500);
+    console.assert(/500\.00/.test(f), `formatMoney should include 500.00, got ${f}`);
+
+    // tag extraction from memo
+    const tags = extractTags("Holiday fund contribution #savings #biz");
+    console.assert(Array.isArray(tags) && tags.length === 2 && tags[0] === "#savings" && tags[1] === "#biz", "extractTags should parse hashtags in order");
+
+    // explicit tags override
+    const tags2 = extractTags("memo #ignore", ["#one"]);
+    console.assert(tags2.length === 1 && tags2[0] === "#one", "explicit tags should be used when provided");
+
+    // running tally invariant: ending balance equals last row balance
+    const last = seed.register[seed.register.length - 1].balance;
+    console.assert(typeof last === "number" && last === 5290, `expected last running balance 5290, got ${last}`);
+  } catch (e) {
+    console.error("Unit tests failed:", e);
+  }
+})();
+
+export default function App() {
+  const [collapsed, setCollapsed] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [showTxnForm, setShowTxnForm] = useState(false);
+  const [filter, setFilter] = useState<"all" | "biz" | "personal">("all");
+
+  const totals = useMemo(() => {
+    const flat = seed.sections.flatMap((s) => s.items);
+    const businessCash = flat
+      .filter((a) => a.business && a.name.toLowerCase().includes("checking"))
+      .reduce((acc, a) => acc + a.balance, 0);
+    const cash = flat
+      .filter((a) => a.name.toLowerCase().includes("checking"))
+      .reduce((acc, a) => acc + a.balance, 0);
+    const gst = flat.find((a) => a.name.toLowerCase().includes("gst"))?.balance ?? 0;
+    return { cash, businessCash, gst };
+  }, []);
+
+  const selectedName = useMemo(() => {
+    if (!selected) return null;
+    for (const s of seed.sections) {
+      const f = s.items.find((i) => i.id === selected);
+      if (f) return f.name;
+    }
+    return null;
+  }, [selected]);
+
+  const filteredRows = useMemo(() => {
+    let rows = seed.register;
+    if (filter === "biz") rows = rows.filter((r) => r.business);
+    if (filter === "personal") rows = rows.filter((r) => !r.business);
+    return rows;
+  }, [filter]);
+
+  return (
+    <div className="h-full w-full bg-slate-50 text-slate-800">
+      {/* Top bar */}
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 backdrop-blur">
+        <div className="mx-auto flex max-w-[120rem] items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setCollapsed((v) => !v)}
+              className="rounded-xl border border-slate-200 p-2 hover:bg-slate-50"
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              <IconChevronLeft className={`h-4 w-4 transition ${collapsed ? "rotate-180" : ""}`} />
+            </button>
+            <div className="flex items-baseline gap-2">
+              <span className="text-lg font-black tracking-tight">Ledgerhound</span>
+              <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700">AU</span>
+            </div>
+          </div>
+
+          <div className="hidden min-w-[380px] items-center gap-3 md:flex">
+            <div className="relative w-full">
+              <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                placeholder="Search payees, memos, categoriesâ€¦"
+              />
+            </div>
+            <ShellButton icon={IconPlus} onClick={() => setShowTxnForm(true)}>
+              New Transaction
+            </ShellButton>
+            <ShellButton icon={IconUpload}>Import CSV</ShellButton>
+            <ShellButton icon={IconListChecks}>Reconcile</ShellButton>
+            <ShellButton icon={IconBarChart}>Reports</ShellButton>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto grid max-w-[120rem] grid-cols-12 gap-6 px-4 py-6">
+        {/* Sidebar */}
+        <aside
+          className={`col-span-12 md:col-span-3 ${
+            collapsed ? "md:max-w-[64px]" : "md:max-w-[360px]"
+          } transition-[max-width] duration-300`}
+        >
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            {!collapsed ? (
+              <>
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-slate-800">Accounts</h2>
+                  <ShellButton icon={IconPlus}>New</ShellButton>
+                </div>
+
+                {seed.sections.map((sec) => (
+                  <Section key={sec.key} title={sec.title}>
+                    {sec.items.map((a) => (
+                      <AccountRow
+                        key={a.id}
+                        name={a.name}
+                        amount={a.balance}
+                        business={a.business}
+                        selected={selected === a.id}
+                        onSelect={() => setSelected(a.id)}
+                      />
+                    ))}
+                  </Section>
+                ))}
+
+                <div className="mt-6 flex items-center justify-between text-xs text-slate-500">
+                  <span>Refresh accounts</span>
+                  <span>Last sync: just now</span>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                <IconBanknote className="mt-1 h-6 w-6 text-emerald-600" />
+                <div className="h-[1px] w-6 bg-slate-200" />
+                {seed.sections.map((sec) => (
+                  <div key={sec.key} className="flex flex-col items-center gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      {sec.title[0]}
+                    </span>
+                    {sec.items.map((a) => (
+                      <button
+                        key={a.id}
+                        onClick={() => setSelected(a.id)}
+                        className={`rounded-lg p-2 ${selected === a.id ? "bg-emerald-50 text-emerald-700" : "text-slate-500 hover:bg-slate-50"}`}
+                        title={a.name}
+                      >
+                        <IconFolder className="h-4 w-4" />
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </aside>
 
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-white px-10 py-6">
-            <div className="flex items-center gap-3">
-              <p className="text-lg font-semibold text-slate-900">Ledgerhound</p>
-              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-emerald-600">
-                AU
-              </span>
-              <button
-                type="button"
-                className="flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
-              >
-                Financial operations console
-                <ChevronDown className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="search"
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="Search payees, memos, categories..."
-                  className="h-10 w-72 rounded-full border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-700 placeholder:text-slate-400 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                />
+        {/* Content */}
+        <section className="col-span-12 md:col-span-9">
+          {!selected ? (
+            <>
+              {/* Welcome / Overview */}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <StatCard label="Cash on Hand" value={formatMoney(totals.cash)} icon={IconBanknote} />
+                <StatCard label="Business Cash" value={formatMoney(totals.businessCash)} icon={IconBanknote} />
+                <StatCard label="GST Control" value={formatMoney(totals.gst)} icon={IconBanknote} />
               </div>
-              <button className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:text-slate-700">
-                <Bell className="h-4 w-4" />
-              </button>
-              <button className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:text-slate-700">
-                <Settings className="h-4 w-4" />
-              </button>
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-teal-500 text-sm font-semibold text-white">
-                TR
-              </div>
-            </div>
-          </header>
 
-          <main className="flex-1 overflow-y-auto bg-slate-100 px-10 py-8">
-            <section className="mb-6 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                {(['ALL', 'BUSINESS', 'PERSONAL'] as const).map((filterKey) => (
-                  <button
-                    key={filterKey}
-                    type="button"
-                    onClick={() => setAccountFilter(filterKey)}
-                    className={classNames(
-                      'rounded-full px-4 py-2 text-sm font-semibold transition',
-                      accountFilter === filterKey
-                        ? 'bg-emerald-500 text-white shadow-sm'
-                        : 'bg-white text-slate-500 shadow hover:text-slate-700',
-                    )}
-                  >
-                    {filterKey === 'ALL' ? 'All' : filterKey === 'BUSINESS' ? 'Business' : 'Personal'}
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setDrawerOpen(true)}
-                  className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-400"
-                >
-                  <Plus className="h-4 w-4" />
-                  New Transaction
-                </button>
-                <button className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300">
-                  <UploadCloud className="h-4 w-4" />
-                  Import CSV
-                </button>
-                <button className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300">
-                  <Receipt className="h-4 w-4" />
-                  Reconcile
-                </button>
-                <button className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300">
-                  <Import className="h-4 w-4" />
-                  Reports
-                </button>
-              </div>
-            </section>
-
-            <section className="grid gap-5 lg:grid-cols-3">
-              <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">Available balance</p>
-                <p className="mt-3 text-3xl font-semibold text-slate-900">{formatCurrency(ledger.endingBalance)}</p>
-                <p className="mt-3 text-sm text-slate-500">Opening balance {formatCurrency(ledger.openingBalance)}</p>
-              </div>
-              <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">Cleared balance</p>
-                <p className="mt-3 text-3xl font-semibold text-slate-900">{formatCurrency(ledger.clearedBalance)}</p>
-                <p
-                  className={classNames(
-                    'mt-3 text-sm',
-                    ledger.endingBalance - ledger.clearedBalance >= 0 ? 'text-emerald-500' : 'text-rose-500',
-                  )}
-                >
-                  Pending {formatCurrency(ledger.endingBalance - ledger.clearedBalance)}
-                </p>
-              </div>
-              <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">Period activity</p>
-                <div className="mt-3 flex items-baseline gap-2">
-                  <p className="text-3xl font-semibold text-slate-900">{formatCurrency(metrics.inflow - metrics.outflow)}</p>
-                  <span className="text-sm text-slate-500">net</span>
-                </div>
-                <p className="mt-3 text-sm text-slate-500">
-                  {formatCurrency(metrics.inflow)} in · {formatCurrency(metrics.outflow)} out · {metrics.uncleared} awaiting clearance
-                </p>
-              </div>
-            </section>
-
-            <section className="mt-8 rounded-[36px] border border-slate-200 bg-white shadow-sm">
-              <div className="flex flex-wrap items-center gap-4 border-b border-slate-200 px-8 py-6">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">Register</p>
-                  <div className="mt-2 flex items-center gap-3">
-                    <h2 className="text-xl font-semibold text-slate-900">{selectedAccount.name}</h2>
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-600">
-                      Current {formatCurrency(selectedAccount.balance)}
-                    </span>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Cleared {formatCurrency(selectedAccount.clearedBalance)}
-                    </span>
+              <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-emerald-50 to-white p-6 shadow-sm">
+                  <h2 className="text-xl font-semibold tracking-tight text-slate-800">Welcome to Ledgerhound</h2>
+                  <p className="mt-2 text-sm text-slate-600">
+                    Personal & smallâ€‘business ledger designed for Australia. Select an account on the left to view transactions, or start by importing a CSV from your bank.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <ShellButton icon={IconUpload}>Import CSV</ShellButton>
+                    <ShellButton icon={IconPlus} onClick={() => setShowTxnForm(true)}>
+                      Add First Transaction
+                    </ShellButton>
                   </div>
                 </div>
-                <div className="ml-auto flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowClearedOnly((prev) => !prev)}
-                    aria-pressed={showClearedOnly}
-                    title="Toggle running balance to use cleared transactions"
-                    className={classNames(
-                      'flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition',
-                      showClearedOnly ? 'border-emerald-300 bg-emerald-50 text-emerald-600' : 'border-slate-200 bg-white text-slate-600',
-                    )}
-                  >
-                    <Check className="h-4 w-4" />
-                    Cleared only
-                  </button>
-                  <button className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300">
-                    <Filter className="h-4 w-4" />
-                    Filters
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDrawerOpen(true)}
-                    className="flex items-center gap-2 rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-400"
-                  >
-                    <Plus className="h-4 w-4" />
+
+                <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h3 className="text-sm font-semibold text-slate-800">Quick Links</h3>
+                  <ul className="mt-3 space-y-2 text-sm">
+                    <li className="flex items-center justify-between">
+                      <span className="text-slate-600">Create BAS draft for this quarter</span>
+                      <ShellButton icon={IconBarChart}>Open</ShellButton>
+                    </li>
+                    <li className="flex items-center justify-between">
+                      <span className="text-slate-600">Reconcile last month</span>
+                      <ShellButton icon={IconListChecks}>Start</ShellButton>
+                    </li>
+                    <li className="flex items-center justify-between">
+                      <span className="text-slate-600">Set up memorised rules</span>
+                      <ShellButton icon={IconListChecks}>Rules</ShellButton>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Account register header */}
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-semibold tracking-tight text-slate-800">{selectedName}</h2>
+                  <p className="text-sm text-slate-500">
+                    Register Â· Current: {formatMoney(4390)} Â· Cleared: {formatMoney(4390)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <PillToggle active={filter === "all"} onClick={() => setFilter("all")}>
+                    All
+                  </PillToggle>
+                  <PillToggle active={filter === "biz"} onClick={() => setFilter("biz")}>
+                    Business
+                  </PillToggle>
+                  <PillToggle active={filter === "personal"} onClick={() => setFilter("personal")}>
+                    Personal
+                  </PillToggle>
+                  <ShellButton icon={IconPlus} onClick={() => setShowTxnForm(true)}>
                     New Transaction
-                  </button>
+                  </ShellButton>
+                  <ShellButton icon={IconUpload}>Import</ShellButton>
+                  <ShellButton icon={IconListChecks}>Reconcile</ShellButton>
                 </div>
               </div>
 
-              <div className="overflow-hidden">
-                <div className="grid grid-cols-[140px,1.4fr,1fr,1fr,1fr] gap-x-6 px-8 pt-4 text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
-                  <span>Date</span>
-                  <span>Payee</span>
-                  <span className="text-right">Deposit</span>
-                  <span className="text-right">Withdrawal</span>
-                  <span className="text-right">Running</span>
-                </div>
-                <div className="mt-2 divide-y divide-slate-100">
-                  {filteredRows.map((row) => {
-                    const { transaction } = row;
-                    const isBiz = selectedAccount.segment === 'BUSINESS';
-                    const runningValue = showClearedOnly ? row.clearedBalance : row.runningBalance;
-                    const runningValueIsPositive = runningValue >= 0;
-                    return (
-                      <div
-                        key={transaction.id}
-                        className="grid grid-cols-[140px,1.4fr,1fr,1fr,1fr] gap-x-6 px-8 py-5 transition hover:bg-slate-50"
-                      >
-                        <div>
-                          <p className="text-sm font-medium text-slate-900">{formatDateDisplay(transaction.date, 'dd/MM/yyyy')}</p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {formatWeekday(transaction.date)} · {transaction.reference ?? transaction.id}
-                          </p>
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="text-sm font-semibold text-slate-900">{transaction.payee}</p>
-                            <div className="flex items-center gap-2">
-                              {isBiz && (
-                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-600">
-                                  Biz
-                                </span>
-                              )}
-                              {transaction.cleared && (
-                                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-600">
-                                  Cleared
-                                </span>
-                              )}
-                              {transaction.reconciled && (
-                                <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-600">
-                                  Reconciled
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                            <span className="rounded-full bg-slate-100 px-2 py-1">{transaction.category}</span>
-                            {transaction.memo && <span className="text-slate-400">· {transaction.memo}</span>}
-                            {(transaction.tags ?? []).map((tag) => (
-                              <span
-                                key={tag}
-                                className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500"
-                              >
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-end gap-2 text-emerald-500">
-                          {row.deposit ? (
-                            <>
-                              <ArrowDownLeft className="h-4 w-4" />
-                              <span className="tabular-nums text-sm font-semibold">{formatCurrency(row.deposit)}</span>
-                            </>
-                          ) : (
-                            <span className="text-sm text-slate-300">â€”</span>
-                          )}
-                        </div>
-                        <div className="flex items-center justify-end gap-2 text-rose-500">
-                          {row.withdrawal ? (
-                            <>
-                              <ArrowUpRight className="h-4 w-4" />
-                              <span className="tabular-nums text-sm font-semibold">{formatCurrency(row.withdrawal)}</span>
-                            </>
-                          ) : (
-                            <span className="text-sm text-slate-300">â€”</span>
-                          )}
-                        </div>
-                        <div className="flex flex-col items-end justify-center gap-1 text-right">
-                          <span
-                            className={classNames(
-                              'tabular-nums text-sm font-semibold',
-                              runningValueIsPositive ? 'text-slate-900' : 'text-rose-500',
-                            )}
-                          >
-                            {formatCurrency(runningValue)}
-                          </span>
-                          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
-                            Cleared {formatCurrency(row.clearedBalance)}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              <RegisterTable rows={filteredRows as any} />
+            </>
+          )}
+        </section>
+      </main>
 
-              <div className="border-t border-slate-200 bg-slate-50 px-8 py-5 rounded-b-[36px]">
-                <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-500">
-                  <span>
-                    {filteredRows.length} transaction{filteredRows.length === 1 ? '' : 's'}
-                  </span>
-                  <span>·</span>
-                  <span>
-                    Running total mode: {showClearedOnly ? 'Cleared transactions' : 'All transactions'} · Opening balance {formatCurrency(ledger.openingBalance)}
-                  </span>
-                  <span>·</span>
-                  <span>Ending balance {formatCurrency(
-                    filteredRows.length > 0
-                      ? showClearedOnly
-                        ? filteredRows[0].clearedBalance
-                        : filteredRows[0].runningBalance
-                      : showClearedOnly
-                        ? ledger.clearedBalance
-                        : ledger.endingBalance,
-                  )}</span>
-                </div>
-              </div>
-            </section>
+      <footer className="mx-auto mt-6 max-w-[120rem] px-4 pb-10 text-center text-xs text-slate-400">
+        Ledgerhound Â· Prototype UI Â· Designed for clarity, keyboardâ€‘first entry, and AU GST workflows
+      </footer>
 
-            <footer className="mt-10 text-center text-xs text-slate-400">
-              Ledgerhound · Prototype UI · Designed for clarity, keyboard-first entry, and AU GST workflows
-            </footer>
-          </main>
-        </div>
-      </div>
-
-      <Dialog.Root open={drawerOpen} onOpenChange={handleDrawerOpenChange}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm" />
-          <Dialog.Content className="fixed right-0 top-0 h-full w-full max-w-[420px] overflow-y-auto border-l border-slate-200 bg-white px-8 py-10 shadow-2xl">
-            <div className="flex items-start justify-between gap-6">
-              <div>
-                <Dialog.Title className="text-lg font-semibold text-slate-900">New transaction</Dialog.Title>
-                <p className="mt-1 text-sm text-slate-500">Quick capture for {selectedAccount.name}</p>
-              </div>
-              <Dialog.Close className="rounded-full border border-slate-200 p-2 text-slate-400 transition hover:text-slate-600">
-                <X className="h-4 w-4" />
-              </Dialog.Close>
-            </div>
-
-            <form className="mt-8 space-y-8" onSubmit={handleSubmit}>
-              <div className="space-y-5">
-                <label className="block text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
-                  Account
-                  <select
-                    value={transactionForm.accountId}
-                    onChange={(event) => setTransactionForm((prev) => ({ ...prev, accountId: event.target.value }))}
-                    className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                  >
-                    {accountsData.map((account) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <label className="block text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
-                    Date
-                    <input
-                      type="date"
-                      value={transactionForm.date}
-                      onChange={(event) => setTransactionForm((prev) => ({ ...prev, date: event.target.value }))}
-                      className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                  <label className="block text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
-                    Amount (AUD)
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={transactionForm.amount}
-                      onChange={(event) => setTransactionForm((prev) => ({ ...prev, amount: event.target.value }))}
-                      placeholder="0.00"
-                      className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                    />
-                  </label>
-                </div>
-
-                <label className="block text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
-                  Payee
-                  <input
-                    type="text"
-                    value={transactionForm.payee}
-                    onChange={(event) => setTransactionForm((prev) => ({ ...prev, payee: event.target.value }))}
-                    placeholder="Who is this for?"
-                    className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                  />
-                </label>
-
-                <label className="block text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
-                  Reference
-                  <input
-                    type="text"
-                    value={transactionForm.reference}
-                    onChange={(event) => setTransactionForm((prev) => ({ ...prev, reference: event.target.value }))}
-                    placeholder="Invoice, receipt or note"
-                    className="mt-2 h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                  />
-                </label>
-
-                <label className="block text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
-                  Memo
-                  <textarea
-                    value={transactionForm.memo}
-                    onChange={(event) => setTransactionForm((prev) => ({ ...prev, memo: event.target.value }))}
-                    rows={3}
-                    placeholder="Add extra context"
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                  />
-                </label>
-
-                <label className="flex items-center gap-3 text-sm text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={transactionForm.includeGST}
-                    onChange={(event) => setTransactionForm((prev) => ({ ...prev, includeGST: event.target.checked }))}
-                    className="h-4 w-4 rounded border-slate-300 text-emerald-500 focus:ring-emerald-200"
-                  />
-                  Include GST breakdown
-                </label>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  {availableTags.map((tag) => {
-                    const isActive = transactionForm.tags.includes(tag);
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => handleToggleTag(tag)}
-                        className={classNames(
-                          'flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
-                          isActive ? 'border-emerald-300 bg-emerald-50 text-emerald-600' : 'border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300',
-                        )}
-                      >
-                        <Tag className="h-3.5 w-3.5" />
-                        {tag}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">Splits</h3>
-                  <button
-                    type="button"
-                    onClick={handleAddSplit}
-                    className="text-xs font-semibold text-emerald-600 transition hover:text-emerald-500"
-                  >
-                    + Add split
-                  </button>
-                </div>
-
-                <div className="mt-4 space-y-4">
-                  {transactionForm.splits.map((split, index) => (
-                    <div key={split.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-semibold text-slate-700">Split {index + 1}</p>
-                        {transactionForm.splits.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveSplit(split.id)}
-                            className="text-xs font-semibold text-rose-500 transition hover:text-rose-400"
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                      <div className="mt-4 grid grid-cols-2 gap-4">
-                        <label className="block text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
-                          Type
-                          <select
-                            value={split.categoryType}
-                            onChange={(event) =>
-                              handleSplitChange(
-                                split.id,
-                                'categoryType',
-                                event.target.value as TransactionCategoryType,
-                              )
-                            }
-                            className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-600 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                          >
-                            <option value="EXPENSE">Expense</option>
-                            <option value="INCOME">Income</option>
-                            <option value="TRANSFER">Transfer</option>
-                          </select>
-                        </label>
-                        <label className="block text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
-                          Amount
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={split.amount}
-                            onChange={(event) => handleSplitChange(split.id, 'amount', event.target.value)}
-                            placeholder="0.00"
-                            className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-600 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                          />
-                        </label>
-                        <label className="col-span-2 block text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
-                          Category
-                          <select
-                            value={split.category}
-                            onChange={(event) => handleSplitChange(split.id, 'category', event.target.value)}
-                            className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-600 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                          >
-                            <option value="">Select category</option>
-                            {categoryLibrary[split.categoryType].map((category) => (
-                              <option key={category} value={category}>
-                                {category}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="col-span-2 block text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
-                          Memo (optional)
-                          <input
-                            type="text"
-                            value={split.memo}
-                            onChange={(event) => handleSplitChange(split.id, 'memo', event.target.value)}
-                            placeholder="Describe this split"
-                            className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-600 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200"
-                          />
-                        </label>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between border-t border-slate-200 pt-6">
-                <Dialog.Close className="rounded-full border border-slate-200 px-5 py-2 text-sm font-semibold text-slate-500 transition hover:border-slate-300 hover:text-slate-700">
-                  Cancel
-                </Dialog.Close>
-                <button
-                  type="submit"
-                  className="rounded-full bg-emerald-500 px-6 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-400"
-                >
-                  Save transaction
-                </button>
-              </div>
-            </form>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+      <TransactionForm
+        open={showTxnForm}
+        onClose={() => setShowTxnForm(false)}
+        onSave={(v) => {
+          console.log("SAVE", v);
+          setShowTxnForm(false);
+        }}
+      />
     </div>
   );
 }
