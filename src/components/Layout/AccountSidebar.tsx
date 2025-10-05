@@ -89,11 +89,19 @@ export function AccountSidebar({
     const groupAccounts = accountsByType[type];
     if (groupAccounts.length === 0) return null;
 
+    // Calculate group total
+    const groupTotal = groupAccounts.reduce((sum, account) => sum + account.currentBalance, 0);
+
     return (
       <div className="mb-6">
-        <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2 px-3">
-          {label}
-        </h3>
+        <div className="flex items-center justify-between px-3 mb-2">
+          <h3 className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            {label}
+          </h3>
+          <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+            {formatCurrency(groupTotal)}
+          </span>
+        </div>
         <div className="space-y-0.5">
           {groupAccounts.map((account) => (
             <button
@@ -115,12 +123,13 @@ export function AccountSidebar({
                       {account.name}
                     </span>
                     {account.isBusinessDefault && (
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                      <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
                         selectedAccountId === account.id
                           ? 'bg-white/20 text-white'
-                          : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+                          : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
                       }`}>
-                        Biz
+                        <Briefcase className="w-3 h-3" />
+                        Business
                       </span>
                     )}
                   </div>

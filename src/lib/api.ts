@@ -110,6 +110,24 @@ export const transactionAPI = {
     return response.json();
   },
 
+  async getTransaction(id: string): Promise<TransactionWithPostings> {
+    const response = await fetch(`${API_BASE}/transactions/${id}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch transaction');
+    }
+    return response.json();
+  },
+
+  async deleteTransaction(id: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/transactions/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to delete transaction');
+    }
+  },
+
   async markCleared(postingIds: string[], cleared: boolean): Promise<void> {
     // TODO: Implement endpoint for marking postings as cleared
     console.log('Mark cleared:', postingIds, cleared);

@@ -1,7 +1,8 @@
-import { MainLayout } from './components/Layout/MainLayout';
+import LedgerhoundApp from '@/components/LedgerhoundApp';
 
 function App() {
-  return <MainLayout />;
+  return <LedgerhoundApp />;
 }
 
 export default App;
+

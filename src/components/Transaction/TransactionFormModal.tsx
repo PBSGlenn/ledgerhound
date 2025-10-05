@@ -7,6 +7,7 @@ interface TransactionFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   accountId?: string; // Pre-select account if opening from register
+  transactionId?: string; // For editing existing transaction
   onSuccess?: () => void;
 }
 
@@ -14,6 +15,7 @@ export function TransactionFormModal({
   isOpen,
   onClose,
   accountId,
+  transactionId,
   onSuccess,
 }: TransactionFormModalProps) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -23,11 +25,53 @@ export function TransactionFormModal({
   const [memo, setMemo] = useState('');
   const [isBusiness, setIsBusiness] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingTransaction, setLoadingTransaction] = useState(false);
   const [categories, setCategories] = useState<Account[]>([]);
 
   useEffect(() => {
     loadCategories();
   }, []);
+
+  useEffect(() => {
+    if (transactionId) {
+      loadTransaction();
+    } else {
+      // Reset form for new transaction
+      setDate(new Date().toISOString().split('T')[0]);
+      setPayee('');
+      setAmount('');
+      setCategoryId('');
+      setMemo('');
+      setIsBusiness(false);
+    }
+  }, [transactionId]);
+
+  const loadTransaction = async () => {
+    if (!transactionId) return;
+
+    setLoadingTransaction(true);
+    try {
+      const transaction = await transactionAPI.getTransaction(transactionId);
+
+      // Populate form from transaction data
+      setDate(new Date(transaction.date).toISOString().split('T')[0]);
+      setPayee(transaction.payee || '');
+      setMemo(transaction.memo || '');
+
+      // Find the category posting (not the account posting)
+      const categoryPosting = transaction.postings.find(p => p.accountId !== accountId);
+      if (categoryPosting) {
+        setCategoryId(categoryPosting.accountId);
+        setAmount(Math.abs(categoryPosting.amount).toString());
+        setIsBusiness(categoryPosting.isBusiness || false);
+      }
+    } catch (error) {
+      console.error('Failed to load transaction:', error);
+      alert('Failed to load transaction');
+    } finally {
+      setLoadingTransaction(false);
+    }
+  };
 
   const loadCategories = async () => {
     try {
@@ -62,30 +106,58 @@ export function TransactionFormModal({
       const amountNum = parseFloat(amount);
       const gst = isBusiness ? calculateGST(amountNum) : null;
 
-      const transactionData: CreateTransactionDTO = {
-        date: new Date(date),
-        payee,
-        memo: memo || undefined,
-        postings: [
-          // Source account (bank/card)
-          {
-            accountId: accountId,
-            amount: -amountNum,
-            isBusiness: false,
-          },
-          // Category (expense/income)
-          {
-            accountId: categoryId,
-            amount: amountNum,
-            isBusiness,
-            gstCode: isBusiness ? ('GST' as GSTCode) : undefined,
-            gstRate: isBusiness ? 0.1 : undefined,
-            gstAmount: gst ? gst.gstAmount : undefined,
-          },
-        ],
-      };
+      if (transactionId) {
+        // Update existing transaction
+        await transactionAPI.updateTransaction({
+          id: transactionId,
+          date: new Date(date),
+          payee,
+          memo: memo || undefined,
+          postings: [
+            // Source account (bank/card)
+            {
+              accountId: accountId,
+              amount: -amountNum,
+              isBusiness: false,
+            },
+            // Category (expense/income)
+            {
+              accountId: categoryId,
+              amount: amountNum,
+              isBusiness,
+              gstCode: isBusiness ? ('GST' as GSTCode) : undefined,
+              gstRate: isBusiness ? 0.1 : undefined,
+              gstAmount: gst ? gst.gstAmount : undefined,
+            },
+          ],
+        });
+      } else {
+        // Create new transaction
+        const transactionData: CreateTransactionDTO = {
+          date: new Date(date),
+          payee,
+          memo: memo || undefined,
+          postings: [
+            // Source account (bank/card)
+            {
+              accountId: accountId,
+              amount: -amountNum,
+              isBusiness: false,
+            },
+            // Category (expense/income)
+            {
+              accountId: categoryId,
+              amount: amountNum,
+              isBusiness,
+              gstCode: isBusiness ? ('GST' as GSTCode) : undefined,
+              gstRate: isBusiness ? 0.1 : undefined,
+              gstAmount: gst ? gst.gstAmount : undefined,
+            },
+          ],
+        };
 
-      await transactionAPI.createTransaction(transactionData);
+        await transactionAPI.createTransaction(transactionData);
+      }
 
       // Success!
       if (onSuccess) {
@@ -101,8 +173,8 @@ export function TransactionFormModal({
 
       onClose();
     } catch (error) {
-      console.error('Failed to create transaction:', error);
-      alert('Failed to create transaction: ' + (error as Error).message);
+      console.error(`Failed to ${transactionId ? 'update' : 'create'} transaction:`, error);
+      alert(`Failed to ${transactionId ? 'update' : 'create'} transaction: ` + (error as Error).message);
     } finally {
       setLoading(false);
     }
@@ -111,106 +183,122 @@ export function TransactionFormModal({
   return (
     <Dialog.Root open={isOpen} onOpenChange={onClose}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/50 z-40" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md shadow-xl z-50">
-          <Dialog.Title className="text-xl font-bold text-gray-900 dark:text-white mb-4">
-            New Transaction
+        <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100]" />
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl p-6 w-full max-w-2xl shadow-2xl z-[101] border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto">
+          <Dialog.Title className="text-2xl font-bold text-slate-900 dark:text-white mb-6">
+            {transactionId ? 'Edit Transaction' : 'New Transaction'}
           </Dialog.Title>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Date */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Date
-              </label>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                required
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-              />
+          {loadingTransaction ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="text-slate-500 dark:text-slate-400">Loading transaction...</div>
             </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Date and Payee Row */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                    📅 Date
+                  </label>
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    required
+                    className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors"
+                  />
+                </div>
 
-            {/* Payee */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Payee
-              </label>
-              <input
-                type="text"
-                value={payee}
-                onChange={(e) => setPayee(e.target.value)}
-                required
-                placeholder="Who did you pay?"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-              />
-            </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                    👤 Payee
+                  </label>
+                  <input
+                    type="text"
+                    value={payee}
+                    onChange={(e) => setPayee(e.target.value)}
+                    required
+                    placeholder="Who did you pay?"
+                    className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors"
+                  />
+                </div>
+              </div>
 
-            {/* Amount */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Amount (AUD)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                required
-                placeholder="0.00"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-              />
-            </div>
+              {/* Amount and Category Row */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                    💰 Amount (AUD)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    required
+                    placeholder="0.00"
+                    className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors text-lg font-semibold"
+                  />
+                </div>
 
-            {/* Category */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Category
-              </label>
-              <select
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                required
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">Select category...</option>
-                <optgroup label="Expenses">
-                  {categories
-                    .filter((c) => c.type === 'EXPENSE')
-                    .map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name}
-                        {cat.isBusinessDefault ? ' (Business)' : ''}
-                      </option>
-                    ))}
-                </optgroup>
-                <optgroup label="Income">
-                  {categories
-                    .filter((c) => c.type === 'INCOME')
-                    .map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name}
-                        {cat.isBusinessDefault ? ' (Business)' : ''}
-                      </option>
-                    ))}
-                </optgroup>
-              </select>
-            </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                    📁 Category
+                  </label>
+                  <select
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
+                    required
+                    className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors"
+                  >
+                    <option value="">Select category...</option>
+                    <optgroup label="Expenses">
+                      {categories
+                        .filter((c) => c.type === 'EXPENSE')
+                        .map((cat) => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.name}
+                            {cat.isBusinessDefault ? ' (Business)' : ''}
+                          </option>
+                        ))}
+                    </optgroup>
+                    <optgroup label="Income">
+                      {categories
+                        .filter((c) => c.type === 'INCOME')
+                        .map((cat) => (
+                          <option key={cat.id} value={cat.id}>
+                            {cat.name}
+                            {cat.isBusinessDefault ? ' (Business)' : ''}
+                          </option>
+                        ))}
+                    </optgroup>
+                  </select>
+                </div>
+              </div>
 
-            {/* Business Toggle */}
-            <div className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-              <input
-                type="checkbox"
-                id="business"
-                checked={isBusiness}
-                onChange={(e) => setIsBusiness(e.target.checked)}
-                className="rounded border-gray-300 dark:border-gray-600"
-              />
-              <label htmlFor="business" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                This is a business expense (track GST)
-              </label>
-            </div>
+              {/* Business Toggle - More Prominent */}
+              <div className="border-2 border-purple-200 dark:border-purple-800 rounded-lg p-4 bg-purple-50 dark:bg-purple-900/20">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="business"
+                      checked={isBusiness}
+                      onChange={(e) => setIsBusiness(e.target.checked)}
+                      className="w-5 h-5 rounded border-purple-300 dark:border-purple-600 text-purple-600 focus:ring-2 focus:ring-purple-500"
+                    />
+                    <label htmlFor="business" className="text-sm font-semibold text-slate-900 dark:text-white cursor-pointer">
+                      💼 Business Transaction (track GST)
+                    </label>
+                  </div>
+                  {isBusiness && (
+                    <span className="text-xs font-medium px-2 py-1 bg-purple-100 dark:bg-purple-800 text-purple-700 dark:text-purple-200 rounded-full">
+                      GST Enabled
+                    </span>
+                  )}
+                </div>
+              </div>
 
             {/* GST Info (only if business) */}
             {isBusiness && amount && parseFloat(amount) > 0 && (
@@ -239,42 +327,43 @@ export function TransactionFormModal({
               </div>
             )}
 
-            {/* Memo */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Memo (optional)
-              </label>
-              <textarea
-                value={memo}
-                onChange={(e) => setMemo(e.target.value)}
-                placeholder="Add a note..."
-                rows={2}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white resize-none"
-              />
-            </div>
+              {/* Memo */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  📝 Memo (optional)
+                </label>
+                <textarea
+                  value={memo}
+                  onChange={(e) => setMemo(e.target.value)}
+                  placeholder="Add a note..."
+                  rows={2}
+                  className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white resize-none transition-colors"
+                />
+              </div>
 
-            {/* Buttons */}
-            <div className="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-              >
-                {loading ? 'Saving...' : 'Save Transaction'}
-              </button>
-            </div>
-          </form>
+              {/* Buttons */}
+              <div className="flex justify-end gap-3 pt-6 border-t border-slate-200 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-5 py-2.5 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white rounded-lg font-semibold shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  {loading ? 'Saving...' : transactionId ? 'Update Transaction' : 'Save Transaction'}
+                </button>
+              </div>
+            </form>
+          )}
 
           <Dialog.Close asChild>
             <button
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
               aria-label="Close"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

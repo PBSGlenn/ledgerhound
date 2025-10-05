@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
-import { Check, Filter, Tag, Briefcase, User, Loader2 } from 'lucide-react';
+import { Check, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle } from 'lucide-react';
+import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import type { RegisterEntry, RegisterFilter } from '../../types';
 import { transactionAPI } from '../../lib/api';
+import { TransactionFormModal } from '../Transaction/TransactionFormModal';
 
 interface RegisterGridProps {
   accountId: string;
@@ -13,6 +15,9 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<RegisterFilter>({});
+  const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
+  const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
 
   useEffect(() => {
     loadEntries();
@@ -72,6 +77,70 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
       console.error('Failed to mark as cleared:', error);
     }
   };
+
+  const handleDeleteTransaction = async (transactionId: string) => {
+    try {
+      await transactionAPI.deleteTransaction(transactionId);
+      await loadEntries();
+      setDeletingTransactionId(null);
+    } catch (error) {
+      console.error('Failed to delete transaction:', error);
+      alert('Failed to delete transaction: ' + (error as Error).message);
+    }
+  };
+
+  const handleEditTransaction = (transactionId: string) => {
+    setEditingTransactionId(transactionId);
+  };
+
+  const handleRowClick = (transactionId: string, e: React.MouseEvent) => {
+    // Don't trigger if clicking on checkbox
+    if ((e.target as HTMLElement).type === 'checkbox') {
+      return;
+    }
+    handleEditTransaction(transactionId);
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't handle if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      const selectedEntry = focusedIndex >= 0 ? entries[focusedIndex] : null;
+
+      switch (e.key.toLowerCase()) {
+        case 'e':
+          if (selectedEntry) {
+            handleEditTransaction(selectedEntry.id);
+          }
+          break;
+        case 'd':
+          if (selectedEntry) {
+            setDeletingTransactionId(selectedEntry.id);
+          }
+          break;
+        case 'c':
+          if (selectedEntry) {
+            toggleSelection(selectedEntry.id);
+          }
+          break;
+        case 'arrowdown':
+          e.preventDefault();
+          setFocusedIndex(prev => Math.min(prev + 1, entries.length - 1));
+          break;
+        case 'arrowup':
+          e.preventDefault();
+          setFocusedIndex(prev => Math.max(prev - 1, 0));
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [entries, focusedIndex]);
 
   if (loading) {
     return (
@@ -189,7 +258,13 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
             {entries.map((entry, idx) => (
               <tr
                 key={entry.id}
+                onClick={(e) => handleRowClick(entry.id, e)}
+                onMouseEnter={() => setFocusedIndex(idx)}
                 className={`transition-colors cursor-pointer ${
+                  focusedIndex === idx
+                    ? 'ring-2 ring-blue-500 ring-inset'
+                    : ''
+                } ${
                   selectedIds.has(entry.id)
                     ? 'bg-blue-50 dark:bg-blue-900/10'
                     : idx % 2 === 0
@@ -324,6 +399,64 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
           </div>
         </div>
       </div>
+
+      {/* Keyboard shortcuts help */}
+      <div className="text-xs text-slate-500 dark:text-slate-400 text-center">
+        Keyboard shortcuts: <kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded">E</kbd> Edit, <kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded">D</kbd> Delete, <kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded">C</kbd> Select, <kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded">↑</kbd><kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded">↓</kbd> Navigate
+      </div>
+
+      {/* Edit Transaction Modal */}
+      {editingTransactionId && (
+        <TransactionFormModal
+          isOpen={true}
+          onClose={() => setEditingTransactionId(null)}
+          accountId={accountId}
+          transactionId={editingTransactionId}
+          onSuccess={() => {
+            loadEntries();
+            setEditingTransactionId(null);
+          }}
+        />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog.Root open={!!deletingTransactionId} onOpenChange={(open) => !open && setDeletingTransactionId(null)}>
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
+          <AlertDialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md border border-slate-200 dark:border-slate-700">
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+              </div>
+              <div className="flex-1">
+                <AlertDialog.Title className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+                  Delete Transaction
+                </AlertDialog.Title>
+                <AlertDialog.Description className="text-sm text-slate-600 dark:text-slate-400 mb-6">
+                  Are you sure you want to delete this transaction? This action cannot be undone.
+                </AlertDialog.Description>
+                <div className="flex items-center gap-3 justify-end">
+                  <AlertDialog.Cancel asChild>
+                    <button className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+                      Cancel
+                    </button>
+                  </AlertDialog.Cancel>
+                  <AlertDialog.Action asChild>
+                    <button
+                      onClick={() => deletingTransactionId && handleDeleteTransaction(deletingTransactionId)}
+                      className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </button>
+                  </AlertDialog.Action>
+                </div>
+              </div>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
     </div>
   );
 }
+

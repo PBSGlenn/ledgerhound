@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { AccountSidebar } from './AccountSidebar';
 import { TopBar } from './TopBar';
 import { RegisterView } from '../Register/RegisterView';
+import { DashboardView } from '../Dashboard/DashboardView';
 import type { AccountWithBalance } from '../../types';
 import { accountAPI } from '../../lib/api';
 
@@ -52,24 +53,7 @@ export function MainLayout() {
           {selectedAccountId ? (
             <RegisterView accountId={selectedAccountId} />
           ) : (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center max-w-md">
-                <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
-                  <span className="text-4xl text-white font-bold">L</span>
-                </div>
-                <h2 className="text-4xl font-bold text-slate-900 dark:text-white mb-3">
-                  Welcome to Ledgerhound
-                </h2>
-                <p className="text-lg text-slate-600 dark:text-slate-300 mb-8">
-                  Personal & Small-Business Ledger for Australia
-                </p>
-                <div className="bg-white dark:bg-slate-800 rounded-lg p-6 shadow-sm border border-slate-200 dark:border-slate-700">
-                  <p className="text-sm text-slate-600 dark:text-slate-400">
-                    Select an account from the sidebar to view transactions, or create a new account to get started.
-                  </p>
-                </div>
-              </div>
-            </div>
+            <DashboardView accounts={accounts} onSelectAccount={setSelectedAccountId} />
           )}
         </main>
       </div>
