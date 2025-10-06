@@ -181,8 +181,15 @@ export const transactionAPI = {
     }
   },
 
-  async markCleared(postingIds: string[], cleared: boolean): Promise<void> {
-    // TODO: Implement endpoint for marking postings as cleared
-    console.log('Mark cleared:', postingIds, cleared);
+  async bulkAddTags(transactionIds: string[], tags: string[]): Promise<void> {
+    const response = await fetch(`${API_BASE}/transactions/bulk-add-tags`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transactionIds, tags }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to add tags');
+    }
   },
 };

@@ -170,7 +170,15 @@ app.put('/api/transactions/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/transactions/:id', async (req, res) => {
+app.post('/api/transactions/bulk-add-tags', async (req, res) => {
+  try {
+    const { transactionIds, tags } = req.body;
+    await transactionService.bulkAddTags(transactionIds, tags);
+    res.status(204).send();
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
   try {
     await transactionService.deleteTransaction(req.params.id);
     res.status(204).send();

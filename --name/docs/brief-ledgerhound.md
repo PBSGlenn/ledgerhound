@@ -464,3 +464,4 @@ model Posting {
 If you’re good with the above, I can turn the current component into a proper **Tauri + Prisma** scaffold with schema, migrations, a minimal API, and stubbed pages for Import, Rules, Reconcile, and Reports—keeping your two-line register UI intact and wiring it to real data.
 
 
+

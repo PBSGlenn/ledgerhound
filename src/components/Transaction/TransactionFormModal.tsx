@@ -20,13 +20,30 @@ export function TransactionFormModal({
 }: TransactionFormModalProps) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [payee, setPayee] = useState('');
-  const [amount, setAmount] = useState('');
-  const [categoryId, setCategoryId] = useState('');
-  const [memo, setMemo] = useState('');
+  const [transactionType, setTransactionType] = useState<'simple' | 'split'>('simple');
+  const [totalAmount, setTotalAmount] = useState('');
+  
+  type Split = {
+    id: string;
+    accountId: string;
+    amount: string;
+    isBusiness: boolean;
+    gstCode?: GSTCode;
+  };
+
+  const [splits, setSplits] = useState<Split[]>([]);
+  const [remainingAmount, setRemainingAmount] = useState(0);
+
+  useEffect(() => {
+    const total = parseFloat(totalAmount) || 0;
+    const allocated = splits.reduce((sum, split) => sum + (parseFloat(split.amount) || 0), 0);
+    setRemainingAmount(total - allocated);
+  }, [totalAmount, splits]);
   const [isBusiness, setIsBusiness] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingTransaction, setLoadingTransaction] = useState(false);
   const [categories, setCategories] = useState<Account[]>([]);
+  const [transferAccounts, setTransferAccounts] = useState<Account[]>([]);
 
   useEffect(() => {
     loadCategories();
@@ -39,8 +56,13 @@ export function TransactionFormModal({
       // Reset form for new transaction
       setDate(new Date().toISOString().split('T')[0]);
       setPayee('');
-      setAmount('');
-      setCategoryId('');
+      setTotalAmount('');
+      setSplits([{
+        id: `temp-${Date.now()}`,
+        accountId: '',
+        amount: '',
+        isBusiness: false,
+      }]);
       setMemo('');
       setIsBusiness(false);
     }
@@ -58,12 +80,28 @@ export function TransactionFormModal({
       setPayee(transaction.payee || '');
       setMemo(transaction.memo || '');
 
-      // Find the category posting (not the account posting)
-      const categoryPosting = transaction.postings.find(p => p.accountId !== accountId);
-      if (categoryPosting) {
-        setCategoryId(categoryPosting.accountId);
-        setAmount(Math.abs(categoryPosting.amount).toString());
-        setIsBusiness(categoryPosting.isBusiness || false);
+      const categoryPostings = transaction.postings.filter(p => p.accountId !== accountId);
+      const total = Math.abs(transaction.postings.find(p => p.accountId === accountId)?.amount || 0);
+      setTotalAmount(total.toString());
+
+      if (categoryPostings.length > 1) {
+        setTransactionType('split');
+        setSplits(categoryPostings.map(p => ({
+          id: p.id,
+          accountId: p.accountId,
+          amount: Math.abs(p.amount).toString(),
+          isBusiness: p.isBusiness || false,
+          gstCode: p.gstCode || undefined,
+        })));
+      } else if (categoryPostings.length === 1) {
+        setTransactionType('simple');
+        setSplits([{
+          id: categoryPostings[0].id,
+          accountId: categoryPostings[0].accountId,
+          amount: Math.abs(categoryPostings[0].amount).toString(),
+          isBusiness: categoryPostings[0].isBusiness || false,
+          gstCode: categoryPostings[0].gstCode || undefined,
+        }]);
       }
     } catch (error) {
       console.error('Failed to load transaction:', error);
@@ -75,18 +113,22 @@ export function TransactionFormModal({
 
   const loadCategories = async () => {
     try {
-      const allAccounts = await accountAPI.getAllAccountsWithBalances();
-      // Filter to only income and expense accounts (categories)
-      const categoryAccounts = allAccounts.filter(
-        (acc) => acc.type === 'INCOME' || acc.type === 'EXPENSE'
-      );
+      const [categoryAccounts, allTransferAccounts] = await Promise.all([
+        accountAPI.getAllAccountsWithBalances({ kind: 'CATEGORY' }),
+        accountAPI.getAllAccountsWithBalances({ kind: 'TRANSFER' }),
+      ]);
       setCategories(categoryAccounts);
+      // Exclude the current account from the list of transfer destinations
+      setTransferAccounts(allTransferAccounts.filter(acc => acc.id !== accountId));
     } catch (error) {
-      console.error('Failed to load categories:', error);
+      console.error('Failed to load accounts:', error);
     }
   };
 
-  const calculateGST = (total: number) => {
+  const getAccountType = (accountId: string): AccountType | undefined => {
+    const account = [...categories, ...transferAccounts].find(acc => acc.id === accountId);
+    return account?.type as AccountType;
+  };
     const gstAmount = total * 0.1 / 1.1;
     const gstExclusive = total - gstAmount;
     return { gstAmount, gstExclusive };
@@ -95,81 +137,56 @@ export function TransactionFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!accountId) {
-      alert('Please select an account first');
+    if (Math.abs(remainingAmount) > 0.01) {
+      alert('The splits must sum to the total amount.');
       return;
     }
 
     setLoading(true);
 
     try {
-      const amountNum = parseFloat(amount);
-      const gst = isBusiness ? calculateGST(amountNum) : null;
+      const totalAmountNum = parseFloat(totalAmount);
+
+      const categoryPostings = splits.map(split => {
+        const splitAmountNum = parseFloat(split.amount);
+        const accountType = getAccountType(split.accountId);
+        const isTransfer = accountType !== 'INCOME' && accountType !== 'EXPENSE';
+
+        const gst = !isTransfer && isBusiness ? calculateGST(splitAmountNum) : null;
+        return {
+          accountId: split.accountId,
+          amount: splitAmountNum,
+          isBusiness: !isTransfer && isBusiness,
+          gstCode: !isTransfer && isBusiness ? ('GST' as GSTCode) : undefined,
+          gstRate: !isTransfer && isBusiness ? 0.1 : undefined,
+          gstAmount: gst ? gst.gstAmount : undefined,
+        };
+      });
+
+      const transactionData = {
+        date: new Date(date),
+        payee,
+        memo: memo || undefined,
+        postings: [
+          {
+            accountId: accountId,
+            amount: -totalAmountNum,
+            isBusiness: false,
+          },
+          ...categoryPostings,
+        ],
+      };
 
       if (transactionId) {
-        // Update existing transaction
-        await transactionAPI.updateTransaction({
-          id: transactionId,
-          date: new Date(date),
-          payee,
-          memo: memo || undefined,
-          postings: [
-            // Source account (bank/card)
-            {
-              accountId: accountId,
-              amount: -amountNum,
-              isBusiness: false,
-            },
-            // Category (expense/income)
-            {
-              accountId: categoryId,
-              amount: amountNum,
-              isBusiness,
-              gstCode: isBusiness ? ('GST' as GSTCode) : undefined,
-              gstRate: isBusiness ? 0.1 : undefined,
-              gstAmount: gst ? gst.gstAmount : undefined,
-            },
-          ],
-        });
+        await transactionAPI.updateTransaction({ id: transactionId, ...transactionData });
       } else {
-        // Create new transaction
-        const transactionData: CreateTransactionDTO = {
-          date: new Date(date),
-          payee,
-          memo: memo || undefined,
-          postings: [
-            // Source account (bank/card)
-            {
-              accountId: accountId,
-              amount: -amountNum,
-              isBusiness: false,
-            },
-            // Category (expense/income)
-            {
-              accountId: categoryId,
-              amount: amountNum,
-              isBusiness,
-              gstCode: isBusiness ? ('GST' as GSTCode) : undefined,
-              gstRate: isBusiness ? 0.1 : undefined,
-              gstAmount: gst ? gst.gstAmount : undefined,
-            },
-          ],
-        };
-
-        await transactionAPI.createTransaction(transactionData);
+        await transactionAPI.createTransaction(transactionData as CreateTransactionDTO);
       }
 
       // Success!
       if (onSuccess) {
         onSuccess();
       }
-
-      // Reset form
-      setPayee('');
-      setAmount('');
-      setCategoryId('');
-      setMemo('');
-      setIsBusiness(false);
 
       onClose();
     } catch (error) {
@@ -179,6 +196,24 @@ export function TransactionFormModal({
       setLoading(false);
     }
   };
+
+  // Reset form on close
+  useEffect(() => {
+    if (!isOpen) {
+      setDate(new Date().toISOString().split('T')[0]);
+      setPayee('');
+      setTotalAmount('');
+      setSplits([{
+        id: `temp-${Date.now()}`,
+        accountId: '',
+        amount: '',
+        isBusiness: false,
+      }]);
+      setMemo('');
+      setIsBusiness(false);
+      setTransactionType('simple');
+    }
+  }, [isOpen]);
 
   return (
     <Dialog.Root open={isOpen} onOpenChange={onClose}>
@@ -225,6 +260,24 @@ export function TransactionFormModal({
                 </div>
               </div>
 
+              {/* Transaction Type Toggle */}
+              <div className="flex justify-center mb-4">
+                <div className="bg-slate-200 dark:bg-slate-700 p-1 rounded-lg flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setTransactionType('simple')}
+                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${transactionType === 'simple' ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-300'}`}>
+                    Simple
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTransactionType('split')}
+                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${transactionType === 'split' ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-300'}`}>
+                    Split
+                  </button>
+                </div>
+              </div>
+
               {/* Amount and Category Row */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -234,47 +287,42 @@ export function TransactionFormModal({
                   <input
                     type="number"
                     step="0.01"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
+                    value={totalAmount}
+                    onChange={(e) => setTotalAmount(e.target.value)}
                     required
                     placeholder="0.00"
                     className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors text-lg font-semibold"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                    📁 Category
-                  </label>
-                  <select
-                    value={categoryId}
-                    onChange={(e) => setCategoryId(e.target.value)}
-                    required
-                    className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors"
-                  >
-                    <option value="">Select category...</option>
-                    <optgroup label="Expenses">
-                      {categories
-                        .filter((c) => c.type === 'EXPENSE')
-                        .map((cat) => (
+                  <div className="grid grid-cols-1 gap-4">
+                    <select
+                      value={splits[0]?.accountId || ''}
+                      onChange={(e) => {
+                        const newSplits = [...splits];
+                        newSplits[0] = { ...newSplits[0], accountId: e.target.value };
+                        setSplits(newSplits);
+                      }}
+                      required
+                      className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors"
+                    >
+                      <option value="">Select category or account...</option>
+                      <optgroup label="Categories">
+                        {categories.map((cat) => (
                           <option key={cat.id} value={cat.id}>
                             {cat.name}
-                            {cat.isBusinessDefault ? ' (Business)' : ''}
                           </option>
                         ))}
-                    </optgroup>
-                    <optgroup label="Income">
-                      {categories
-                        .filter((c) => c.type === 'INCOME')
-                        .map((cat) => (
-                          <option key={cat.id} value={cat.id}>
-                            {cat.name}
-                            {cat.isBusinessDefault ? ' (Business)' : ''}
+                      </optgroup>
+                      <optgroup label="Transfer Accounts">
+                        {transferAccounts.map((acc) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.name}
                           </option>
                         ))}
-                    </optgroup>
-                  </select>
-                </div>
+                      </optgroup>
+                    </select>
+                  </div>
               </div>
 
               {/* Business Toggle - More Prominent */}
@@ -301,7 +349,7 @@ export function TransactionFormModal({
               </div>
 
             {/* GST Info (only if business) */}
-            {isBusiness && amount && parseFloat(amount) > 0 && (
+            {isBusiness && totalAmount && parseFloat(totalAmount) > 0 && (
               <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-3 rounded-lg text-sm">
                 <div className="font-medium text-green-900 dark:text-green-100 mb-2">
                   GST Calculation (10%)
@@ -309,18 +357,18 @@ export function TransactionFormModal({
                 <div className="space-y-1 text-green-800 dark:text-green-200">
                   <div className="flex justify-between">
                     <span>Total (GST inc.):</span>
-                    <span className="font-medium">${parseFloat(amount).toFixed(2)}</span>
+                    <span className="font-medium">${parseFloat(totalAmount).toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>GST amount:</span>
                     <span className="font-medium">
-                      ${calculateGST(parseFloat(amount)).gstAmount.toFixed(2)}
+                      ${calculateGST(parseFloat(totalAmount)).gstAmount.toFixed(2)}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span>GST-exclusive:</span>
                     <span className="font-medium">
-                      ${calculateGST(parseFloat(amount)).gstExclusive.toFixed(2)}
+                      ${calculateGST(parseFloat(totalAmount)).gstExclusive.toFixed(2)}
                     </span>
                   </div>
                 </div>

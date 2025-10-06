@@ -6,6 +6,8 @@ import type { RegisterEntry, RegisterFilter } from '../../types';
 import { transactionAPI } from '../../lib/api';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
 
+import { useDebounce } from '../../hooks/useDebounce';
+
 interface RegisterGridProps {
   accountId: string;
 }
@@ -15,6 +17,12 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<RegisterFilter>({});
+  const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 500);
+
+  useEffect(() => {
+    setFilter(prev => ({ ...prev, searchText: debouncedSearchTerm }));
+  }, [debouncedSearchTerm]);
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
   const [focusedIndex, setFocusedIndex] = useState<number>(-1);
@@ -78,7 +86,22 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
     }
   };
 
-  const handleMarkCleared = async () => {
+  const [taggingTransactionIds, setTaggingTransactionIds] = useState<string[]>([]);
+
+  const handleAddTag = () => {
+    setTaggingTransactionIds(Array.from(selectedIds));
+  };
+
+  const handleTagSubmit = async (tag: string) => {
+    try {
+      await transactionAPI.bulkAddTags(taggingTransactionIds, [tag]);
+      await loadEntries();
+      setTaggingTransactionIds([]);
+      setSelectedIds(new Set());
+    } catch (error) {
+      console.error('Failed to add tag:', error);
+    }
+  };
     const postingIds = entries
       .filter((e) => selectedIds.has(e.id))
       .flatMap((e) => e.postings.filter((p) => p.accountId === accountId).map((p) => p.id));
@@ -216,6 +239,57 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
 
   return (
     <div className="space-y-4">
+      {/* Advanced Filters */}
+      <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-slate-600 dark:text-slate-400">From:</label>
+          <input
+            type="date"
+            value={filter.startDate ? format(filter.startDate, 'yyyy-MM-dd') : ''}
+            onChange={(e) => setFilter({ ...filter, startDate: new Date(e.target.value) })}
+            className="px-2 py-1 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-slate-600 dark:text-slate-400">To:</label>
+          <input
+            type="date"
+            value={filter.endDate ? format(filter.endDate, 'yyyy-MM-dd') : ''}
+            onChange={(e) => setFilter({ ...filter, endDate: new Date(e.target.value) })}
+            className="px-2 py-1 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Search payee, memo..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="px-2 py-1 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="cleared-filter"
+            checked={filter.cleared || false}
+            onChange={(e) => setFilter({ ...filter, cleared: e.target.checked })}
+            className="rounded border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500"
+          />
+          <label htmlFor="cleared-filter" className="text-sm font-medium text-slate-600 dark:text-slate-400">Cleared</label>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="reconciled-filter"
+            checked={filter.reconciled || false}
+            onChange={(e) => setFilter({ ...filter, reconciled: e.target.checked })}
+            className="rounded border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500"
+          />
+          <label htmlFor="reconciled-filter" className="text-sm font-medium text-slate-600 dark:text-slate-400">Reconciled</label>
+        </div>
+      </div>
+
       {/* Filters and actions */}
       <div className="flex items-center justify-between bg-white dark:bg-slate-800 px-4 py-3 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
         <div className="flex items-center gap-3">
@@ -240,6 +314,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
               Mark Cleared
             </button>
             <button
+              onClick={handleAddTag}
               className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
             >
               <Tag className="w-4 h-4" />
@@ -273,6 +348,49 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
           </button>
         </div>
       </div>
+
+      {/* Add Tag Dialog */}
+      <AlertDialog.Root open={taggingTransactionIds.length > 0} onOpenChange={() => setTaggingTransactionIds([])}>
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
+          <AlertDialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md border border-slate-200 dark:border-slate-700">
+            <AlertDialog.Title className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+              Add Tag to {taggingTransactionIds.length} Transaction(s)
+            </AlertDialog.Title>
+            <div className="mt-4">
+              <input
+                type="text"
+                id="tag-input"
+                placeholder="Enter tag name..."
+                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleTagSubmit((e.target as HTMLInputElement).value);
+                  }
+                }}
+              />
+            </div>
+            <div className="flex items-center gap-3 justify-end mt-6">
+              <AlertDialog.Cancel asChild>
+                <button className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+                  Cancel
+                </button>
+              </AlertDialog.Cancel>
+              <AlertDialog.Action asChild>
+                <button
+                  onClick={() => {
+                    const input = document.getElementById('tag-input') as HTMLInputElement;
+                    handleTagSubmit(input.value);
+                  }}
+                  className="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                >
+                  Add Tag
+                </button>
+              </AlertDialog.Action>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
 
       {/* Register table */}
       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
