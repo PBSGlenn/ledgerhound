@@ -1,4 +1,4 @@
-import { PrismaClient, AccountType, AccountSubtype, GSTCode } from '@prisma/client';
+import { PrismaClient, AccountType, AccountSubtype, AccountKind, GSTCode } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -19,6 +19,7 @@ async function main() {
     data: {
       name: 'Personal Checking',
       type: AccountType.ASSET,
+      kind: AccountKind.TRANSFER,
       subtype: AccountSubtype.BANK,
       isReal: true,
       isBusinessDefault: false,
@@ -33,6 +34,7 @@ async function main() {
     data: {
       name: 'Personal Credit Card',
       type: AccountType.LIABILITY,
+      kind: AccountKind.TRANSFER,
       subtype: AccountSubtype.CARD,
       isReal: true,
       isBusinessDefault: false,
@@ -47,6 +49,7 @@ async function main() {
     data: {
       name: 'Holiday Fund',
       type: AccountType.EQUITY,
+      kind: AccountKind.TRANSFER,
       subtype: AccountSubtype.SAVINGS_GOAL,
       isReal: false,
       isBusinessDefault: false,
@@ -62,6 +65,7 @@ async function main() {
     data: {
       name: 'Business Checking',
       type: AccountType.ASSET,
+      kind: AccountKind.TRANSFER,
       subtype: AccountSubtype.BANK,
       isReal: true,
       isBusinessDefault: true,
@@ -76,6 +80,7 @@ async function main() {
     data: {
       name: 'Business Credit Card',
       type: AccountType.LIABILITY,
+      kind: AccountKind.TRANSFER,
       subtype: AccountSubtype.CARD,
       isReal: true,
       isBusinessDefault: true,
@@ -90,6 +95,7 @@ async function main() {
     data: {
       name: 'GST Control',
       type: AccountType.LIABILITY,
+      kind: AccountKind.TRANSFER,
       subtype: AccountSubtype.GST_CONTROL,
       isReal: false,
       isBusinessDefault: true,
@@ -105,6 +111,7 @@ async function main() {
     data: {
       name: 'Salary',
       type: AccountType.INCOME,
+      kind: AccountKind.CATEGORY,
       isReal: false,
       isBusinessDefault: false,
       sortOrder: 10,
@@ -115,6 +122,7 @@ async function main() {
     data: {
       name: 'Groceries',
       type: AccountType.EXPENSE,
+      kind: AccountKind.CATEGORY,
       isReal: false,
       isBusinessDefault: false,
       sortOrder: 11,
@@ -125,6 +133,7 @@ async function main() {
     data: {
       name: 'Dining Out',
       type: AccountType.EXPENSE,
+      kind: AccountKind.CATEGORY,
       isReal: false,
       isBusinessDefault: false,
       sortOrder: 12,
@@ -136,6 +145,7 @@ async function main() {
     data: {
       name: 'Sales Income',
       type: AccountType.INCOME,
+      kind: AccountKind.CATEGORY,
       isReal: false,
       isBusinessDefault: true,
       sortOrder: 20,
@@ -146,6 +156,7 @@ async function main() {
     data: {
       name: 'Office Supplies',
       type: AccountType.EXPENSE,
+      kind: AccountKind.CATEGORY,
       isReal: false,
       isBusinessDefault: true,
       sortOrder: 21,
@@ -156,6 +167,7 @@ async function main() {
     data: {
       name: 'Business Meals',
       type: AccountType.EXPENSE,
+      kind: AccountKind.CATEGORY,
       isReal: false,
       isBusinessDefault: true,
       sortOrder: 22,
@@ -166,6 +178,7 @@ async function main() {
     data: {
       name: 'Uncategorized',
       type: AccountType.EXPENSE,
+      kind: AccountKind.CATEGORY,
       isReal: false,
       isBusinessDefault: false,
       sortOrder: 99,

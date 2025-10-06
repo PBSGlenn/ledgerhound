@@ -32,6 +32,12 @@ enum AccountSubtype {
   OTHER
 }
 
+// Account kinds
+enum AccountKind {
+  CATEGORY
+  TRANSFER
+}
+
 // GST codes for Australian tax
 enum GSTCode {
   GST           // 10% GST
@@ -58,6 +64,7 @@ model Account {
   id                  String          @id @default(uuid())
   name                String
   type                AccountType
+  kind                AccountKind      @default(TRANSFER)
   subtype             AccountSubtype?
   isReal              Boolean         @default(true) @map("is_real")
   isBusinessDefault   Boolean         @default(false) @map("is_business_default")
