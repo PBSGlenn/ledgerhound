@@ -11,6 +11,8 @@ export function MainLayout() {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  const [isImporting, setIsImporting] = useState(false);
+
   useEffect(() => {
     loadAccounts();
   }, []);
@@ -46,6 +48,7 @@ export function MainLayout() {
               : undefined
           }
           onRefresh={loadAccounts}
+          onImportClick={() => setIsImporting(true)}
         />
 
         {/* Content */}
@@ -57,6 +60,10 @@ export function MainLayout() {
           )}
         </main>
       </div>
+
+      {isImporting && (
+        <ImportWizard onClose={() => setIsImporting(false)} />
+      )}
     </div>
   );
 }

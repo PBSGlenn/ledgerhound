@@ -6,9 +6,10 @@ import { TransactionFormModal } from '../Transaction/TransactionFormModal';
 interface TopBarProps {
   selectedAccount?: AccountWithBalance;
   onRefresh?: () => void;
+  onImportClick?: () => void;
 }
 
-export function TopBar({ selectedAccount, onRefresh }: TopBarProps) {
+export function TopBar({ selectedAccount, onRefresh, onImportClick }: TopBarProps) {
   const [showTransactionForm, setShowTransactionForm] = useState(false);
 
   const formatCurrency = (amount: number) => {
@@ -80,10 +81,10 @@ export function TopBar({ selectedAccount, onRefresh }: TopBarProps) {
             <Plus className="w-4 h-4" />
             New Transaction
           </button>
-          <button className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2">
-            <Upload className="w-4 h-4" />
-            Import CSV
-          </button>
+          <button
+            onClick={onImportClick}
+            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2"
+          >
           <button className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2">
             <GitCompare className="w-4 h-4" />
             Reconcile

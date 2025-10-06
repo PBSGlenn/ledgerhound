@@ -27,10 +27,11 @@ type CategoryAccountPayload = {
  * Account API
  */
 export const accountAPI = {
-  async getAllAccountsWithBalances(options?: { kind?: AccountKind; includeArchived?: boolean }): Promise<AccountWithBalance[]> {
+  async getAllAccountsWithBalances(options?: { kind?: AccountKind; includeArchived?: boolean; isReal?: boolean }): Promise<AccountWithBalance[]> {
     const params = new URLSearchParams();
     if (options?.kind) params.set('kind', options.kind);
     if (options?.includeArchived) params.set('includeArchived', 'true');
+    if (options?.isReal) params.set('isReal', 'true');
 
     const query = params.toString();
     const path = query ? `${API_BASE}/accounts?${query}` : `${API_BASE}/accounts`;

@@ -24,13 +24,17 @@ app.get('/api/accounts', async (req, res) => {
     const typeParam = req.query.type as string | undefined;
     const kindParam = req.query.kind as string | undefined;
 
+    const isRealParam = req.query.isReal as string | undefined;
+
     const type = typeParam && Object.values(AccountType).includes(typeParam as AccountType) ? (typeParam as AccountType) : undefined;
     const kind = kindParam && Object.values(AccountKind).includes(kindParam as AccountKind) ? (kindParam as AccountKind) : undefined;
+    const isReal = isRealParam === 'true' ? true : isRealParam === 'false' ? false : undefined;
 
     const accounts = await accountService.getAllAccounts({
       includeArchived,
       type,
       kind,
+      isReal,
     });
     res.json(accounts);
   } catch (error) {
