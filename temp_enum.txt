@@ -1,0 +1,4 @@
+enum AccountKind {
+  CATEGORY
+  TRANSFER
+}

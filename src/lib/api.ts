@@ -16,6 +16,12 @@ import type {
 
 const API_BASE = 'http://localhost:3001/api';
 
+type CategoryAccountPayload = {
+  name: string;
+  type: 'INCOME' | 'EXPENSE';
+  isBusinessDefault?: boolean;
+};
+
 /**
  * Account API
  */
@@ -60,6 +66,35 @@ export const accountAPI = {
       currentBalance: balance,
       clearedBalance: balance, // TODO: Implement cleared balance calculation
     };
+  },
+
+  async createCategory(payload: CategoryAccountPayload): Promise<Account> {
+    const response = await fetch(`${API_BASE}/accounts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: payload.name,
+        type: payload.type,
+        isReal: false,
+        isBusinessDefault: payload.isBusinessDefault ?? false,
+        sortOrder: 0,
+      }),
+    });
+
+    if (!response.ok) {
+      let message = 'Failed to create category';
+      try {
+        const error = await response.json();
+        if (error?.error) {
+          message = error.error;
+        }
+      } catch {
+        // ignore parse errors
+      }
+      throw new Error(message);
+    }
+
+    return response.json();
   },
 };
 
