@@ -103,6 +103,20 @@ const seed = {
   register: registerSeed,
 };
 
+type SplitDraft = {
+  id: string;
+  selection: string;
+  amount: string;
+  gstCode?: GstCode;
+  isTransfer: boolean;
+};
+
+const gstOptions: Array<{ value: GstCode; label: string }> = [
+  { value: "GST", label: "GST 10%" },
+  { value: "GST_FREE", label: "GST Free" },
+  { value: "INPUT_TAXED", label: "Input Taxed" },
+];
+
 export const formatMoney = (value: number) =>
   new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(value);
 
@@ -339,40 +353,189 @@ function RegisterTable({ rows, accounts, accountId, onCategoryChange }: { rows: 
 }
 
 function TransactionForm({ open, onClose, accounts, onSave }: { open: boolean; onClose: () => void; accounts: Account[]; onSave: (payload: any) => void }) {
+  const makeSplit = (overrides: Partial<SplitDraft> = {}): SplitDraft => {
+    const isTransfer = overrides.isTransfer ?? false;
+    return {
+      id: `split-${Math.random().toString(36).slice(2, 8)}`,
+      selection: overrides.selection ?? "",
+      amount: overrides.amount ?? "",
+      gstCode: isTransfer ? undefined : overrides.gstCode ?? "GST",
+      isTransfer,
+    };
+  };
+  const [mode, setMode] = useState<"simple" | "split">("simple");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [payee, setPayee] = useState("");
   const [amount, setAmount] = useState("");
   const [memo, setMemo] = useState("");
   const [categoryValue, setCategoryValue] = useState("");
+  const [splits, setSplits] = useState<SplitDraft[]>(() => [makeSplit()]);
 
   const categoryOptions = useMemo(() => accounts.filter((account) => account.type === "INCOME" || account.type === "EXPENSE"), [accounts]);
   const transferOptions = useMemo(() => accounts.filter((account) => account.type === "ASSET" || account.type === "LIABILITY" || account.type === "EQUITY"), [accounts]);
 
   if (!open) return null;
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    onSave({
-      date,
-      payee,
-      amount,
-      memo,
-      categoryValue,
+  const parseAmount = (input: string): number | null => {
+    if (!input.trim()) return null;
+    const numeric = Number.parseFloat(input.replace(/[^0-9.-]/g, ""));
+    if (!Number.isFinite(numeric)) return null;
+    return Math.round(numeric * 100) / 100;
+  };
+
+  const transactionAmount = parseAmount(amount);
+  const allocated = splits.reduce((sum, split) => {
+    const value = parseAmount(split.amount);
+    return value !== null ? sum + value : sum;
+  }, 0);
+
+  const remaining = mode === "split" && transactionAmount !== null ? Math.round((transactionAmount - allocated) * 100) / 100 : null;
+  const remainingBadge = mode === "split" && transactionAmount !== null
+    ? remaining !== null
+      ? remaining > 0.01
+        ? { label: `Remaining to allocate: ${formatMoney(remaining)}`, tone: "bg-amber-100 text-amber-700" }
+        : remaining < -0.01
+          ? { label: `Over allocated by ${formatMoney(Math.abs(remaining))}`, tone: "bg-rose-100 text-rose-700" }
+          : { label: "Fully allocated", tone: "bg-emerald-100 text-emerald-700" }
+      : null
+    : null;
+
+  const switchToSimple = () => {
+    setCategoryValue((current) => (mode === "split" && splits.length > 0 && splits[0].selection ? splits[0].selection : current));
+    setSplits([makeSplit()]);
+    setMode("simple");
+  };
+
+  const switchToSplit = () => {
+    setSplits((previous) => {
+      if (previous.length === 1 && !previous[0].selection && !previous[0].amount && categoryValue) {
+        const [kind] = categoryValue.split(":");
+        const isTransfer = kind === "transfer";
+        return [
+          makeSplit({
+            selection: categoryValue,
+            amount,
+            isTransfer,
+            gstCode: isTransfer ? undefined : "GST",
+          }),
+        ];
+      }
+      return previous;
     });
+    setCategoryValue("");
+    setMode("split");
+  };
+
+  const handleSplitSelectionChange = (splitId: string, value: string) => {
+    setSplits((previous) =>
+      previous.map((split) => {
+        if (split.id !== splitId) return split;
+        const [kind] = value.split(":");
+        const isTransfer = kind === "transfer";
+        return {
+          ...split,
+          selection: value,
+          isTransfer,
+          gstCode: isTransfer ? undefined : split.gstCode ?? "GST",
+        };
+      }),
+    );
+  };
+
+  const handleSplitAmountChange = (splitId: string, value: string) => {
+    setSplits((previous) => previous.map((split) => (split.id === splitId ? { ...split, amount: value } : split)));
+  };
+
+  const handleSplitGstChange = (splitId: string, value: GstCode) => {
+    setSplits((previous) => previous.map((split) => (split.id === splitId ? { ...split, gstCode: value } : split)));
+  };
+
+  const handleAddSplit = () => {
+    setSplits((previous) => [...previous, makeSplit()]);
+  };
+
+  const handleRemoveSplit = (splitId: string) => {
+    setSplits((previous) => (previous.length === 1 ? previous : previous.filter((split) => split.id !== splitId)));
+  };
+
+  const splitsInvalid = splits.some((split) => {
+    if (!split.selection) return true;
+    const value = parseAmount(split.amount);
+    return value === null || value <= 0;
+  });
+
+  const baseInvalid = !payee.trim() || transactionAmount === null || transactionAmount <= 0;
+  const simpleInvalid = mode === "simple" && !categoryValue;
+  const splitInvalid = mode === "split" && (splitsInvalid || remaining === null || Math.abs(remaining) > 0.01);
+  const saveDisabled = baseInvalid || simpleInvalid || splitInvalid;
+
+  const resetForm = () => {
     setPayee("");
     setAmount("");
     setMemo("");
     setCategoryValue("");
+    setSplits([makeSplit()]);
+    setMode("simple");
+  };
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (saveDisabled) return;
+
+    if (mode === "split") {
+      const normalized = splits.map((split) => {
+        const [kind, accountId] = split.selection.split(":");
+        return {
+          id: split.id,
+          kind,
+          accountId,
+          amount: parseAmount(split.amount) ?? 0,
+          gstCode: split.isTransfer ? undefined : split.gstCode ?? "GST",
+        };
+      });
+      onSave({
+        mode: "split",
+        date,
+        payee,
+        amount: transactionAmount,
+        memo,
+        splits: normalized,
+      });
+    } else {
+      const [kind, accountId] = categoryValue.split(":");
+      const isTransfer = kind === "transfer";
+      onSave({
+        mode: "simple",
+        date,
+        payee,
+        amount: transactionAmount,
+        memo,
+        selection: { kind, accountId },
+        gstCode: isTransfer ? undefined : "GST",
+      });
+    }
+
+    resetForm();
+    onClose();
   };
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
-      <form onSubmit={handleSubmit} className="w-full max-w-md space-y-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+      <form onSubmit={handleSubmit} className="w-full max-w-xl space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-800">New transaction</h2>
-          <button type="button" onClick={onClose} className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-600 hover:bg-slate-200">
+          <button type="button" onClick={() => { resetForm(); onClose(); }} className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-600 hover:bg-slate-200">
             Close
           </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <PillToggle active={mode === "simple"} onClick={switchToSimple}>
+            Simple
+          </PillToggle>
+          <PillToggle active={mode === "split"} onClick={switchToSplit}>
+            Split
+          </PillToggle>
         </div>
 
         <label className="block text-sm">
@@ -394,6 +557,8 @@ function TransactionForm({ open, onClose, accounts, onSave }: { open: boolean; o
             className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
           />
         </label>
+"
+$replacement += @'
 
         <label className="block text-sm">
           <span className="mb-1 block text-slate-600">Amount</span>
@@ -405,34 +570,109 @@ function TransactionForm({ open, onClose, accounts, onSave }: { open: boolean; o
           />
         </label>
 
-        <label className="block text-sm">
-          <span className="mb-1 block text-slate-600">Category or transfer account</span>
-          <select
-            value={categoryValue}
-            onChange={(event) => setCategoryValue(event.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          >
-            <option value="">Select an option…</option>
-            {categoryOptions.length ? (
-              <optgroup label="Categories">
-                {categoryOptions.map((option) => (
-                  <option key={`category:${option.id}`} value={`category:${option.id}`}>
-                    {option.name}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null}
-            {transferOptions.length ? (
-              <optgroup label="Transfer to account">
-                {transferOptions.map((option) => (
-                  <option key={`transfer:${option.id}`} value={`transfer:${option.id}`}>
-                    {option.name}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null}
-          </select>
-        </label>
+        {mode === "simple" ? (
+          <label className="block text-sm">
+            <span className="mb-1 block text-slate-600">Category or transfer account</span>
+            <select
+              value={categoryValue}
+              onChange={(event) => setCategoryValue(event.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="">Select an option…</option>
+              {categoryOptions.length ? (
+                <optgroup label="Categories">
+                  {categoryOptions.map((option) => (
+                    <option key={`category:${option.id}`} value={`category:${option.id}`}>
+                      {option.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+              {transferOptions.length ? (
+                <optgroup label="Transfer to account">
+                  {transferOptions.map((option) => (
+                    <option key={`transfer:${option.id}`} value={`transfer:${option.id}`}>
+                      {option.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+            </select>
+          </label>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-slate-700">Splits</span>
+              {remainingBadge ? (
+                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${remainingBadge.tone}`}>
+                  {remainingBadge.label}
+                </span>
+              ) : null}
+            </div>
+            {splits.map((split) => (
+              <div key={split.id} className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                  <select
+                    value={split.selection}
+                    onChange={(event) => handleSplitSelectionChange(split.id, event.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  >
+                    <option value="">Select category or account…</option>
+                    {categoryOptions.length ? (
+                      <optgroup label="Categories">
+                        {categoryOptions.map((option) => (
+                          <option key={`category:${option.id}`} value={`category:${option.id}`}>
+                            {option.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                    {transferOptions.length ? (
+                      <optgroup label="Transfer to account">
+                        {transferOptions.map((option) => (
+                          <option key={`transfer:${option.id}`} value={`transfer:${option.id}`}>
+                            {option.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                  </select>
+                  <input
+                    value={split.amount}
+                    onChange={(event) => handleSplitAmountChange(split.id, event.target.value)}
+                    placeholder="Amount"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 md:w-48"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  {!split.isTransfer ? (
+                    <select
+                      value={split.gstCode ?? "GST"}
+                      onChange={(event) => handleSplitGstChange(split.id, event.target.value as GstCode)}
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    >
+                      {gstOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-xs text-slate-500">No GST on transfers</span>
+                  )}
+                  {splits.length > 1 ? (
+                    <button type="button" onClick={() => handleRemoveSplit(split.id)} className="text-xs font-medium text-rose-600 hover:text-rose-500">
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+            <button type="button" onClick={handleAddSplit} className="text-sm font-semibold text-emerald-600 hover:text-emerald-500">
+              + Add split
+            </button>
+          </div>
+        )}
 
         <label className="block text-sm">
           <span className="mb-1 block text-slate-600">Memo</span>
@@ -445,13 +685,13 @@ function TransactionForm({ open, onClose, accounts, onSave }: { open: boolean; o
         </label>
 
         <div className="flex items-center justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded-full bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200">
+          <button type="button" onClick={() => { resetForm(); onClose(); }} className="rounded-full bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200">
             Cancel
           </button>
           <button
             type="submit"
             className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-400"
-            disabled={!payee || !amount || !categoryValue}
+            disabled={saveDisabled}
           >
             Save transaction
           </button>
@@ -459,9 +699,7 @@ function TransactionForm({ open, onClose, accounts, onSave }: { open: boolean; o
       </form>
     </div>
   );
-}
-
-export default function App() {
+}export default function App() {
   const [collapsed, setCollapsed] = useState(false);
   const [selected, setSelected] = useState<string | null>(accountCatalogue[0]?.id ?? null);
   const [showTxnForm, setShowTxnForm] = useState(false);
@@ -703,3 +941,7 @@ export default function App() {
     </div>
   );
 }
+
+
+
+
