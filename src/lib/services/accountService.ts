@@ -1,5 +1,5 @@
 import { getPrismaClient } from '../db';
-import type { Account, AccountType, AccountSubtype, Posting } from '@prisma/client';
+import type { Account, AccountKind, AccountSubtype, AccountType, Posting } from '@prisma/client';
 import type { AccountWithBalance } from '../../types';
 
 export class AccountService {
@@ -11,6 +11,7 @@ export class AccountService {
   async getAllAccounts(options?: {
     includeArchived?: boolean;
     type?: AccountType;
+    kind?: AccountKind;
     isReal?: boolean;
     isBusinessDefault?: boolean;
   }): Promise<Account[]> {
@@ -18,11 +19,15 @@ export class AccountService {
       where: {
         archived: options?.includeArchived ? undefined : false,
         type: options?.type,
+        kind: options?.kind,
         isReal: options?.isReal,
         isBusinessDefault: options?.isBusinessDefault,
       },
       orderBy: [{ type: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
     });
+
+  private deriveKind(type: AccountType): AccountKind {
+    return type === AccountType.INCOME || type === AccountType.EXPENSE ? AccountKind.CATEGORY : AccountKind.TRANSFER;
   }
 
   /**
@@ -62,6 +67,7 @@ export class AccountService {
 
     return this.prisma.account.create({
       data: {
+        kind: this.deriveKind(data.type),
         name: data.name,
         type: data.type,
         subtype: data.subtype,
@@ -106,9 +112,16 @@ export class AccountService {
       }
     }
 
+    const updateData: Partial<Account> = { ...data };
+    if (data.type) {
+      updateData.kind = this.deriveKind(data.type);
+    } else if ('kind' in updateData) {
+      delete (updateData as Partial<Account> & { kind?: AccountKind }).kind;
+    }
+
     return this.prisma.account.update({
       where: { id },
-      data,
+      data: updateData,
     });
   }
 

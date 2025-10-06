@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { accountAPI } from '@/lib/api';
 import type { AccountType, AccountWithBalance } from '@/types';
-import type { AccountMeta, CategoryType, TransferType } from '@/domain';
+import type { AccountMeta, AccountKind, CategoryType, TransferType } from '@/domain';
 import { onlySelectableCategories, onlySelectableTransfers } from '@/domain';
 
 let accountsCache: AccountMeta[] | null = null;
@@ -29,13 +29,15 @@ function setAccountsCache(accounts: AccountMeta[]): AccountMeta[] {
 
 function mapAccountToMeta(account: AccountWithBalance): AccountMeta {
   const { id, name, type, archived } = account;
+  const kind = (account as AccountWithBalance & { kind?: AccountKind }).kind;
+  const resolvedKind: AccountKind = kind ?? (isCategoryType(type) ? 'CATEGORY' : 'TRANSFER');
 
-  if (isCategoryType(type)) {
+  if (resolvedKind === 'CATEGORY') {
     return {
       id,
       name,
       kind: 'CATEGORY',
-      categoryType: type,
+      categoryType: isCategoryType(type) ? type : 'EXPENSE',
       archived: archived ?? false,
     };
   }
@@ -53,6 +55,11 @@ function isCategoryType(type: AccountType): type is CategoryType {
   return CATEGORY_TYPES.includes(type as CategoryType);
 }
 
+async function fetchAccountsByKind(kind: AccountKind): Promise<AccountMeta[]> {
+  const accounts = await accountAPI.getAllAccountsWithBalances({ kind });
+  return accounts.map(mapAccountToMeta);
+}
+
 function sanitizeTransferType(type: AccountType): TransferType | undefined {
   if (TRANSFER_TYPES.includes(type as TransferType)) {
     return type as TransferType;
@@ -63,9 +70,12 @@ function sanitizeTransferType(type: AccountType): TransferType | undefined {
 async function scheduleFetch(): Promise<AccountMeta[]> {
   if (!accountsPromise) {
     accountsPromise = (async () => {
-      const accounts = await accountAPI.getAllAccountsWithBalances();
-      const mapped = accounts.map(mapAccountToMeta);
-      return setAccountsCache(mapped);
+      const [categories, transfers] = await Promise.all([
+        fetchAccountsByKind('CATEGORY'),
+        fetchAccountsByKind('TRANSFER'),
+      ]);
+      const combined = [...categories, ...transfers];
+      return setAccountsCache(combined);
     })()
       .catch((error) => {
         accountsPromise = null;

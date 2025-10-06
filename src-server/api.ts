@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { accountService } from '../src/lib/services/accountService.js';
+import { AccountKind, AccountType } from '@prisma/client';
 import { transactionService } from '../src/lib/services/transactionService.js';
 import { reportService } from '../src/lib/services/reportService.js';
 import { importService } from '../src/lib/services/importService.js';
@@ -19,7 +20,18 @@ app.use(express.json());
 
 app.get('/api/accounts', async (req, res) => {
   try {
-    const accounts = await accountService.getAllAccounts();
+    const includeArchived = req.query.includeArchived === 'true';
+    const typeParam = req.query.type as string | undefined;
+    const kindParam = req.query.kind as string | undefined;
+
+    const type = typeParam && Object.values(AccountType).includes(typeParam as AccountType) ? (typeParam as AccountType) : undefined;
+    const kind = kindParam && Object.values(AccountKind).includes(kindParam as AccountKind) ? (kindParam as AccountKind) : undefined;
+
+    const accounts = await accountService.getAllAccounts({
+      includeArchived,
+      type,
+      kind,
+    });
     res.json(accounts);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
@@ -73,6 +85,40 @@ app.get('/api/accounts/:id/balance', async (req, res) => {
     res.status(500).json({ error: (error as Error).message });
   }
 });
+
+app.get('/api/categories', async (req, res) => {
+  try {
+    const includeArchived = req.query.includeArchived === 'true';
+    const categories = await accountService.getAllAccounts({
+      includeArchived,
+      kind: AccountKind.CATEGORY,
+    });
+    res.json(categories);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post('/api/categories', async (req, res) => {
+  try {
+    const { name, type, isBusinessDefault, sortOrder } = req.body as { name: string; type: AccountType; isBusinessDefault?: boolean; sortOrder?: number };
+    if (type !== AccountType.INCOME && type !== AccountType.EXPENSE) {
+      return res.status(400).json({ error: 'Categories must be INCOME or EXPENSE' });
+    }
+
+    const category = await accountService.createAccount({
+      name,
+      type,
+      isBusinessDefault,
+      isReal: false,
+      sortOrder,
+    });
+    res.status(201).json(category);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
 
 // ============================================================================
 // TRANSACTION ENDPOINTS

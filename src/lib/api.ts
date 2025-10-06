@@ -1,3 +1,4 @@
+import type { AccountKind } from '@/domain';
 /**
  * API bridge layer for Express backend
  *
@@ -26,12 +27,17 @@ type CategoryAccountPayload = {
  * Account API
  */
 export const accountAPI = {
-  async getAllAccountsWithBalances(): Promise<AccountWithBalance[]> {
-    const response = await fetch(`${API_BASE}/accounts`);
+  async getAllAccountsWithBalances(options?: { kind?: AccountKind; includeArchived?: boolean }): Promise<AccountWithBalance[]> {
+    const params = new URLSearchParams();
+    if (options?.kind) params.set('kind', options.kind);
+    if (options?.includeArchived) params.set('includeArchived', 'true');
+
+    const query = params.toString();
+    const path = query ? `${API_BASE}/accounts?${query}` : `${API_BASE}/accounts`;
+    const response = await fetch(path);
     if (!response.ok) throw new Error('Failed to fetch accounts');
     const accounts = await response.json();
 
-    // Fetch balances for all accounts
     const accountsWithBalances = await Promise.all(
       accounts.map(async (account: Account) => {
         const balanceResponse = await fetch(`${API_BASE}/accounts/${account.id}/balance`);
@@ -39,7 +45,7 @@ export const accountAPI = {
         return {
           ...account,
           currentBalance: balance,
-          clearedBalance: balance, // TODO: Implement cleared balance calculation
+          clearedBalance: balance,
         };
       })
     );
@@ -47,6 +53,17 @@ export const accountAPI = {
     return accountsWithBalances;
   },
 
+  async getCategories(options?: { includeArchived?: boolean }): Promise<Account[]> {
+    const params = new URLSearchParams();
+    params.set('kind', 'CATEGORY');
+    if (options?.includeArchived) params.set('includeArchived', 'true');
+
+    const query = params.toString();
+    const path = query ? `${API_BASE}/categories?${query}` : `${API_BASE}/categories`;
+    const response = await fetch(path);
+    if (!response.ok) throw new Error('Failed to fetch categories');
+    return response.json();
+  },
   async getAccountById(id: string): Promise<Account | null> {
     const response = await fetch(`${API_BASE}/accounts/${id}`);
     if (response.status === 404) return null;
@@ -69,12 +86,13 @@ export const accountAPI = {
   },
 
   async createCategory(payload: CategoryAccountPayload): Promise<Account> {
-    const response = await fetch(`${API_BASE}/accounts`, {
+    const response = await fetch(`${API_BASE}/categories`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: payload.name,
         type: payload.type,
+        kind: 'CATEGORY',
         isReal: false,
         isBusinessDefault: payload.isBusinessDefault ?? false,
         sortOrder: 0,
