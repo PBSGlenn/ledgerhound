@@ -18,6 +18,9 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
   const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+  const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
+  const [isCreateMode, setIsCreateMode] = useState(false);
+  const [operationLoading, setOperationLoading] = useState<string | null>(null);
 
   useEffect(() => {
     loadEntries();
@@ -44,6 +47,17 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
 
   const formatDate = (date: Date) => {
     return format(new Date(date), 'dd/MM/yyyy');
+  };
+
+  const getRowClassName = (entry: RegisterEntry, idx: number) => {
+    const baseClasses = 'transition-colors cursor-pointer';
+    const focusClasses = focusedIndex === idx ? 'ring-2 ring-blue-500 ring-inset' : '';
+    const selectionClasses = selectedTransactionId === entry.id ? 'bg-blue-100 dark:bg-blue-900/20' : '';
+    const hoverClasses = 'hover:bg-slate-100 dark:hover:bg-slate-700/50';
+    const zebraClasses = idx % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-slate-50/50 dark:bg-slate-900/30';
+    const loadingClasses = operationLoading === 'edit' && selectedTransactionId === entry.id ? 'opacity-50' : '';
+    
+    return `${baseClasses} ${focusClasses} ${selectionClasses} ${hoverClasses} ${zebraClasses} ${loadingClasses}`;
   };
 
   const toggleSelection = (id: string) => {
@@ -89,15 +103,44 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
     }
   };
 
-  const handleEditTransaction = (transactionId: string) => {
-    setEditingTransactionId(transactionId);
+  const handleEditTransaction = async (transactionId: string) => {
+    setOperationLoading('edit');
+    try {
+      setEditingTransactionId(transactionId);
+      setIsCreateMode(false);
+      setSelectedTransactionId(transactionId);
+    } finally {
+      setOperationLoading(null);
+    }
+  };
+
+  const handleCreateTransaction = () => {
+    setEditingTransactionId(null);
+    setIsCreateMode(true);
+    setSelectedTransactionId(null);
+  };
+
+  const handleModalClose = () => {
+    setEditingTransactionId(null);
+    setIsCreateMode(false);
+    setSelectedTransactionId(null);
   };
 
   const handleRowClick = (transactionId: string, e: React.MouseEvent) => {
-    // Don't trigger if clicking on checkbox
-    if ((e.target as HTMLElement).type === 'checkbox') {
+    // Don't trigger if clicking on checkbox, buttons, or action elements
+    const target = e.target as HTMLElement;
+    if (
+      target.type === 'checkbox' ||
+      target.closest('button') ||
+      target.closest('[data-action]') ||
+      target.closest('input') ||
+      target.closest('select')
+    ) {
       return;
     }
+    
+    // Set as selected and open edit modal
+    setSelectedTransactionId(transactionId);
     handleEditTransaction(transactionId);
   };
 
@@ -260,17 +303,10 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
                 key={entry.id}
                 onClick={(e) => handleRowClick(entry.id, e)}
                 onMouseEnter={() => setFocusedIndex(idx)}
-                className={`transition-colors cursor-pointer ${
-                  focusedIndex === idx
-                    ? 'ring-2 ring-blue-500 ring-inset'
-                    : ''
-                } ${
-                  selectedIds.has(entry.id)
-                    ? 'bg-blue-50 dark:bg-blue-900/10'
-                    : idx % 2 === 0
-                    ? 'bg-white dark:bg-slate-800'
-                    : 'bg-slate-50/50 dark:bg-slate-900/30'
-                } hover:bg-slate-100 dark:hover:bg-slate-700/50`}
+                className={getRowClassName(entry, idx)}
+                data-selected={selectedTransactionId === entry.id}
+                data-focused={focusedIndex === idx}
+                data-loading={operationLoading}
               >
                 {/* Row 1: Main transaction info */}
                 <td className="px-4 py-3.5">
@@ -406,15 +442,15 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
       </div>
 
       {/* Edit Transaction Modal */}
-      {editingTransactionId && (
+      {(editingTransactionId || isCreateMode) && (
         <TransactionFormModal
           isOpen={true}
-          onClose={() => setEditingTransactionId(null)}
+          onClose={handleModalClose}
           accountId={accountId}
           transactionId={editingTransactionId}
           onSuccess={() => {
             loadEntries();
-            setEditingTransactionId(null);
+            handleModalClose();
           }}
         />
       )}
