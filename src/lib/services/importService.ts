@@ -276,6 +276,39 @@ export class ImportService {
   }
 
   /**
+   * Save an import mapping template
+   */
+  async saveImportMappingTemplate(
+    name: string,
+    mapping: CSVColumnMapping,
+    accountId?: string
+  ): Promise<Settings> {
+    const key = `import_mapping_template_${name.toLowerCase().replace(/\s/g, '_')}`;
+    return this.prisma.settings.upsert({
+      where: { key },
+      update: { value: JSON.stringify({ mapping, accountId }) },
+      create: { key, value: JSON.stringify({ mapping, accountId }) },
+    });
+  }
+
+  /**
+   * Get all import mapping templates
+   */
+  async getImportMappingTemplates(accountId?: string): Promise<Array<{ name: string; mapping: CSVColumnMapping; accountId?: string }>> {
+    const settings = await this.prisma.settings.findMany({
+      where: {
+        key: { startsWith: 'import_mapping_template_' },
+      },
+    });
+
+    return settings.map(s => {
+      const name = s.key.replace('import_mapping_template_', '').replace(/_/g, ' ');
+      const value = JSON.parse(s.value);
+      return { name, mapping: value.mapping, accountId: value.accountId };
+    }).filter(template => !accountId || template.accountId === accountId);
+  }
+
+  /**
    * Import transactions from previewed rows
    */
   async importTransactions(

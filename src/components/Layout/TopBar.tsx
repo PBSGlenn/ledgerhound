@@ -2,15 +2,16 @@ import { useState } from 'react';
 import { Plus, Upload, GitCompare, BarChart3, Settings } from 'lucide-react';
 import type { AccountWithBalance } from '../../types';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
+import { ImportWizard } from '../features/import/ImportWizard';
 
 interface TopBarProps {
   selectedAccount?: AccountWithBalance;
   onRefresh?: () => void;
-  onImportClick?: () => void;
 }
 
-export function TopBar({ selectedAccount, onRefresh, onImportClick }: TopBarProps) {
+export function TopBar({ selectedAccount, onRefresh }: TopBarProps) {
   const [showTransactionForm, setShowTransactionForm] = useState(false);
+  const [showImportWizard, setShowImportWizard] = useState(false);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-AU', {
@@ -82,9 +83,13 @@ export function TopBar({ selectedAccount, onRefresh, onImportClick }: TopBarProp
             New Transaction
           </button>
           <button
-            onClick={onImportClick}
+            onClick={() => setShowImportWizard(true)}
+            disabled={!selectedAccount}
             className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2"
           >
+            <Upload className="w-4 h-4" />
+            Import CSV
+          </button>
           <button className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2">
             <GitCompare className="w-4 h-4" />
             Reconcile
@@ -102,6 +107,17 @@ export function TopBar({ selectedAccount, onRefresh, onImportClick }: TopBarProp
         onClose={() => setShowTransactionForm(false)}
         accountId={selectedAccount?.id}
         onSuccess={() => {
+          if (onRefresh) {
+            onRefresh();
+          }
+        }}
+      />
+
+      {/* Import Wizard Modal */}
+      <ImportWizard
+        isOpen={showImportWizard}
+        onClose={() => setShowImportWizard(false)}
+        onImportSuccess={() => {
           if (onRefresh) {
             onRefresh();
           }

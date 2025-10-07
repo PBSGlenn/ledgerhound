@@ -21,12 +21,7 @@ This document tracks the development progress of the Ledgerhound application.
 
 **Goal:** Reduce manual data entry through CSV imports and automated categorization.
 
-- **Task 2.1: Build the CSV Import Wizard** - 🚧 In Progress
-  - ✅ Basic UI structure
-  - ✅ File upload
-  - ✅ CSV parsing
-  - ✅ Column mapping
-  - ✅ Data preview
+- **Task 2.1: Build the CSV Import Wizard** - ✅ COMPLETE
 - **Task 2.2: Implement Memorized Rules**
 
 ---

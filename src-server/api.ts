@@ -183,6 +183,8 @@ app.post('/api/transactions/bulk-add-tags', async (req, res) => {
     res.status(400).json({ error: (error as Error).message });
   }
 });
+
+app.delete('/api/transactions/:id', async (req, res) => {
   try {
     await transactionService.deleteTransaction(req.params.id);
     res.status(204).send();
@@ -249,6 +251,26 @@ app.post('/api/import/execute', async (req, res) => {
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+app.post('/api/import/mappings', async (req, res) => {
+  try {
+    const { name, mapping, accountId } = req.body;
+    const savedMapping = await importService.saveImportMappingTemplate(name, mapping, accountId);
+    res.status(201).json(savedMapping);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/import/mappings', async (req, res) => {
+  try {
+    const accountId = req.query.accountId as string | undefined;
+    const mappings = await importService.getImportMappingTemplates(accountId);
+    res.json(mappings);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
   }
 });
 
