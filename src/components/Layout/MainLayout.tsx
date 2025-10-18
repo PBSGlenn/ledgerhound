@@ -6,13 +6,22 @@ import { DashboardView } from '../Dashboard/DashboardView';
 import { ReportsView } from '../Reports/ReportsView';
 import { ReconciliationView } from '../Reconciliation/ReconciliationView';
 import { SettingsView } from '../Settings/SettingsView';
+import { BookSwitcher } from '../Book/BookSwitcher';
+import { OnboardingWizard } from '../Onboarding/OnboardingWizard';
 import type { AccountWithBalance } from '../../types';
+import type { Book } from '../../types/book';
 import { ImportWizard } from '../../features/import/ImportWizard';
 import { accountAPI } from '../../lib/api';
 
 type ViewType = 'dashboard' | 'register' | 'reports' | 'reconciliation' | 'settings';
 
-export function MainLayout() {
+interface MainLayoutProps {
+  currentBook: Book;
+  onSwitchBook: (bookId: string) => void;
+}
+
+export function MainLayout({ currentBook, onSwitchBook }: MainLayoutProps) {
+  const [showNewBookWizard, setShowNewBookWizard] = useState(false);
   const [accounts, setAccounts] = useState<AccountWithBalance[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -33,8 +42,26 @@ export function MainLayout() {
     }
   };
 
+  const handleNewBookCreated = (bookId: string) => {
+    setShowNewBookWizard(false);
+    onSwitchBook(bookId);
+  };
+
+  if (showNewBookWizard) {
+    return <OnboardingWizard onComplete={handleNewBookCreated} />;
+  }
+
   return (
     <div className="flex h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+      {/* Book Switcher - Top Left */}
+      <div className="absolute top-4 left-4 z-10">
+        <BookSwitcher
+          currentBook={currentBook}
+          onSwitchBook={onSwitchBook}
+          onCreateNew={() => setShowNewBookWizard(true)}
+        />
+      </div>
+
       {/* Sidebar */}
       <AccountSidebar
         accounts={accounts}
