@@ -7,6 +7,7 @@ import { reportService } from '../src/lib/services/reportService.js';
 import { importService } from '../src/lib/services/importService.js';
 import { reconciliationService } from '../src/lib/services/reconciliationService.js';
 import { memorizedRuleService } from '../src/lib/services/memorizedRuleService.js';
+import { backupService } from '../src/lib/services/backupService.js';
 
 const app = express();
 const PORT = 3001;
@@ -394,10 +395,90 @@ app.post('/api/rules/match', async (req, res) => {
 });
 
 // ============================================================================
+// BACKUP ENDPOINTS
+// ============================================================================
+
+app.post('/api/backup/create', async (req, res) => {
+  try {
+    const { type } = req.body as { type?: 'manual' | 'auto' | 'pre-import' | 'pre-reconcile' };
+    const backup = await backupService.createBackup(type || 'manual');
+    res.json(backup);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/backup/list', async (req, res) => {
+  try {
+    const backups = backupService.listBackups();
+    res.json(backups);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post('/api/backup/restore', async (req, res) => {
+  try {
+    const { filename } = req.body as { filename: string };
+    await backupService.restoreBackup(filename);
+    res.json({ success: true, message: 'Backup restored successfully' });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.delete('/api/backup/:filename', async (req, res) => {
+  try {
+    backupService.deleteBackup(req.params.filename);
+    res.json({ success: true, message: 'Backup deleted' });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post('/api/backup/clean', async (req, res) => {
+  try {
+    const { keepCount } = req.body as { keepCount?: number };
+    const deletedCount = backupService.cleanOldBackups(keepCount);
+    res.json({ deletedCount });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/backup/export-json', async (req, res) => {
+  try {
+    const json = await backupService.exportToJSON();
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="ledgerhound-export-${new Date().toISOString().split('T')[0]}.json"`);
+    res.send(json);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/backup/stats', async (req, res) => {
+  try {
+    const stats = await backupService.getStats();
+    res.json(stats);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// ============================================================================
 // START SERVER
 // ============================================================================
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`🚀 Ledgerhound API server running at http://localhost:${PORT}`);
   console.log(`📊 Database: SQLite via Prisma`);
+
+  // Create automatic backup on startup
+  try {
+    await backupService.createBackup('auto');
+    console.log(`💾 Automatic backup created on startup`);
+  } catch (error) {
+    console.error('⚠️  Failed to create startup backup:', (error as Error).message);
+  }
 });

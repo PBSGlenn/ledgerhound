@@ -4,8 +4,11 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Settings, Save, RotateCcw } from 'lucide-react';
+import { Settings, Save, RotateCcw, Database, Download, Upload, Trash2, HardDrive } from 'lucide-react';
+import { format } from 'date-fns';
 import { useToast } from '../../hooks/useToast';
+import { backupAPI } from '../../lib/api';
+import * as AlertDialog from '@radix-ui/react-alert-dialog';
 
 interface AppSettings {
   currency: string;
@@ -23,13 +26,34 @@ const DEFAULT_SETTINGS: AppSettings = {
   theme: 'system',
 };
 
+interface BackupInfo {
+  filename: string;
+  timestamp: Date;
+  size: number;
+  type: string;
+}
+
+interface DBStats {
+  accounts: number;
+  transactions: number;
+  postings: number;
+  size: number;
+}
+
 export function SettingsView() {
   const { showSuccess, showError } = useToast();
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [hasChanges, setHasChanges] = useState(false);
+  const [backups, setBackups] = useState<BackupInfo[]>([]);
+  const [dbStats, setDBStats] = useState<DBStats | null>(null);
+  const [loadingBackups, setLoadingBackups] = useState(false);
+  const [creatingBackup, setCreatingBackup] = useState(false);
+  const [restoringBackup, setRestoringBackup] = useState<string | null>(null);
 
   useEffect(() => {
     loadSettings();
+    loadBackups();
+    loadDBStats();
   }, []);
 
   const loadSettings = () => {
@@ -40,6 +64,27 @@ export function SettingsView() {
       } catch (error) {
         console.error('Failed to load settings:', error);
       }
+    }
+  };
+
+  const loadBackups = async () => {
+    setLoadingBackups(true);
+    try {
+      const backupList = await backupAPI.listBackups();
+      setBackups(backupList);
+    } catch (error) {
+      showError('Failed to load backups', (error as Error).message);
+    } finally {
+      setLoadingBackups(false);
+    }
+  };
+
+  const loadDBStats = async () => {
+    try {
+      const stats = await backupAPI.getStats();
+      setDBStats(stats);
+    } catch (error) {
+      console.error('Failed to load database stats:', error);
     }
   };
 
@@ -62,6 +107,61 @@ export function SettingsView() {
   const updateSetting = <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
     setHasChanges(true);
+  };
+
+  const handleCreateBackup = async () => {
+    setCreatingBackup(true);
+    try {
+      await backupAPI.createBackup('manual');
+      await loadBackups();
+      await loadDBStats();
+      showSuccess('Backup created', 'Database backup created successfully');
+    } catch (error) {
+      showError('Backup failed', (error as Error).message);
+    } finally {
+      setCreatingBackup(false);
+    }
+  };
+
+  const handleRestoreBackup = async (filename: string) => {
+    setRestoringBackup(filename);
+    try {
+      await backupAPI.restoreBackup(filename);
+      await loadDBStats();
+      showSuccess('Backup restored', 'Database restored successfully. Please refresh the page.');
+      setTimeout(() => window.location.reload(), 2000);
+    } catch (error) {
+      showError('Restore failed', (error as Error).message);
+    } finally {
+      setRestoringBackup(null);
+    }
+  };
+
+  const handleDeleteBackup = async (filename: string) => {
+    try {
+      await backupAPI.deleteBackup(filename);
+      await loadBackups();
+      showSuccess('Backup deleted', 'Backup file deleted successfully');
+    } catch (error) {
+      showError('Delete failed', (error as Error).message);
+    }
+  };
+
+  const handleExportJSON = () => {
+    try {
+      backupAPI.exportToJSON();
+      showSuccess('Export started', 'JSON export download will begin shortly');
+    } catch (error) {
+      showError('Export failed', (error as Error).message);
+    }
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
   };
 
   return (
@@ -226,6 +326,177 @@ export function SettingsView() {
                   Choose your preferred color scheme
                 </p>
               </div>
+            </div>
+          </div>
+
+          {/* Backup & Restore */}
+          <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">
+              Backup & Restore
+            </h2>
+
+            {/* Database Stats */}
+            {dbStats && (
+              <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-4 mb-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <HardDrive className="w-5 h-5 text-slate-600 dark:text-slate-400" />
+                  <h3 className="font-medium text-slate-900 dark:text-slate-100">Database Info</h3>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-slate-600 dark:text-slate-400">Accounts:</span>
+                    <span className="ml-2 font-medium text-slate-900 dark:text-slate-100">{dbStats.accounts}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-600 dark:text-slate-400">Transactions:</span>
+                    <span className="ml-2 font-medium text-slate-900 dark:text-slate-100">{dbStats.transactions}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-600 dark:text-slate-400">Postings:</span>
+                    <span className="ml-2 font-medium text-slate-900 dark:text-slate-100">{dbStats.postings}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-600 dark:text-slate-400">Database Size:</span>
+                    <span className="ml-2 font-medium text-slate-900 dark:text-slate-100">{formatBytes(dbStats.size)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Backup Actions */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={handleCreateBackup}
+                disabled={creatingBackup}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md font-medium flex items-center gap-2 transition-colors disabled:opacity-50"
+              >
+                <Database className="w-4 h-4" />
+                {creatingBackup ? 'Creating...' : 'Create Backup'}
+              </button>
+              <button
+                onClick={handleExportJSON}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium flex items-center gap-2 transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                Export to JSON
+              </button>
+            </div>
+
+            {/* Backup List */}
+            <div className="space-y-2">
+              <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Available Backups</h3>
+              {loadingBackups ? (
+                <p className="text-sm text-slate-500 dark:text-slate-400">Loading backups...</p>
+              ) : backups.length === 0 ? (
+                <p className="text-sm text-slate-500 dark:text-slate-400">No backups found</p>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {backups.map((backup) => (
+                    <div
+                      key={backup.filename}
+                      className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg"
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                            {backup.filename}
+                          </span>
+                          <span className="text-xs bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded">
+                            {backup.type}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                          {format(new Date(backup.timestamp), 'PPpp')} • {formatBytes(backup.size)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <AlertDialog.Root>
+                          <AlertDialog.Trigger asChild>
+                            <button
+                              disabled={restoringBackup === backup.filename}
+                              className="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded text-sm font-medium transition-colors disabled:opacity-50"
+                            >
+                              <Upload className="w-3.5 h-3.5" />
+                            </button>
+                          </AlertDialog.Trigger>
+                          <AlertDialog.Portal>
+                            <AlertDialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50" />
+                            <AlertDialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md shadow-xl z-50">
+                              <AlertDialog.Title className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
+                                Restore Backup?
+                              </AlertDialog.Title>
+                              <AlertDialog.Description className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                                This will replace your current database with the backup from{' '}
+                                <strong>{format(new Date(backup.timestamp), 'PPpp')}</strong>.
+                                <br />
+                                <br />
+                                <span className="text-red-600 dark:text-red-400 font-medium">
+                                  Warning: All current data will be replaced. This cannot be undone.
+                                </span>
+                              </AlertDialog.Description>
+                              <div className="flex justify-end gap-2">
+                                <AlertDialog.Cancel asChild>
+                                  <button className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+                                    Cancel
+                                  </button>
+                                </AlertDialog.Cancel>
+                                <AlertDialog.Action asChild>
+                                  <button
+                                    onClick={() => handleRestoreBackup(backup.filename)}
+                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md font-medium transition-colors"
+                                  >
+                                    Restore Backup
+                                  </button>
+                                </AlertDialog.Action>
+                              </div>
+                            </AlertDialog.Content>
+                          </AlertDialog.Portal>
+                        </AlertDialog.Root>
+
+                        <AlertDialog.Root>
+                          <AlertDialog.Trigger asChild>
+                            <button className="px-3 py-1.5 bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-300 rounded text-sm font-medium transition-colors">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </AlertDialog.Trigger>
+                          <AlertDialog.Portal>
+                            <AlertDialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50" />
+                            <AlertDialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-lg p-6 w-full max-w-md shadow-xl z-50">
+                              <AlertDialog.Title className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
+                                Delete Backup?
+                              </AlertDialog.Title>
+                              <AlertDialog.Description className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                                Are you sure you want to delete this backup? This action cannot be undone.
+                              </AlertDialog.Description>
+                              <div className="flex justify-end gap-2">
+                                <AlertDialog.Cancel asChild>
+                                  <button className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md font-medium hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+                                    Cancel
+                                  </button>
+                                </AlertDialog.Cancel>
+                                <AlertDialog.Action asChild>
+                                  <button
+                                    onClick={() => handleDeleteBackup(backup.filename)}
+                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md font-medium transition-colors"
+                                  >
+                                    Delete
+                                  </button>
+                                </AlertDialog.Action>
+                              </div>
+                            </AlertDialog.Content>
+                          </AlertDialog.Portal>
+                        </AlertDialog.Root>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+              <p className="text-xs text-yellow-800 dark:text-yellow-200">
+                <strong>Tip:</strong> Backups are created automatically when the app starts. You can also create manual backups before important operations.
+              </p>
             </div>
           </div>
 

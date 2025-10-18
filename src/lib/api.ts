@@ -411,3 +411,91 @@ export const reconciliationAPI = {
   },
 };
 
+// Backup API
+export const backupAPI = {
+  async createBackup(type?: 'manual' | 'auto' | 'pre-import' | 'pre-reconcile'): Promise<{
+    filename: string;
+    timestamp: Date;
+    size: number;
+    type: string;
+  }> {
+    const response = await fetch(`${API_BASE}/backup/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: type || 'manual' }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to create backup');
+    }
+    return response.json();
+  },
+
+  async listBackups(): Promise<Array<{
+    filename: string;
+    timestamp: Date;
+    size: number;
+    type: string;
+  }>> {
+    const response = await fetch(`${API_BASE}/backup/list`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to list backups');
+    }
+    return response.json();
+  },
+
+  async restoreBackup(filename: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/backup/restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to restore backup');
+    }
+  },
+
+  async deleteBackup(filename: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/backup/${filename}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to delete backup');
+    }
+  },
+
+  async cleanOldBackups(keepCount: number = 10): Promise<{ deletedCount: number }> {
+    const response = await fetch(`${API_BASE}/backup/clean`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keepCount }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to clean old backups');
+    }
+    return response.json();
+  },
+
+  async getStats(): Promise<{
+    accounts: number;
+    transactions: number;
+    postings: number;
+    size: number;
+  }> {
+    const response = await fetch(`${API_BASE}/backup/stats`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to get database stats');
+    }
+    return response.json();
+  },
+
+  async exportToJSON(): Promise<void> {
+    window.open(`${API_BASE}/backup/export-json`, '_blank');
+  },
+};
+

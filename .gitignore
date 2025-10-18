@@ -4,3 +4,10 @@ node_modules
 
 /generated/prisma
 .aider*
+
+# Database and backups (local only, not versioned)
+prisma/dev.db
+prisma/dev.db-journal
+prisma/dev.db-shm
+prisma/dev.db-wal
+prisma/backups/
