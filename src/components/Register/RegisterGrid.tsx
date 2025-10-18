@@ -6,6 +6,7 @@ import type { RegisterEntry, RegisterFilter } from '../../types';
 import { transactionAPI } from '../../lib/api';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
 import { generateCSV, downloadCSV, formatDateForCSV, formatCurrencyForCSV } from '../../lib/utils/csvExport';
+import { useToast } from '../../hooks/useToast';
 
 import { useDebounce } from '../../hooks/useDebounce';
 
@@ -14,6 +15,7 @@ interface RegisterGridProps {
 }
 
 export function RegisterGrid({ accountId }: RegisterGridProps) {
+  const { showSuccess, showError } = useToast();
   const [entries, setEntries] = useState<RegisterEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -41,7 +43,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
       const data = await transactionAPI.getRegisterEntries(accountId, filter);
       setEntries(data);
     } catch (error) {
-      console.error('Failed to load register entries:', error);
+      showError('Failed to load transactions', (error as Error).message);
     } finally {
       setLoading(false);
     }
@@ -99,8 +101,9 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
       await loadEntries();
       setTaggingTransactionIds([]);
       setSelectedIds(new Set());
+      showSuccess('Tags added', `Tag "${tag}" has been added to ${taggingTransactionIds.length} transaction(s)`);
     } catch (error) {
-      console.error('Failed to add tag:', error);
+      showError('Failed to add tag', (error as Error).message);
     }
   };
   const handleMarkCleared = async () => {
@@ -112,8 +115,9 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
       await transactionAPI.markCleared(postingIds, true);
       await loadEntries();
       setSelectedIds(new Set());
+      showSuccess('Transactions cleared', `${postingIds.length} transaction(s) marked as cleared`);
     } catch (error) {
-      console.error('Failed to mark as cleared:', error);
+      showError('Failed to mark as cleared', (error as Error).message);
     }
   };
 
@@ -122,9 +126,9 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
       await transactionAPI.deleteTransaction(transactionId);
       await loadEntries();
       setDeletingTransactionId(null);
+      showSuccess('Transaction deleted', 'The transaction has been successfully deleted');
     } catch (error) {
-      console.error('Failed to delete transaction:', error);
-      alert('Failed to delete transaction: ' + (error as Error).message);
+      showError('Failed to delete transaction', (error as Error).message);
     }
   };
 
@@ -152,21 +156,26 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
   };
 
   const handleExportCSV = () => {
-    const csv = generateCSV(entries, [
-      { header: 'Date', accessor: (row) => formatDateForCSV(row.date) },
-      { header: 'Payee', accessor: (row) => row.payee },
-      { header: 'Memo', accessor: (row) => row.memo || '' },
-      { header: 'Category', accessor: (row) => row.postings.filter((p: any) => p.accountId !== accountId).map((p: any) => p.account.name).join('; ') },
-      { header: 'Debit', accessor: (row) => row.debit ? formatCurrencyForCSV(row.debit) : '' },
-      { header: 'Credit', accessor: (row) => row.credit ? formatCurrencyForCSV(row.credit) : '' },
-      { header: 'Balance', accessor: (row) => formatCurrencyForCSV(row.runningBalance) },
-      { header: 'Cleared', accessor: (row) => row.cleared ? 'Yes' : 'No' },
-      { header: 'Reconciled', accessor: (row) => row.reconciled ? 'Yes' : 'No' },
-      { header: 'Tags', accessor: (row) => row.tags ? row.tags.join('; ') : '' },
-    ]);
+    try {
+      const csv = generateCSV(entries, [
+        { header: 'Date', accessor: (row) => formatDateForCSV(row.date) },
+        { header: 'Payee', accessor: (row) => row.payee },
+        { header: 'Memo', accessor: (row) => row.memo || '' },
+        { header: 'Category', accessor: (row) => row.postings.filter((p: any) => p.accountId !== accountId).map((p: any) => p.account.name).join('; ') },
+        { header: 'Debit', accessor: (row) => row.debit ? formatCurrencyForCSV(row.debit) : '' },
+        { header: 'Credit', accessor: (row) => row.credit ? formatCurrencyForCSV(row.credit) : '' },
+        { header: 'Balance', accessor: (row) => formatCurrencyForCSV(row.runningBalance) },
+        { header: 'Cleared', accessor: (row) => row.cleared ? 'Yes' : 'No' },
+        { header: 'Reconciled', accessor: (row) => row.reconciled ? 'Yes' : 'No' },
+        { header: 'Tags', accessor: (row) => row.tags ? row.tags.join('; ') : '' },
+      ]);
 
-    const today = format(new Date(), 'yyyy-MM-dd');
-    downloadCSV(csv, `register-export-${today}.csv`);
+      const today = format(new Date(), 'yyyy-MM-dd');
+      downloadCSV(csv, `register-export-${today}.csv`);
+      showSuccess('Export complete', `Exported ${entries.length} transactions to CSV`);
+    } catch (error) {
+      showError('Export failed', (error as Error).message);
+    }
   };
 
   const handleRowClick = (transactionId: string, e: React.MouseEvent) => {

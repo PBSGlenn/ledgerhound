@@ -5,11 +5,12 @@ import { RegisterView } from '../Register/RegisterView';
 import { DashboardView } from '../Dashboard/DashboardView';
 import { ReportsView } from '../Reports/ReportsView';
 import { ReconciliationView } from '../Reconciliation/ReconciliationView';
+import { SettingsView } from '../Settings/SettingsView';
 import type { AccountWithBalance } from '../../types';
 import { ImportWizard } from '../../features/import/ImportWizard';
 import { accountAPI } from '../../lib/api';
 
-type ViewType = 'dashboard' | 'register' | 'reports' | 'reconciliation';
+type ViewType = 'dashboard' | 'register' | 'reports' | 'reconciliation' | 'settings';
 
 export function MainLayout() {
   const [accounts, setAccounts] = useState<AccountWithBalance[]>([]);
@@ -66,11 +67,14 @@ export function MainLayout() {
             setCurrentView('dashboard');
             setSelectedAccountId(null);
           }}
+          onSettingsClick={() => setCurrentView('settings')}
         />
 
         {/* Content */}
         <main className="flex-1 overflow-auto p-8">
-          {currentView === 'reports' ? (
+          {currentView === 'settings' ? (
+            <SettingsView />
+          ) : currentView === 'reports' ? (
             <ReportsView />
           ) : currentView === 'reconciliation' && selectedAccountId ? (
             <ReconciliationView
