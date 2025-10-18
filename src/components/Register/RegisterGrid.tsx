@@ -102,6 +102,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
       console.error('Failed to add tag:', error);
     }
   };
+  const handleMarkCleared = async () => {
     const postingIds = entries
       .filter((e) => selectedIds.has(e.id))
       .flatMap((e) => e.postings.filter((p) => p.accountId === accountId).map((p) => p.id));

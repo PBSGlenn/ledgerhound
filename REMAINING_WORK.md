@@ -1,86 +1,12 @@
 # Ledgerhound - Remaining Work
 
-**Current Status:** Backend Complete (100%), Frontend Foundation Built (70%)
+**Current Status:** Fully Functional with Express Backend ✅
 
 ---
 
 ## 🎯 Critical Path to MVP (Must Have)
 
-### 1. Transaction Form Modal ⏱️ ~2-3 hours
-**Priority: HIGH** - Can't add/edit transactions without this
-
-**What to build:**
-- [ ] Modal component using Radix Dialog
-- [ ] Form with two modes:
-  - [ ] **Simple mode** - One category, one memo, one amount
-  - [ ] **Split mode** - Multiple category splits
-- [ ] Per-split business toggle
-- [ ] Conditional GST fields (only show when `isBusiness=true`)
-- [ ] Validation:
-  - [ ] All fields required
-  - [ ] Splits must sum to transaction amount
-  - [ ] GST calculation validation
-- [ ] Memorized rule preview/application
-- [ ] Transfer mode (account-to-account)
-
-**Files to create:**
-- `src/components/Transaction/TransactionFormModal.tsx`
-- `src/components/Transaction/SplitEditor.tsx`
-- `src/components/Transaction/GSTFields.tsx`
-
-**API calls needed:**
-- `transactionAPI.createTransaction()`
-- `transactionAPI.updateTransaction()`
-- `accountAPI.getAllAccounts()` (for category picker)
-- `memorizedRuleAPI.matchPayee()` (for rule preview)
-
----
-
-### 2. Tauri Backend Commands ⏱️ ~3-4 hours
-**Priority: CRITICAL** - Required for app to work at all
-
-**Option A: Use tauri-plugin-sql (Recommended)**
-
-```bash
-# Install plugin
-npm install @tauri-apps/plugin-sql
-cd src-tauri
-cargo add tauri-plugin-sql --features sqlite
-```
-
-Then expose database operations as Tauri commands.
-
-**Commands to implement:**
-- [ ] `get_all_accounts_with_balances()`
-- [ ] `get_account_by_id(account_id: String)`
-- [ ] `create_account(data: CreateAccountDTO)`
-- [ ] `update_account(id: String, data: UpdateAccountDTO)`
-- [ ] `delete_account(id: String)`
-- [ ] `get_register_entries(account_id: String, filter: RegisterFilter)`
-- [ ] `create_transaction(data: CreateTransactionDTO)`
-- [ ] `update_transaction(data: UpdateTransactionDTO)`
-- [ ] `delete_transaction(id: String)`
-- [ ] `mark_cleared(posting_ids: Vec<String>, cleared: bool)`
-- [ ] `import_csv(preview: Vec<ImportPreview>, ...)`
-- [ ] `generate_report_pl(start: Date, end: Date, options: ReportOptions)`
-- [ ] `generate_report_gst(start: Date, end: Date)`
-- [ ] `generate_report_bas(start: Date, end: Date)`
-
-**Files to modify:**
-- `src-tauri/src/lib.rs` - Add Tauri commands
-- `src-tauri/Cargo.toml` - Add dependencies
-- `src/lib/api.ts` - Replace mock functions with `invoke()` calls
-
-**Option B: Call Node.js from Tauri**
-
-Use `tauri-plugin-shell` to call Node.js scripts that use the existing Prisma services.
-
-**Pros:** Reuse existing TypeScript services
-**Cons:** Requires Node.js on user's machine
-
----
-
-### 3. Make Register Grid Functional ⏱️ ~1-2 hours
+### 1. Make Register Grid Functional ⏱️ ~1-2 hours
 **Priority: HIGH** - Users need to see and edit transactions
 
 **What to add:**
@@ -112,41 +38,24 @@ Use `tauri-plugin-shell` to call Node.js scripts that use the existing Prisma se
 
 ---
 
-## 📊 Important Features (Should Have)
-
-### 4. CSV Import Wizard ⏱️ ~3-4 hours
+### 2. Split Transactions UI ⏱️ ~2-3 hours
+**Priority: HIGH** - Common use case (meals, shopping with multiple categories).
 
 **What to build:**
-- [ ] File upload with drag-and-drop
-- [ ] CSV parsing preview
-- [ ] Column mapping UI:
-  - [ ] Auto-detect common column names
-  - [ ] Dropdown to map each CSV column to field
-  - [ ] Date format selector
-- [ ] Preview table showing:
-  - [ ] Parsed data
-  - [ ] Duplicate warnings (icon/badge)
-  - [ ] Matched rules (badge)
-  - [ ] Suggested categories
-- [ ] Options:
-  - [ ] Skip duplicates (checkbox)
-  - [ ] Apply memorized rules (checkbox)
-- [ ] Import progress bar
-- [ ] Success summary (X imported, Y skipped)
+- [ ] Add "Split" mode to transaction form
+- [ ] Multiple category lines with individual amounts
+- [ ] Business toggle per split
+- [ ] Per-split GST calculations
+- [ ] Validation (all splits must sum to total)
 
-**Files to create:**
-- `src/components/Import/ImportWizard.tsx`
-- `src/components/Import/ColumnMapper.tsx`
-- `src/components/Import/ImportPreview.tsx`
-
-**API calls:**
-- `importAPI.parseCSV(content: string)`
-- `importAPI.previewImport(rows, mapping, accountId)`
-- `importAPI.importTransactions(previews, accountId, options)`
+**Files to modify:**
+- `src/components/Transaction/TransactionFormModal.tsx` - Add split mode
+- Backend already supports this! Just UI work.
 
 ---
 
-### 5. Reconciliation Interface ⏱️ ~4-5 hours
+### 3. Reconciliation Interface ⏱️ ~4-5 hours
+**Priority: MEDIUM** - Critical for month-end workflows.
 
 **What to build:**
 - [ ] Reconciliation wizard:
@@ -187,7 +96,8 @@ Use `tauri-plugin-shell` to call Node.js scripts that use the existing Prisma se
 
 ---
 
-### 6. Reports Dashboard ⏱️ ~3-4 hours
+### 4. Reports Dashboard ⏱️ ~3-4 hours
+**Priority: MEDIUM** - Provide users with insights into their financial data.
 
 **What to build:**
 - [ ] Reports menu/navigation

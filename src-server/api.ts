@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { accountService } from '../src/lib/services/accountService.js';
-import { AccountKind, AccountType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { transactionService } from '../src/lib/services/transactionService.js';
 import { reportService } from '../src/lib/services/reportService.js';
 import { importService } from '../src/lib/services/importService.js';
@@ -26,8 +26,8 @@ app.get('/api/accounts', async (req, res) => {
 
     const isRealParam = req.query.isReal as string | undefined;
 
-    const type = typeParam && Object.values(AccountType).includes(typeParam as AccountType) ? (typeParam as AccountType) : undefined;
-    const kind = kindParam && Object.values(AccountKind).includes(kindParam as AccountKind) ? (kindParam as AccountKind) : undefined;
+    const type = typeParam as Prisma.AccountType | undefined;
+    const kind = kindParam as Prisma.AccountKind | undefined;
     const isReal = isRealParam === 'true' ? true : isRealParam === 'false' ? false : undefined;
 
     const accounts = await accountService.getAllAccounts({
@@ -95,7 +95,7 @@ app.get('/api/categories', async (req, res) => {
     const includeArchived = req.query.includeArchived === 'true';
     const categories = await accountService.getAllAccounts({
       includeArchived,
-      kind: AccountKind.CATEGORY,
+      kind: Prisma.AccountKind.CATEGORY,
     });
     res.json(categories);
   } catch (error) {
@@ -105,8 +105,8 @@ app.get('/api/categories', async (req, res) => {
 
 app.post('/api/categories', async (req, res) => {
   try {
-    const { name, type, isBusinessDefault, sortOrder } = req.body as { name: string; type: AccountType; isBusinessDefault?: boolean; sortOrder?: number };
-    if (type !== AccountType.INCOME && type !== AccountType.EXPENSE) {
+    const { name, type, isBusinessDefault, sortOrder } = req.body as { name: string; type: Prisma.AccountType; isBusinessDefault?: boolean; sortOrder?: number };
+    if (type !== Prisma.AccountType.INCOME && type !== Prisma.AccountType.EXPENSE) {
       return res.status(400).json({ error: 'Categories must be INCOME or EXPENSE' });
     }
 
@@ -184,6 +184,16 @@ app.post('/api/transactions/bulk-add-tags', async (req, res) => {
   }
 });
 
+app.post('/api/transactions/mark-cleared', async (req, res) => {
+  try {
+    const { postingIds, cleared } = req.body;
+    await transactionService.markCleared(postingIds, cleared);
+    res.status(204).send();
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
 app.delete('/api/transactions/:id', async (req, res) => {
   try {
     await transactionService.deleteTransaction(req.params.id);
@@ -236,8 +246,9 @@ app.get('/api/reports/bas-draft', async (req, res) => {
 
 app.post('/api/import/preview', async (req, res) => {
   try {
-    const { csvText, mapping } = req.body;
-    const preview = await importService.parseCSV(csvText, mapping);
+    const { csvText, mapping, sourceAccountId } = req.body;
+    const rows = importService.parseCSV(csvText);
+    const preview = await importService.previewImport(rows, mapping, sourceAccountId);
     res.json(preview);
   } catch (error) {
     res.status(400).json({ error: (error as Error).message });
@@ -246,8 +257,8 @@ app.post('/api/import/preview', async (req, res) => {
 
 app.post('/api/import/execute', async (req, res) => {
   try {
-    const { accountId, csvText, mapping } = req.body;
-    const result = await importService.importTransactions(accountId, csvText, mapping);
+    const { previews, sourceAccountId, sourceName, mapping, options } = req.body;
+    const result = await importService.importTransactions(previews, sourceAccountId, sourceName, mapping, options);
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: (error as Error).message });
@@ -280,41 +291,66 @@ app.get('/api/import/mappings', async (req, res) => {
 
 app.post('/api/reconciliation/start', async (req, res) => {
   try {
-    const { accountId, statementDate, statementBalance } = req.body;
-    const reconciliation = await reconciliationService.startReconciliation(
+    const { accountId, statementStartDate, statementEndDate, statementStartBalance, statementEndBalance, notes } = req.body;
+    const reconciliation = await reconciliationService.createReconciliation({
       accountId,
-      new Date(statementDate),
-      statementBalance
-    );
+      statementStartDate: new Date(statementStartDate),
+      statementEndDate: new Date(statementEndDate),
+      statementStartBalance,
+      statementEndBalance,
+      notes,
+    });
     res.status(201).json(reconciliation);
   } catch (error) {
     res.status(400).json({ error: (error as Error).message });
   }
 });
 
-app.post('/api/reconciliation/:id/toggle-posting', async (req, res) => {
+app.post('/api/reconciliation/:id/reconcile-postings', async (req, res) => {
   try {
-    const { postingId } = req.body;
-    await reconciliationService.togglePostingReconciled(req.params.id, postingId);
+    const { postingIds } = req.body;
+    await reconciliationService.reconcilePostings(req.params.id, postingIds);
     res.status(204).send();
   } catch (error) {
     res.status(400).json({ error: (error as Error).message });
   }
 });
 
-app.post('/api/reconciliation/:id/finish', async (req, res) => {
+app.post('/api/reconciliation/:id/unreconcile-postings', async (req, res) => {
   try {
-    const reconciliation = await reconciliationService.finishReconciliation(req.params.id);
+    const { postingIds } = req.body;
+    await reconciliationService.unreconcilePostings(req.params.id, postingIds);
+    res.status(204).send();
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+app.post('/api/reconciliation/:id/lock', async (req, res) => {
+  try {
+    const reconciliation = await reconciliationService.lockReconciliation(req.params.id);
     res.json(reconciliation);
   } catch (error) {
     res.status(400).json({ error: (error as Error).message });
   }
 });
 
-app.get('/api/reconciliation/:id/summary', async (req, res) => {
+app.get('/api/reconciliation/:id/status', async (req, res) => {
   try {
-    const summary = await reconciliationService.getReconciliationSummary(req.params.id);
-    res.json(summary);
+    const status = await reconciliationService.getReconciliationStatus(req.params.id);
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/reconciliation/:id', async (req, res) => {
+  try {
+    const reconciliation = await reconciliationService.getReconciliationById(req.params.id);
+    if (!reconciliation) {
+      return res.status(404).json({ error: 'Reconciliation not found' });
+    }
+    res.json(reconciliation);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

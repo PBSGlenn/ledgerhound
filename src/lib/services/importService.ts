@@ -156,7 +156,7 @@ export class ImportService {
     // Parse date
     let date: Date | undefined;
     if (mapping.date !== undefined) {
-      const dateStr = row[columns[mapping.date]];
+      const dateStr = row[mapping.date];
       const parsedDate = this.parseDate(dateStr);
       if (parsedDate) {
         date = parsedDate;
@@ -166,25 +166,25 @@ export class ImportService {
     // Parse payee
     let payee: string | undefined;
     if (mapping.payee !== undefined) {
-      payee = row[columns[mapping.payee]];
+      payee = row[mapping.payee];
     } else if (mapping.description !== undefined) {
-      payee = row[columns[mapping.description]];
+      payee = row[mapping.description];
     }
 
     // Parse amount
     let amount: number | undefined;
     if (mapping.amount !== undefined) {
-      amount = this.parseAmount(row[columns[mapping.amount]]) ?? undefined;
+      amount = this.parseAmount(row[mapping.amount]) ?? undefined;
     } else if (mapping.debit !== undefined && mapping.credit !== undefined) {
-      const debit = this.parseAmount(row[columns[mapping.debit]]) ?? 0;
-      const credit = this.parseAmount(row[columns[mapping.credit]]) ?? 0;
+      const debit = this.parseAmount(row[mapping.debit]) ?? 0;
+      const credit = this.parseAmount(row[mapping.credit]) ?? 0;
       amount = debit - credit;
     }
 
     // Parse reference
     let reference: string | undefined;
     if (mapping.reference !== undefined) {
-      reference = row[columns[mapping.reference]];
+      reference = row[mapping.reference];
     }
 
     // Check for duplicates
@@ -209,14 +209,23 @@ export class ImportService {
       }
     }
 
+    console.log('Previewing row:', row);
+    console.log('Parsed date:', date);
+    console.log('Parsed payee:', payee);
+    console.log('Parsed amount:', amount);
+    console.log('Parsed reference:', reference);
+
+    const parsed = {
+      date,
+      payee,
+      amount,
+      reference,
+    };
+    console.log('Constructed parsed object:', parsed);
+
     return {
       row,
-      parsed: {
-        date,
-        payee,
-        amount,
-        reference,
-      },
+      parsed,
       isDuplicate,
       matchedRule: matchedRule ?? undefined,
       suggestedCategory: suggestedCategory ?? undefined,
@@ -259,7 +268,7 @@ export class ImportService {
           gte: dateStart,
           lte: dateEnd,
         },
-        payee: payee ? { contains: payee, mode: 'insensitive' } : undefined,
+        payee: payee ? { contains: payee } : undefined,
         postings: {
           some: {
             accountId,
@@ -332,6 +341,11 @@ export class ImportService {
 
     let imported = 0;
     let skipped = 0;
+
+    console.log('Importing transactions:');
+    console.log('  sourceAccountId:', sourceAccountId);
+    console.log('  sourceName:', sourceName);
+    console.log('  mapping:', mapping);
 
     // Get uncategorized account
     const uncategorizedAccount = await this.prisma.account.findFirst({

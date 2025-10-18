@@ -1,7 +1,7 @@
 # Ledgerhound Implementation Summary
 
-**Date:** 2025-10-04
-**Status:** Backend Complete, UI Foundation Built, App Compiles Successfully ✅
+Date: 2025-10-07
+**Status:** Fully Functional with Express Backend ✅
 
 ---
 
@@ -78,7 +78,7 @@ Comprehensive sample data demonstrating all features:
 - 4 default settings
 - Demonstrates GST on/off, business/personal splits, transfers
 
-### 2. Frontend Foundation (70% Complete)
+### 2. Frontend Foundation (95% Complete)
 
 #### UI Components Built
 - ✅ **MainLayout** - Responsive layout with sidebar and content area
@@ -90,6 +90,8 @@ Comprehensive sample data demonstrating all features:
   - Inline selection and bulk actions
   - Business/personal filtering
   - Cleared/reconciled indicators
+- ✅ **TransactionFormModal** - Full transaction entry form with GST support
+- ✅ **ImportWizard** - Multi-step UI for file upload, column mapping, preview, and import.
 
 #### Styling
 - ✅ Tailwind CSS configured and working
@@ -98,9 +100,8 @@ Comprehensive sample data demonstrating all features:
 - ✅ Accessible color schemes
 
 #### API Bridge Layer
-- ✅ Mock API for development (`src/lib/api.ts`)
-- ✅ Ready for Tauri command integration
-- ✅ Clean separation between UI and backend
+- ✅ Connected to Express backend (`src/lib/api.ts`)
+- ✅ Full CRUD operations working
 
 ### 3. Development Infrastructure
 
@@ -164,51 +165,38 @@ Comprehensive sample data demonstrating all features:
 2. **Database schema is complete** with migrations
 3. **Seed data works** (`npm run db:seed`)
 4. **All 6 services have full business logic** implemented
-5. **UI renders** with mock data:
-   - Sidebar shows accounts with balances
-   - Top bar shows account info
-   - Register grid displays (currently empty)
+5. **UI is fully functional and connected to Express backend**:
+   - Sidebar shows accounts with real balances
+   - Top bar shows account info and functional buttons
+   - Register grid displays real transactions
+   - Transaction form modal (add/edit) is working
+   - CSV Import Wizard is fully functional (preview and import)
 6. **Tailwind CSS styling** is working
 7. **TypeScript** compiles without errors
 
 ### 🔨 Next Steps (Priority Order)
 
 #### High Priority
-1. **Implement Tauri Commands** (required for real functionality)
-   - Create Rust commands in `src-tauri/src/lib.rs`
-   - Expose all service methods as Tauri commands
-   - Update `api.ts` to use `invoke()` instead of mocks
-   - Handle database path (use Tauri app data directory)
-
-2. **Transaction Form Modal**
-   - Add/edit transaction UI
-   - Simple mode (one category) and split mode
-   - Business toggle per split
-   - Conditional GST fields
-   - Memorized rule preview
-   - Validation feedback
-
-3. **Make Register Grid Functional**
-   - Connect to real data via Tauri commands
+1. **Make Register Grid Functional**
+   - Connect to real data via API calls
    - Add click handlers for editing transactions
    - Implement inline editing
    - Add keyboard navigation
 
-#### Medium Priority
-4. **CSV Import Wizard**
-   - File upload UI
-   - Column mapping interface
-   - Preview table with deduplication warnings
-   - Rule matching display
-   - Import progress indicator
+2. **Split Transactions UI**
+   - Add full support for split transactions in the Transaction Form Modal
+   - Allow multiple category lines with individual amounts
+   - Per-split business toggle and GST calculations
+   - Validation that splits sum to total
 
-5. **Reconciliation UI**
+#### Medium Priority
+3. **Reconciliation UI**
    - Statement-based workflow
    - PDF viewer integration (PDF.js)
    - Manual tick-off interface
    - Balance difference indicator
 
-6. **Reports Dashboard**
+4. **Reports Dashboard**
    - P&L report with filters
    - GST Summary
    - BAS Draft with export
@@ -216,18 +204,18 @@ Comprehensive sample data demonstrating all features:
    - Date range selector
 
 #### Lower Priority
-7. **Settings UI**
+5. **Settings UI**
    - Organization details
    - GST configuration
    - Locale settings
    - Backup configuration
 
-8. **Testing**
+6. **Testing**
    - Unit tests for services (Vitest)
    - E2E tests (Playwright)
    - Test coverage reports
 
-9. **User Documentation**
+7. **User Documentation**
    - User guide
    - Keyboard shortcuts
    - GST/BAS guide for Australian users
@@ -275,14 +263,14 @@ Comprehensive sample data demonstrating all features:
 ## 🎯 MVP Acceptance Criteria
 
 ### Must Have (for MVP)
-- [x] Database schema with double-entry support
-- [x] Business logic for all core operations
-- [x] Account management (CRUD + balances)
-- [x] Transaction management (create/edit/delete)
-- [ ] **Tauri commands exposing services** ⬅ CRITICAL BLOCKER
-- [ ] Transaction form (add/edit with GST)
-- [ ] Register view showing transactions
-- [ ] CSV import with deduplication
+- ✅ Database schema with double-entry support
+- ✅ Business logic for all core operations
+- ✅ Account management (CRUD + balances)
+- ✅ Transaction management (create/edit/delete)
+- ✅ Express backend connected and functional
+- ✅ Transaction form (add/edit with GST)
+- ✅ Register view showing transactions
+- ✅ CSV import with deduplication
 - [ ] Basic reconciliation
 - [ ] GST reports (Summary + BAS)
 
@@ -303,30 +291,23 @@ Comprehensive sample data demonstrating all features:
 
 ## 🐛 Known Issues / TODOs
 
-1. **Tauri Commands Not Implemented**
-   - Currently using mock data in `api.ts`
-   - Need to create Rust commands or use Tauri's SQL plugin
-   - Database path needs to use Tauri app data directory
+1. **Register Grid Interactivity**
+   - Need to implement click handlers for editing, keyboard navigation, and bulk actions.
 
-2. **Register Grid Shows Empty**
-   - Mock data returns empty array
-   - Will work once Tauri commands are implemented
+2. **Split Transactions UI**
+   - The Transaction Form Modal currently supports simple transactions. Need to add full UI support for splits.
 
-3. **No Transaction Form Yet**
-   - Cannot add/edit transactions from UI
-   - Backend is ready, just needs UI component
+3. **No Error Handling UI**
+   - Errors are logged to console. Need toast notifications or error modals.
 
-4. **No Error Handling UI**
-   - Errors logged to console
-   - Need toast notifications or error modals
+4. **No Loading States**
+   - Some components show basic loading text. Need skeleton loaders or spinners.
 
-5. **No Loading States**
-   - Some components show basic loading text
-   - Need skeleton loaders or spinners
+5. **Dark Mode Toggle Missing**
+   - Dark mode CSS is ready. Need UI toggle in settings or top bar.
 
-6. **Dark Mode Toggle Missing**
-   - Dark mode CSS is ready
-   - Need UI toggle in settings or top bar
+6. **Tauri Integration**
+   - The application is currently running as a local web app with an Express backend. Full Tauri integration (e.g., sidecar for Express, or Rust backend) is a future step.
 
 ---
 
@@ -345,10 +326,11 @@ Comprehensive sample data demonstrating all features:
   - Documentation: 4 files
   - Database: 2 files (schema + seed)
 
-- **Time to MVP (estimated):** 2-4 more hours
-  - Tauri commands: 1-2 hours
-  - Transaction form: 1 hour
-  - Testing: 1 hour
+- **Time to MVP (estimated):** 8-12 more hours
+  - Register Grid Interactivity: 2-3 hours
+  - Split Transactions UI: 3-4 hours
+  - Reconciliation UI: 3-4 hours
+  - Reports Dashboard: 3-4 hours
 
 ---
 
@@ -356,36 +338,20 @@ Comprehensive sample data demonstrating all features:
 
 ### Immediate Next Steps
 
-1. **Run the app and see it work:**
-```bash
-npm run dev
-# App runs at http://localhost:1420
-# You'll see the layout with accounts in sidebar
-# Register grid is empty (using mock data)
-```
+1. **Make Register Grid Functional**
+   - Implement click handlers for editing transactions.
+   - Add keyboard navigation for the register grid.
+   - Implement bulk actions (mark cleared, add tags).
 
-2. **Inspect the database:**
-```bash
-npm run db:studio
-# Opens Prisma Studio at http://localhost:5555
-# You can see all the seed data
-```
+2. **Implement Split Transactions UI**
+   - Enhance the Transaction Form Modal to fully support split transactions.
+   - Allow users to add/remove multiple split lines with individual amounts, business toggles, and GST calculations.
 
-3. **Implement Tauri commands:**
-   - Option A: Use [tauri-plugin-sql](https://github.com/tauri-apps/tauri-plugin-sql)
-   - Option B: Create Rust commands that call TypeScript services
-   - Option C: Use [tauri-plugin-shell](https://tauri.app/plugin/shell/) to run Node.js
+3. **Build Reconciliation UI**
+   - Create the user interface for reconciling accounts against bank statements.
 
-4. **Build transaction form:**
-   - Use Radix UI Dialog for modal
-   - Form with splits support
-   - Business toggle per split
-   - GST fields conditional on business flag
-
-5. **Test end-to-end:**
-   - Create account → Add transaction → View in register
-   - Import CSV → Review → Confirm
-   - Reconcile → Lock session
+4. **Build Reports Dashboard**
+   - Develop the UI for displaying P&L, GST Summary, and BAS Draft reports.
 
 ---
 
@@ -455,14 +421,9 @@ npm run build            # Build for production
 - ✅ 6 comprehensive services
 - ✅ Full validation and business rules
 - ✅ GST/BAS support for Australia
-- ✅ UI foundation that compiles and runs
-- ✅ Mock data for development
+- ✅ Fully functional UI connected to a local Express backend
+- ✅ Transaction form (add/edit) and CSV Import Wizard are working
 
-**The app is ~80% complete.** The main blocker is connecting the UI to the backend via Tauri commands. Once that's done, we can:
-1. Add/edit transactions
-2. Import CSVs
-3. Reconcile accounts
-4. Generate reports
-5. Ship to users!
+**The app is now largely functional.** The next steps involve enhancing existing UI components and building out the remaining features like reconciliation and reporting.
 
 **This is a solid foundation for a professional-grade ledger application.** 🚀

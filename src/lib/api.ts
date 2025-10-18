@@ -41,15 +41,7 @@ export const accountAPI = {
   },
 
   async getCategories(options?: { includeArchived?: boolean }): Promise<Account[]> {
-    const params = new URLSearchParams();
-    params.set('kind', 'CATEGORY');
-    if (options?.includeArchived) params.set('includeArchived', 'true');
-
-    const query = params.toString();
-    const path = query ? `${API_BASE}/categories?${query}` : `${API_BASE}/categories`;
-    const response = await fetch(path);
-    if (!response.ok) throw new Error('Failed to fetch categories');
-    return response.json();
+    return this.getAllAccountsWithBalances({ ...options, kind: 'CATEGORY' });
   },
   async getAccountById(id: string): Promise<Account | null> {
     const response = await fetch(`${API_BASE}/accounts/${id}`);
@@ -177,6 +169,18 @@ export const transactionAPI = {
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.error || 'Failed to add tags');
+    }
+  },
+
+  async markCleared(postingIds: string[], cleared: boolean): Promise<void> {
+    const response = await fetch(`${API_BASE}/transactions/mark-cleared`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ postingIds, cleared }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to mark as cleared');
     }
   },
 };
@@ -258,199 +262,152 @@ export const importAPI = {
     return response.json();
   },
 };
-};
-/**
- * API bridge layer for Express backend
- *
- * Connects the React UI to the Express API server running on localhost:3001
- */
-
-import type {
-  Account,
-  AccountWithBalance,
-  RegisterEntry,
-  RegisterFilter,
-  CreateTransactionDTO,
-  UpdateTransactionDTO,
-  TransactionWithPostings,
-} from '../types';
-
-const API_BASE = 'http://localhost:3001/api';
-
-type CategoryAccountPayload = {
-  name: string;
-  type: 'INCOME' | 'EXPENSE';
-  isBusinessDefault?: boolean;
-};
 
 /**
- * Account API
+ * Report API
  */
-export const accountAPI = {
-  async getAllAccountsWithBalances(options?: { kind?: AccountKind; includeArchived?: boolean; isReal?: boolean }): Promise<AccountWithBalance[]> {
+export const reportAPI = {
+  async generateProfitAndLoss(
+    startDate: Date,
+    endDate: Date,
+    options?: {
+      businessOnly?: boolean;
+      personalOnly?: boolean;
+      gstInclusive?: boolean;
+    }
+  ): Promise<ProfitAndLoss> {
     const params = new URLSearchParams();
-    if (options?.kind) params.set('kind', options.kind);
-    if (options?.includeArchived) params.set('includeArchived', 'true');
-    if (options?.isReal) params.set('isReal', 'true');
+    params.set('startDate', startDate.toISOString());
+    params.set('endDate', endDate.toISOString());
+    if (options?.businessOnly) params.set('businessOnly', 'true');
+    if (options?.personalOnly) params.set('personalOnly', 'true');
+    if (options?.gstInclusive) params.set('gstInclusive', 'true');
 
-    const query = params.toString();
-    const path = query ? `${API_BASE}/accounts?${query}` : `${API_BASE}/accounts`;
-    const response = await fetch(path);
-    if (!response.ok) throw new Error('Failed to fetch accounts');
-    const accounts = await response.json();
-
-    const accountsWithBalances = await Promise.all(
-      accounts.map(async (account: Account) => {
-        const balanceResponse = await fetch(`${API_BASE}/accounts/${account.id}/balance`);
-        const { balance } = await balanceResponse.json();
-        return {
-          ...account,
-          currentBalance: balance,
-          clearedBalance: balance,
-        };
-      })
-    );
-
-    return accountsWithBalances;
-  },
-
-  async getCategories(options?: { includeArchived?: boolean }): Promise<Account[]> {
-    const params = new URLSearchParams();
-    params.set('kind', 'CATEGORY');
-    if (options?.includeArchived) params.set('includeArchived', 'true');
-
-    const query = params.toString();
-    const path = query ? `${API_BASE}/categories?${query}` : `${API_BASE}/categories`;
-    const response = await fetch(path);
-    if (!response.ok) throw new Error('Failed to fetch categories');
-    return response.json();
-  },
-  async getAccountById(id: string): Promise<Account | null> {
-    const response = await fetch(`${API_BASE}/accounts/${id}`);
-    if (response.status === 404) return null;
-    if (!response.ok) throw new Error('Failed to fetch account');
+    const response = await fetch(`${API_BASE}/reports/profit-loss?${params}`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to generate P&L report');
+    }
     return response.json();
   },
 
-  async getAccountWithBalance(id: string): Promise<AccountWithBalance | null> {
-    const account = await this.getAccountById(id);
-    if (!account) return null;
+  async generateGSTSummary(startDate: Date, endDate: Date): Promise<GSTSummary> {
+    const params = new URLSearchParams();
+    params.set('startDate', startDate.toISOString());
+    params.set('endDate', endDate.toISOString());
 
-    const balanceResponse = await fetch(`${API_BASE}/accounts/${id}/balance`);
-    const { balance } = await balanceResponse.json();
-
-    return {
-      ...account,
-      currentBalance: balance,
-      clearedBalance: balance, // TODO: Implement cleared balance calculation
-    };
+    const response = await fetch(`${API_BASE}/reports/gst-summary?${params}`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to generate GST summary');
+    }
+    return response.json();
   },
 
-  async createCategory(payload: CategoryAccountPayload): Promise<Account> {
-    const response = await fetch(`${API_BASE}/categories`, {
+  async generateBASDraft(startDate: Date, endDate: Date): Promise<BASDraft> {
+    const params = new URLSearchParams();
+    params.set('startDate', startDate.toISOString());
+    params.set('endDate', endDate.toISOString());
+
+    const response = await fetch(`${API_BASE}/reports/bas-draft?${params}`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to generate BAS draft');
+    }
+    return response.json();
+  },
+};
+
+/**
+ * Reconciliation API
+ */
+export const reconciliationAPI = {
+  async startReconciliation(data: {
+    accountId: string;
+    statementStartDate: Date;
+    statementEndDate: Date;
+    statementStartBalance: number;
+    statementEndBalance: number;
+    notes?: string;
+  }): Promise<Reconciliation> {
+    const response = await fetch(`${API_BASE}/reconciliation/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: payload.name,
-        type: payload.type,
-        kind: 'CATEGORY',
-        isReal: false,
-        isBusinessDefault: payload.isBusinessDefault ?? false,
-        sortOrder: 0,
+        accountId: data.accountId,
+        statementStartDate: data.statementStartDate.toISOString(),
+        statementEndDate: data.statementEndDate.toISOString(),
+        statementStartBalance: data.statementStartBalance,
+        statementEndBalance: data.statementEndBalance,
+        notes: data.notes,
       }),
     });
-
     if (!response.ok) {
-      let message = 'Failed to create category';
-      try {
-        const error = await response.json();
-        if (error?.error) {
-          message = error.error;
-        }
-      } catch {
-        // ignore parse errors
-      }
-      throw new Error(message);
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to start reconciliation');
     }
+    return response.json();
+  },
 
+  async getReconciliation(id: string): Promise<Reconciliation> {
+    const response = await fetch(`${API_BASE}/reconciliation/${id}`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to get reconciliation');
+    }
+    return response.json();
+  },
+
+  async getReconciliationStatus(id: string): Promise<{
+    statementBalance: number;
+    clearedBalance: number;
+    unreconciledBalance: number;
+    difference: number;
+    isBalanced: boolean;
+    reconciledCount: number;
+    unreconciledCount: number;
+  }> {
+    const response = await fetch(`${API_BASE}/reconciliation/${id}/status`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to get reconciliation status');
+    }
+    return response.json();
+  },
+
+  async reconcilePostings(reconciliationId: string, postingIds: string[]): Promise<void> {
+    const response = await fetch(`${API_BASE}/reconciliation/${reconciliationId}/reconcile-postings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ postingIds }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to reconcile postings');
+    }
+  },
+
+  async unreconcilePostings(reconciliationId: string, postingIds: string[]): Promise<void> {
+    const response = await fetch(`${API_BASE}/reconciliation/${reconciliationId}/unreconcile-postings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ postingIds }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to unreconcile postings');
+    }
+  },
+
+  async lockReconciliation(id: string): Promise<Reconciliation> {
+    const response = await fetch(`${API_BASE}/reconciliation/${id}/lock`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to lock reconciliation');
+    }
     return response.json();
   },
 };
 
-/**
- * Transaction API
- */
-export const transactionAPI = {
-  async getRegisterEntries(
-    accountId: string,
-    filter?: RegisterFilter
-  ): Promise<RegisterEntry[]> {
-    const params = new URLSearchParams();
-    if (filter?.startDate) params.set('startDate', filter.startDate.toISOString());
-    if (filter?.endDate) params.set('endDate', filter.endDate.toISOString());
-    if (filter?.searchText) params.set('searchText', filter.searchText);
-    if (filter?.cleared !== undefined) params.set('cleared', String(filter.cleared));
-    if (filter?.reconciled !== undefined) params.set('reconciled', String(filter.reconciled));
-
-    const url = `${API_BASE}/transactions/register/${accountId}?${params}`;
-    const response = await fetch(url);
-    if (!response.ok) throw new Error('Failed to fetch register entries');
-    return response.json();
-  },
-
-  async createTransaction(data: CreateTransactionDTO): Promise<TransactionWithPostings> {
-    const response = await fetch(`${API_BASE}/transactions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to create transaction');
-    }
-    return response.json();
-  },
-
-  async updateTransaction(data: UpdateTransactionDTO): Promise<TransactionWithPostings> {
-    const response = await fetch(`${API_BASE}/transactions/${data.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to update transaction');
-    }
-    return response.json();
-  },
-
-  async getTransaction(id: string): Promise<TransactionWithPostings> {
-    const response = await fetch(`${API_BASE}/transactions/${id}`);
-    if (!response.ok) {
-      throw new Error('Failed to fetch transaction');
-    }
-    return response.json();
-  },
-
-  async deleteTransaction(id: string): Promise<void> {
-    const response = await fetch(`${API_BASE}/transactions/${id}`, {
-      method: 'DELETE',
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to delete transaction');
-    }
-  },
-
-  async bulkAddTags(transactionIds: string[], tags: string[]): Promise<void> {
-    const response = await fetch(`${API_BASE}/transactions/bulk-add-tags`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ transactionIds, tags }),
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to add tags');
-    }
-  },
-};

@@ -22,6 +22,7 @@ export function TransactionFormModal({
   const [payee, setPayee] = useState('');
   const [transactionType, setTransactionType] = useState<'simple' | 'split'>('simple');
   const [totalAmount, setTotalAmount] = useState('');
+  const [memo, setMemo] = useState('');
   
   type Split = {
     id: string;
@@ -129,6 +130,7 @@ export function TransactionFormModal({
     const account = [...categories, ...transferAccounts].find(acc => acc.id === accountId);
     return account?.type as AccountType;
   };
+  const calculateGST = (total: number) => {
     const gstAmount = total * 0.1 / 1.1;
     const gstExclusive = total - gstAmount;
     return { gstAmount, gstExclusive };

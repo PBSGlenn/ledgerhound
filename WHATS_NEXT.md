@@ -1,13 +1,13 @@
 # What's Next - Ledgerhound Development
 
-**Last Updated:** 2025-10-04
-**Current Status:** ✅ Fully functional with backend connected!
+Last Updated: 2025-10-07
+**Current Status:** ✅ Fully functional with Express backend connected!
 
 ---
 
 ## 🎉 What Just Got Completed
 
-We just finished connecting the backend to the frontend using an Express API server approach (instead of Tauri commands). Here's what's now working:
+We have successfully connected the frontend to the backend using an Express API server approach. Here's what's now working:
 
 ### ✅ Backend Connection (COMPLETE)
 1. **Express API Server** - Running on `http://localhost:3001`
@@ -41,6 +41,7 @@ We just finished connecting the backend to the frontend using an Express API ser
 - ✅ Add new transactions via the form
 - ✅ All transactions save to database
 - ✅ All backend validation working (double-entry, GST)
+- ✅ CSV Import Wizard is fully functional (file upload, column mapping, preview, and import execution).
 
 ---
 
@@ -143,29 +144,7 @@ src/components/Reports/
 
 ---
 
-### Option 4: CSV Import Wizard (3-4 hours)
-
-**Why:** Essential for migrating from bank/other apps.
-
-**Tasks:**
-1. File upload component
-2. CSV preview (first 10 rows)
-3. Column mapping UI
-   - Map CSV columns → Transaction fields
-   - Date format selection
-   - Amount column (debit/credit or single)
-4. Preview imported transactions
-5. Show duplicates (backend handles detection)
-6. Import button
-7. Display import summary
-
-**Backend already implemented:**
-- `POST /api/import/preview` - Parse CSV
-- `POST /api/import/execute` - Import transactions
-
----
-
-### Option 5: Reconciliation UI (4-5 hours)
+### Option 4: Reconciliation UI (4-5 hours)
 
 **Why:** Critical for month-end workflows.
 
@@ -200,15 +179,15 @@ src/components/Reports/
 - ✅ Account sidebar (100%)
 - ✅ Register grid (100%)
 - ✅ Transaction form - simple mode (100%)
+- ✅ CSV Import Wizard (100%)
 
 **Remaining for MVP:**
 - [ ] Register interactivity (0%) - 1-2 hours
 - [ ] Split transactions (0%) - 2-3 hours
 - [ ] Reports UI (0%) - 3-4 hours
-- [ ] CSV import UI (0%) - 3-4 hours
 - [ ] Reconciliation UI (0%) - 4-5 hours
 
-**Total remaining: 13-18 hours**
+**Total remaining: 10-14 hours**
 
 ---
 
@@ -363,8 +342,7 @@ const balanceChange = currentBalance - previousBalance;
 **After that:**
 2. Add split transaction support (common use case)
 3. Build reports dashboard (backend is ready!)
-4. Add CSV import (migration from other apps)
-5. Build reconciliation UI (advanced feature)
+4. Build reconciliation UI (advanced feature)
 
 ---
 

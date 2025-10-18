@@ -2,16 +2,27 @@ import { useState } from 'react';
 import { Plus, Upload, GitCompare, BarChart3, Settings } from 'lucide-react';
 import type { AccountWithBalance } from '../../types';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
-import { ImportWizard } from '../features/import/ImportWizard';
 
 interface TopBarProps {
   selectedAccount?: AccountWithBalance;
+  currentView?: string;
   onRefresh?: () => void;
+  onImportClick: () => void;
+  onReportsClick?: () => void;
+  onReconcileClick?: () => void;
+  onDashboardClick?: () => void;
 }
 
-export function TopBar({ selectedAccount, onRefresh }: TopBarProps) {
+export function TopBar({
+  selectedAccount,
+  currentView,
+  onRefresh,
+  onImportClick,
+  onReportsClick,
+  onReconcileClick,
+  onDashboardClick,
+}: TopBarProps) {
   const [showTransactionForm, setShowTransactionForm] = useState(false);
-  const [showImportWizard, setShowImportWizard] = useState(false);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-AU', {
@@ -25,7 +36,25 @@ export function TopBar({ selectedAccount, onRefresh }: TopBarProps) {
       <div className="flex items-center justify-between">
         {/* Account info */}
         <div>
-          {selectedAccount ? (
+          {currentView === 'reports' ? (
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+                Financial Reports
+              </h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Profit & Loss, GST Summary, and BAS Draft
+              </p>
+            </div>
+          ) : currentView === 'reconciliation' ? (
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+                Reconciliation
+              </h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Match your transactions with your bank statement
+              </p>
+            </div>
+          ) : selectedAccount ? (
             <div>
               <div className="flex items-center gap-3 mb-2">
                 <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
@@ -83,18 +112,39 @@ export function TopBar({ selectedAccount, onRefresh }: TopBarProps) {
             New Transaction
           </button>
           <button
-            onClick={() => setShowImportWizard(true)}
+            onClick={onImportClick}
             disabled={!selectedAccount}
             className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2"
           >
             <Upload className="w-4 h-4" />
             Import CSV
           </button>
-          <button className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2">
+          <button
+            onClick={() => console.log('Test Button clicked!')}
+            className="px-4 py-2.5 bg-purple-100 hover:bg-purple-200 dark:bg-purple-700 dark:hover:bg-purple-600 text-purple-700 dark:text-purple-300 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2"
+          >
+            Test Button
+          </button>
+          <button
+            onClick={onReconcileClick}
+            disabled={!selectedAccount}
+            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+              currentView === 'reconciliation'
+                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300'
+            }`}
+          >
             <GitCompare className="w-4 h-4" />
             Reconcile
           </button>
-          <button className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2">
+          <button
+            onClick={onReportsClick}
+            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2 ${
+              currentView === 'reports'
+                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300'
+            }`}
+          >
             <BarChart3 className="w-4 h-4" />
             Reports
           </button>
@@ -107,17 +157,6 @@ export function TopBar({ selectedAccount, onRefresh }: TopBarProps) {
         onClose={() => setShowTransactionForm(false)}
         accountId={selectedAccount?.id}
         onSuccess={() => {
-          if (onRefresh) {
-            onRefresh();
-          }
-        }}
-      />
-
-      {/* Import Wizard Modal */}
-      <ImportWizard
-        isOpen={showImportWizard}
-        onClose={() => setShowImportWizard(false)}
-        onImportSuccess={() => {
           if (onRefresh) {
             onRefresh();
           }

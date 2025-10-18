@@ -1,5 +1,5 @@
 import { getPrismaClient } from '../db';
-import type { Account, AccountKind, AccountSubtype, AccountType, Posting } from '@prisma/client';
+import { AccountKind, AccountSubtype, AccountType } from '@prisma/client';
 import type { AccountWithBalance } from '../../types';
 
 export class AccountService {
@@ -15,16 +15,25 @@ export class AccountService {
     isReal?: boolean;
     isBusinessDefault?: boolean;
   }): Promise<Account[]> {
-    return this.prisma.account.findMany({
-      where: {
-        archived: options?.includeArchived ? undefined : false,
-        type: options?.type,
-        kind: options?.kind,
-        isReal: options?.isReal,
-        isBusinessDefault: options?.isBusinessDefault,
-      },
-      orderBy: [{ type: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
-    });
+    console.log('getAllAccounts called with options:', options);
+    try {
+      const accounts = await this.prisma.account.findMany({
+        where: {
+          archived: options?.includeArchived ? undefined : false,
+          type: options?.type,
+          kind: options?.kind,
+          isReal: options?.isReal,
+          isBusinessDefault: options?.isBusinessDefault,
+        },
+        orderBy: [{ type: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
+      });
+      console.log('Successfully fetched accounts:', accounts.length);
+      return accounts;
+    } catch (error) {
+      console.error('Error in getAllAccounts:', error);
+      throw error; // Re-throw the error so it propagates
+    }
+  }
 
   private deriveKind(type: AccountType): AccountKind {
     return type === AccountType.INCOME || type === AccountType.EXPENSE ? AccountKind.CATEGORY : AccountKind.TRANSFER;

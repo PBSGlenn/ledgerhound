@@ -3,13 +3,19 @@ import { AccountSidebar } from './AccountSidebar';
 import { TopBar } from './TopBar';
 import { RegisterView } from '../Register/RegisterView';
 import { DashboardView } from '../Dashboard/DashboardView';
+import { ReportsView } from '../Reports/ReportsView';
+import { ReconciliationView } from '../Reconciliation/ReconciliationView';
 import type { AccountWithBalance } from '../../types';
+import { ImportWizard } from '../../features/import/ImportWizard';
 import { accountAPI } from '../../lib/api';
+
+type ViewType = 'dashboard' | 'register' | 'reports' | 'reconciliation';
 
 export function MainLayout() {
   const [accounts, setAccounts] = useState<AccountWithBalance[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [currentView, setCurrentView] = useState<ViewType>('dashboard');
 
   const [isImporting, setIsImporting] = useState(false);
 
@@ -47,22 +53,49 @@ export function MainLayout() {
               ? accounts.find((a) => a.id === selectedAccountId)
               : undefined
           }
+          currentView={currentView}
           onRefresh={loadAccounts}
           onImportClick={() => setIsImporting(true)}
+          onReportsClick={() => setCurrentView('reports')}
+          onReconcileClick={() => {
+            if (selectedAccountId) {
+              setCurrentView('reconciliation');
+            }
+          }}
+          onDashboardClick={() => {
+            setCurrentView('dashboard');
+            setSelectedAccountId(null);
+          }}
         />
 
         {/* Content */}
         <main className="flex-1 overflow-auto p-8">
-          {selectedAccountId ? (
+          {currentView === 'reports' ? (
+            <ReportsView />
+          ) : currentView === 'reconciliation' && selectedAccountId ? (
+            <ReconciliationView
+              account={accounts.find((a) => a.id === selectedAccountId)!}
+            />
+          ) : selectedAccountId ? (
             <RegisterView accountId={selectedAccountId} />
           ) : (
-            <DashboardView accounts={accounts} onSelectAccount={setSelectedAccountId} />
+            <DashboardView
+              accounts={accounts}
+              onSelectAccount={(id) => {
+                setSelectedAccountId(id);
+                setCurrentView('register');
+              }}
+            />
           )}
         </main>
       </div>
 
       {isImporting && (
-        <ImportWizard onClose={() => setIsImporting(false)} />
+        <ImportWizard
+          isOpen={isImporting}
+          onClose={() => setIsImporting(false)}
+          onImportSuccess={loadAccounts}
+        />
       )}
     </div>
   );

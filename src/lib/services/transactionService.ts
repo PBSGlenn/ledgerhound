@@ -325,27 +325,6 @@ export class TransactionService {
   }
 
   /**
-   * Bulk update category for multiple transactions
-   */
-  async bulkAddTags(transactionIds: string[], tags: string[]): Promise<void> {
-    const transactions = await this.prisma.transaction.findMany({
-      where: { id: { in: transactionIds } },
-    });
-
-    await this.prisma.$transaction(
-      transactions.map((tx) => {
-        const existingTags = tx.tags ? JSON.parse(tx.tags) : [];
-        const newTags = Array.from(new Set([...existingTags, ...tags]));
-
-        return this.prisma.transaction.update({
-          where: { id: tx.id },
-          data: { tags: JSON.stringify(newTags) },
-        });
-      })
-    );
-  }
-
-  /**
    * Bulk add tags to transactions
    */
   async bulkAddTags(transactionIds: string[], tags: string[]): Promise<void> {
