@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { FileText, Download, Loader2 } from 'lucide-react';
 import * as Tabs from '@radix-ui/react-tabs';
+import { format } from 'date-fns';
 import { DateRangePicker } from './DateRangePicker';
 import { ProfitAndLossReport } from './ProfitAndLossReport';
 import { GSTSummaryReport } from './GSTSummaryReport';
 import { BASDraftReport } from './BASDraftReport';
 import { reportAPI } from '../../lib/api';
+import { generateCSV, downloadCSV, formatCurrencyForCSV } from '../../lib/utils/csvExport';
 import type { ProfitAndLoss, GSTSummary, BASDraft } from '../../types';
 
 type ReportType = 'profit-loss' | 'gst-summary' | 'bas-draft';
@@ -73,6 +75,67 @@ export function ReportsView() {
     setGSTSummaryData(null);
     setBASDraftData(null);
     setError(null);
+  };
+
+  const handleExportCSV = () => {
+    const today = format(new Date(), 'yyyy-MM-dd');
+
+    switch (activeTab) {
+      case 'profit-loss':
+        if (!profitLossData) return;
+
+        const plRows = [
+          ...profitLossData.income.map((item) => ({
+            type: 'Income',
+            category: item.categoryName,
+            amount: item.amount,
+          })),
+          { type: 'Total Income', category: '', amount: profitLossData.totalIncome },
+          { type: '', category: '', amount: 0 }, // Empty row
+          ...profitLossData.expenses.map((item) => ({
+            type: 'Expense',
+            category: item.categoryName,
+            amount: item.amount,
+          })),
+          { type: 'Total Expenses', category: '', amount: profitLossData.totalExpenses },
+          { type: '', category: '', amount: 0 }, // Empty row
+          { type: 'Net Profit/Loss', category: '', amount: profitLossData.netProfit },
+        ];
+
+        const plCSV = generateCSV(plRows, [
+          { header: 'Type', accessor: (row) => row.type },
+          { header: 'Category', accessor: (row) => row.category },
+          { header: 'Amount', accessor: (row) => row.amount !== 0 ? formatCurrencyForCSV(row.amount) : '' },
+        ]);
+
+        downloadCSV(plCSV, `profit-loss-${today}.csv`);
+        break;
+
+      case 'gst-summary':
+        if (!gstSummaryData) return;
+
+        const gstCSV = generateCSV(gstSummaryData.byCategory, [
+          { header: 'Category', accessor: (row) => row.categoryName },
+          { header: 'Sales', accessor: (row) => formatCurrencyForCSV(row.sales) },
+          { header: 'Purchases', accessor: (row) => formatCurrencyForCSV(row.purchases) },
+          { header: 'GST Collected', accessor: (row) => formatCurrencyForCSV(row.gstCollected) },
+          { header: 'GST Paid', accessor: (row) => formatCurrencyForCSV(row.gstPaid) },
+        ]);
+
+        downloadCSV(gstCSV, `gst-summary-${today}.csv`);
+        break;
+
+      case 'bas-draft':
+        if (!basDraftData) return;
+
+        const basCSV = generateCSV(basDraftData.reconciliation, [
+          { header: 'Field', accessor: (row) => row.description },
+          { header: 'Amount', accessor: (row) => formatCurrencyForCSV(row.value) },
+        ]);
+
+        downloadCSV(basCSV, `bas-draft-${today}.csv`);
+        break;
+    }
   };
 
   return (
@@ -159,11 +222,10 @@ export function ReportsView() {
                     )}
                   </button>
 
-                  {/* TODO: Add CSV export functionality */}
                   {(profitLossData || gstSummaryData || basDraftData) && (
                     <button
                       className="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-md font-medium flex items-center gap-2 transition-colors"
-                      onClick={() => alert('CSV export coming soon!')}
+                      onClick={handleExportCSV}
                     >
                       <Download className="w-4 h-4" />
                       Export CSV

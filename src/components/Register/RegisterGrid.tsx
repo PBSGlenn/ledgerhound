@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
-import { Check, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle } from 'lucide-react';
+import { Check, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle, Download } from 'lucide-react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import type { RegisterEntry, RegisterFilter } from '../../types';
 import { transactionAPI } from '../../lib/api';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
+import { generateCSV, downloadCSV, formatDateForCSV, formatCurrencyForCSV } from '../../lib/utils/csvExport';
 
 import { useDebounce } from '../../hooks/useDebounce';
 
@@ -148,6 +149,24 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
     setEditingTransactionId(null);
     setIsCreateMode(false);
     setSelectedTransactionId(null);
+  };
+
+  const handleExportCSV = () => {
+    const csv = generateCSV(entries, [
+      { header: 'Date', accessor: (row) => formatDateForCSV(row.date) },
+      { header: 'Payee', accessor: (row) => row.payee },
+      { header: 'Memo', accessor: (row) => row.memo || '' },
+      { header: 'Category', accessor: (row) => row.postings.filter((p: any) => p.accountId !== accountId).map((p: any) => p.account.name).join('; ') },
+      { header: 'Debit', accessor: (row) => row.debit ? formatCurrencyForCSV(row.debit) : '' },
+      { header: 'Credit', accessor: (row) => row.credit ? formatCurrencyForCSV(row.credit) : '' },
+      { header: 'Balance', accessor: (row) => formatCurrencyForCSV(row.runningBalance) },
+      { header: 'Cleared', accessor: (row) => row.cleared ? 'Yes' : 'No' },
+      { header: 'Reconciled', accessor: (row) => row.reconciled ? 'Yes' : 'No' },
+      { header: 'Tags', accessor: (row) => row.tags ? row.tags.join('; ') : '' },
+    ]);
+
+    const today = format(new Date(), 'yyyy-MM-dd');
+    downloadCSV(csv, `register-export-${today}.csv`);
   };
 
   const handleRowClick = (transactionId: string, e: React.MouseEvent) => {
@@ -346,6 +365,13 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
           >
             <User className="w-4 h-4" />
             Personal Only
+          </button>
+          <button
+            onClick={handleExportCSV}
+            className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
+          >
+            <Download className="w-4 h-4" />
+            Export CSV
           </button>
         </div>
       </div>
