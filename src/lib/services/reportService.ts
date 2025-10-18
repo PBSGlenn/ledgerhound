@@ -1,6 +1,6 @@
 import { getPrismaClient } from '../db';
 import type { GSTSummary, ProfitAndLoss, BASDraft } from '../../types';
-import { Prisma } from '@prisma/client';
+import { Prisma, AccountType } from '@prisma/client';
 
 export class ReportService {
   private prisma = getPrismaClient();
@@ -28,7 +28,7 @@ export class ReportService {
     const incomePostings = await this.prisma.posting.findMany({
       where: {
         ...businessFilter,
-        account: { type: Prisma.AccountType.INCOME },
+        account: { type: AccountType.INCOME },
         transaction: {
           date: { gte: startDate, lte: endDate },
           status: 'NORMAL',
@@ -43,7 +43,7 @@ export class ReportService {
     const expensePostings = await this.prisma.posting.findMany({
       where: {
         ...businessFilter,
-        account: { type: Prisma.AccountType.EXPENSE },
+        account: { type: AccountType.EXPENSE },
         transaction: {
           date: { gte: startDate, lte: endDate },
           status: 'NORMAL',
@@ -176,13 +176,13 @@ export class ReportService {
     }>();
 
     for (const posting of businessPostings) {
-      const isIncome = posting.account.type === Prisma.AccountType.INCOME;
+      const isIncome = posting.account.type === AccountType.INCOME;
       const gstAmount = Math.abs(posting.gstAmount ?? 0);
       const amount = Math.abs(posting.amount);
 
             if (isIncome) {
         gstCollected += gstAmount;
-      } else if (posting.account.type === Prisma.AccountType.EXPENSE) {
+      } else if (posting.account.type === AccountType.EXPENSE) {
         gstPaid += gstAmount;
       }
 
@@ -270,8 +270,8 @@ export class ReportService {
     let oneBGSTOnPurchases = 0; // 1B: GST on purchases
 
     for (const posting of businessPostings) {
-      const isIncome = posting.account.type === Prisma.AccountType.INCOME;
-      const isExpense = posting.account.type === Prisma.AccountType.EXPENSE;
+      const isIncome = posting.account.type === AccountType.INCOME;
+      const isExpense = posting.account.type === AccountType.EXPENSE;
       const gstCode = posting.gstCode;
       const gstAmount = Math.abs(posting.gstAmount ?? 0);
       const amount = Math.abs(posting.amount);
@@ -440,9 +440,9 @@ export class ReportService {
 
           const amount = Math.abs(posting.amount);
 
-          if (posting.account.type === Prisma.AccountType.INCOME) {
+          if (posting.account.type === AccountType.INCOME) {
             data.income += amount;
-          } else if (posting.account.type === Prisma.AccountType.EXPENSE) {
+          } else if (posting.account.type === AccountType.EXPENSE) {
             data.expenses += amount;
           }
 

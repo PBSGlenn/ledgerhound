@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { accountService } from '../src/lib/services/accountService.js';
-import { Prisma } from '@prisma/client';
+import { Prisma, AccountType, AccountKind } from '@prisma/client';
 import { transactionService } from '../src/lib/services/transactionService.js';
 import { reportService } from '../src/lib/services/reportService.js';
 import { importService } from '../src/lib/services/importService.js';
@@ -26,8 +26,8 @@ app.get('/api/accounts', async (req, res) => {
 
     const isRealParam = req.query.isReal as string | undefined;
 
-    const type = typeParam as Prisma.AccountType | undefined;
-    const kind = kindParam as Prisma.AccountKind | undefined;
+    const type = typeParam as AccountType | undefined;
+    const kind = kindParam as AccountKind | undefined;
     const isReal = isRealParam === 'true' ? true : isRealParam === 'false' ? false : undefined;
 
     const accounts = await accountService.getAllAccounts({
@@ -95,7 +95,7 @@ app.get('/api/categories', async (req, res) => {
     const includeArchived = req.query.includeArchived === 'true';
     const categories = await accountService.getAllAccounts({
       includeArchived,
-      kind: Prisma.AccountKind.CATEGORY,
+      kind: AccountKind.CATEGORY,
     });
     res.json(categories);
   } catch (error) {
@@ -105,8 +105,8 @@ app.get('/api/categories', async (req, res) => {
 
 app.post('/api/categories', async (req, res) => {
   try {
-    const { name, type, isBusinessDefault, sortOrder } = req.body as { name: string; type: Prisma.AccountType; isBusinessDefault?: boolean; sortOrder?: number };
-    if (type !== Prisma.AccountType.INCOME && type !== Prisma.AccountType.EXPENSE) {
+    const { name, type, isBusinessDefault, sortOrder } = req.body as { name: string; type: AccountType; isBusinessDefault?: boolean; sortOrder?: number };
+    if (type !== AccountType.INCOME && type !== AccountType.EXPENSE) {
       return res.status(400).json({ error: 'Categories must be INCOME or EXPENSE' });
     }
 
@@ -211,7 +211,12 @@ app.get('/api/reports/profit-loss', async (req, res) => {
   try {
     const startDate = new Date(req.query.startDate as string);
     const endDate = new Date(req.query.endDate as string);
-    const report = await reportService.generateProfitLoss(startDate, endDate);
+    const businessOnly = req.query.businessOnly === 'true';
+    const gstInclusive = req.query.gstInclusive === 'true';
+    const report = await reportService.generateProfitAndLoss(startDate, endDate, {
+      businessOnly,
+      gstInclusive,
+    });
     res.json(report);
   } catch (error) {
     res.status(400).json({ error: (error as Error).message });
