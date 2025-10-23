@@ -8,6 +8,7 @@ import { importService } from '../src/lib/services/importService.js';
 import { reconciliationService } from '../src/lib/services/reconciliationService.js';
 import { memorizedRuleService } from '../src/lib/services/memorizedRuleService.js';
 import { backupService } from '../src/lib/services/backupService.js';
+import { categoryService } from '../src/lib/services/categoryService.js';
 
 const app = express();
 const PORT = 3001;
@@ -119,6 +120,146 @@ app.post('/api/categories', async (req, res) => {
       sortOrder,
     });
     res.status(201).json(category);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+// ============================================================================
+// CATEGORY HIERARCHY ENDPOINTS
+// ============================================================================
+
+app.get('/api/categories/tree', async (req, res) => {
+  try {
+    const options = {
+      includeRoot: req.query.includeRoot === 'true',
+      type: req.query.type as AccountType | undefined,
+      businessOnly: req.query.businessOnly === 'true',
+      personalOnly: req.query.personalOnly === 'true',
+      maxLevel: req.query.maxLevel ? parseInt(req.query.maxLevel as string) : undefined,
+    };
+    const tree = await categoryService.getCategoryTree(options);
+    res.json(tree);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/categories/leaf', async (req, res) => {
+  try {
+    const options = {
+      type: req.query.type as AccountType | undefined,
+      businessOnly: req.query.businessOnly === 'true',
+      personalOnly: req.query.personalOnly === 'true',
+    };
+    const leafCategories = await categoryService.getLeafCategories(options);
+    res.json(leafCategories);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/categories/:id/path', async (req, res) => {
+  try {
+    const path = await categoryService.getCategoryPath(req.params.id);
+    res.json(path);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/categories/:id/children', async (req, res) => {
+  try {
+    const includeArchived = req.query.includeArchived === 'true';
+    const children = await categoryService.getCategoryChildren(req.params.id, { includeArchived });
+    res.json(children);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/categories/level/:level', async (req, res) => {
+  try {
+    const level = parseInt(req.params.level);
+    const options = {
+      type: req.query.type as AccountType | undefined,
+      businessOnly: req.query.businessOnly === 'true',
+      personalOnly: req.query.personalOnly === 'true',
+    };
+    const categories = await categoryService.getCategoriesByLevel(level, options);
+    res.json(categories);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/categories/search', async (req, res) => {
+  try {
+    const searchTerm = req.query.q as string;
+    if (!searchTerm) {
+      return res.status(400).json({ error: 'Search term required (q parameter)' });
+    }
+    const options = {
+      type: req.query.type as AccountType | undefined,
+      businessOnly: req.query.businessOnly === 'true',
+      personalOnly: req.query.personalOnly === 'true',
+      leafOnly: req.query.leafOnly === 'true',
+    };
+    const results = await categoryService.searchCategories(searchTerm, options);
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/categories/:id/context', async (req, res) => {
+  try {
+    const context = await categoryService.getCategoryWithContext(req.params.id);
+    res.json(context);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post('/api/categories/create', async (req, res) => {
+  try {
+    const { name, type, parentId, isBusinessDefault } = req.body;
+    if (!name || !type) {
+      return res.status(400).json({ error: 'name and type are required' });
+    }
+    if (type !== AccountType.INCOME && type !== AccountType.EXPENSE) {
+      return res.status(400).json({ error: 'Categories must be INCOME or EXPENSE' });
+    }
+    const category = await categoryService.createCategory({ name, type, parentId, isBusinessDefault });
+    res.status(201).json(category);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+app.put('/api/categories/:id', async (req, res) => {
+  try {
+    const { name, parentId, isBusinessDefault } = req.body;
+    const category = await categoryService.updateCategory(req.params.id, { name, parentId, isBusinessDefault });
+    res.json(category);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+app.delete('/api/categories/:id', async (req, res) => {
+  try {
+    await categoryService.deleteCategory(req.params.id);
+    res.status(204).send();
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+app.post('/api/categories/:id/archive', async (req, res) => {
+  try {
+    const category = await categoryService.archiveCategory(req.params.id);
+    res.json(category);
   } catch (error) {
     res.status(400).json({ error: (error as Error).message });
   }
