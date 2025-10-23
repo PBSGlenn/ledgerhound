@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import type { Account, CreateTransactionDTO, GSTCode } from '../../types';
+import type { Account, CreateTransactionDTO, GSTCode, AccountType } from '../../types';
 import { transactionAPI, accountAPI } from '../../lib/api';
+import { CategorySelector } from '../Category/CategorySelector';
 
 interface TransactionFormModalProps {
   isOpen: boolean;
@@ -298,32 +299,46 @@ export function TransactionFormModal({
                 </div>
 
                   <div className="grid grid-cols-1 gap-4">
-                    <select
-                      value={splits[0]?.accountId || ''}
-                      onChange={(e) => {
-                        const newSplits = [...splits];
-                        newSplits[0] = { ...newSplits[0], accountId: e.target.value };
-                        setSplits(newSplits);
-                      }}
-                      required
-                      className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors"
-                    >
-                      <option value="">Select category or account...</option>
-                      <optgroup label="Categories">
-                        {categories.map((cat) => (
-                          <option key={cat.id} value={cat.id}>
-                            {cat.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="Transfer Accounts">
-                        {transferAccounts.map((acc) => (
-                          <option key={acc.id} value={acc.id}>
-                            {acc.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    </select>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                        📁 Category
+                      </label>
+                      <CategorySelector
+                        value={splits[0]?.accountId || null}
+                        onChange={(categoryId) => {
+                          const newSplits = [...splits];
+                          newSplits[0] = { ...newSplits[0], accountId: categoryId || '' };
+                          setSplits(newSplits);
+                        }}
+                        placeholder="Select category..."
+                        required
+                      />
+
+                      {/* Transfer Account Option */}
+                      {transferAccounts.length > 0 && (
+                        <details className="mt-2">
+                          <summary className="text-xs text-slate-500 dark:text-slate-400 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300">
+                            Or transfer to another account
+                          </summary>
+                          <select
+                            value={splits[0]?.accountId || ''}
+                            onChange={(e) => {
+                              const newSplits = [...splits];
+                              newSplits[0] = { ...newSplits[0], accountId: e.target.value };
+                              setSplits(newSplits);
+                            }}
+                            className="w-full mt-2 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white text-sm"
+                          >
+                            <option value="">Select transfer account...</option>
+                            {transferAccounts.map((acc) => (
+                              <option key={acc.id} value={acc.id}>
+                                {acc.name}
+                              </option>
+                            ))}
+                          </select>
+                        </details>
+                      )}
+                    </div>
                   </div>
               </div>
 
