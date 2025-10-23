@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { MainLayout } from './components/Layout/MainLayout';
 import { OnboardingWizard } from './components/Onboarding/OnboardingWizard';
+import { AccountSetupWizard } from './components/Account/AccountSetupWizard';
 import { ToastProvider } from './components/UI/Toast';
 import { ToastContextProvider } from './hooks/useToast';
 import { bookManager } from './lib/services/bookManager';
@@ -8,6 +9,7 @@ import type { Book } from './types/book';
 
 export default function App() {
   const [isFirstRun, setIsFirstRun] = useState(true);
+  const [showAccountSetup, setShowAccountSetup] = useState(false);
   const [currentBook, setCurrentBook] = useState<Book | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -21,6 +23,13 @@ export default function App() {
       const activeBook = bookManager.getActiveBook();
       if (activeBook) {
         setCurrentBook(activeBook);
+
+        // Check if we should show account setup after onboarding
+        const shouldShowAccountSetup = localStorage.getItem('ledgerhound-show-account-setup');
+        if (shouldShowAccountSetup === 'true') {
+          setShowAccountSetup(true);
+          localStorage.removeItem('ledgerhound-show-account-setup');
+        }
       } else {
         // Has books but no active book - show onboarding
         setIsFirstRun(true);
@@ -35,7 +44,16 @@ export default function App() {
     if (book) {
       setCurrentBook(book);
       setIsFirstRun(false);
+      // Show account setup wizard after onboarding
+      localStorage.setItem('ledgerhound-show-account-setup', 'true');
+      setShowAccountSetup(true);
     }
+  };
+
+  const handleAccountSetupComplete = () => {
+    setShowAccountSetup(false);
+    // Reload to refresh account list
+    window.location.reload();
   };
 
   const handleBookSwitch = (bookId: string) => {
@@ -62,7 +80,19 @@ export default function App() {
         {isFirstRun ? (
           <OnboardingWizard onComplete={handleOnboardingComplete} />
         ) : currentBook ? (
-          <MainLayout currentBook={currentBook} onSwitchBook={handleBookSwitch} />
+          <>
+            <MainLayout
+              currentBook={currentBook}
+              onSwitchBook={handleBookSwitch}
+              onShowAccountSetup={() => setShowAccountSetup(true)}
+            />
+            {showAccountSetup && (
+              <AccountSetupWizard
+                onComplete={handleAccountSetupComplete}
+                onSkip={handleAccountSetupComplete}
+              />
+            )}
+          </>
         ) : (
           <div className="h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
             <div className="text-center">

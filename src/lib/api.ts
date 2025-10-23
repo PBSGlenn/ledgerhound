@@ -1,5 +1,29 @@
 import type { AccountKind } from '@/domain';
-import type { CSVColumnMapping, ImportPreview, ImportResult, MemorizedRule } from '../types';
+import type {
+  CSVColumnMapping,
+  ImportPreview,
+  MemorizedRule,
+  Account,
+  AccountWithBalance,
+  CreateTransactionDTO,
+  UpdateTransactionDTO,
+  TransactionWithPostings,
+  RegisterEntry,
+  RegisterFilter,
+  ProfitAndLoss,
+  GSTSummary,
+  BASDraft,
+  Reconciliation,
+  AccountType,
+  AccountSubtype,
+} from '../types';
+
+export interface ImportResult {
+  importedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  importBatchId: string;
+}
 
 const API_BASE = 'http://localhost:3001/api';
 
@@ -80,6 +104,48 @@ export const accountAPI = {
 
     if (!response.ok) {
       let message = 'Failed to create category';
+      try {
+        const error = await response.json();
+        if (error?.error) {
+          message = error.error;
+        }
+      } catch {
+        // ignore parse errors
+      }
+      throw new Error(message);
+    }
+
+    return response.json();
+  },
+
+  async createAccount(payload: {
+    name: string;
+    type: AccountType;
+    subtype?: AccountSubtype | null;
+    kind: 'TRANSFER' | 'CATEGORY';
+    isReal: boolean;
+    openingBalance?: number;
+    openingDate?: Date;
+    isBusinessDefault?: boolean;
+  }): Promise<Account> {
+    const response = await fetch(`${API_BASE}/accounts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: payload.name,
+        type: payload.type,
+        subtype: payload.subtype || null,
+        kind: payload.kind,
+        isReal: payload.isReal,
+        openingBalance: payload.openingBalance ?? 0,
+        openingDate: payload.openingDate ? payload.openingDate.toISOString() : new Date().toISOString(),
+        isBusinessDefault: payload.isBusinessDefault ?? false,
+        sortOrder: 0,
+      }),
+    });
+
+    if (!response.ok) {
+      let message = 'Failed to create account';
       try {
         const error = await response.json();
         if (error?.error) {

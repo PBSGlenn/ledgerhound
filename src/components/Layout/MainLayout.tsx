@@ -18,9 +18,10 @@ type ViewType = 'dashboard' | 'register' | 'reports' | 'reconciliation' | 'setti
 interface MainLayoutProps {
   currentBook: Book;
   onSwitchBook: (bookId: string) => void;
+  onShowAccountSetup: () => void;
 }
 
-export function MainLayout({ currentBook, onSwitchBook }: MainLayoutProps) {
+export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: MainLayoutProps) {
   const [showNewBookWizard, setShowNewBookWizard] = useState(false);
   const [accounts, setAccounts] = useState<AccountWithBalance[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
@@ -116,6 +117,7 @@ export function MainLayout({ currentBook, onSwitchBook }: MainLayoutProps) {
                 setSelectedAccountId(id);
                 setCurrentView('register');
               }}
+              onShowAccountSetup={onShowAccountSetup}
             />
           )}
         </main>

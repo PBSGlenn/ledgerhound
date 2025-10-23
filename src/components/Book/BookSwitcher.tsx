@@ -8,7 +8,7 @@ import { Book, ChevronDown, Plus, FolderOpen } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { format } from 'date-fns';
 import { bookManager } from '../../lib/services/bookManager';
-import type { Book as BookType, BookSummary } from '../../types/book';
+import type { Book as BookType } from '../../types/book';
 
 interface BookSwitcherProps {
   currentBook: BookType;

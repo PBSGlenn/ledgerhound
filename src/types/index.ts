@@ -1,30 +1,49 @@
+import type {
+  Account as PrismaAccount,
+  Transaction as PrismaTransaction,
+  Posting as PrismaPosting,
+  MemorizedRule as PrismaMemorizedRule,
+  ImportBatch,
+  Reconciliation,
+  Settings,
+} from '@prisma/client';
+
+import {
+  AccountType,
+  AccountSubtype,
+  GSTCode,
+  TransactionStatus,
+  MatchType,
+  AccountKind,
+} from '@prisma/client';
+
 export {
   AccountType,
   AccountSubtype,
   GSTCode,
   TransactionStatus,
   MatchType,
-  type Account,
-  type Transaction,
-  type Posting,
-  type MemorizedRule,
-  type ImportBatch,
-  type Reconciliation,
-  type Settings,
-} from '@prisma/client';
+  AccountKind,
+};
+
+export type Account = PrismaAccount;
+export type Transaction = PrismaTransaction;
+export type Posting = PrismaPosting;
+export type MemorizedRule = PrismaMemorizedRule;
+export type { ImportBatch, Reconciliation, Settings };
 
 // Extended types for UI
-export interface AccountWithBalance extends Account {
+export interface AccountWithBalance extends PrismaAccount {
   currentBalance: number;
   clearedBalance: number;
 }
 
-export interface TransactionWithPostings extends Transaction {
+export interface TransactionWithPostings extends PrismaTransaction {
   postings: PostingWithAccount[];
 }
 
-export interface PostingWithAccount extends Posting {
-  account: Account;
+export interface PostingWithAccount extends PrismaPosting {
+  account: PrismaAccount;
 }
 
 export interface RegisterEntry {
@@ -142,11 +161,16 @@ export interface BASDraft {
 export interface RegisterFilter {
   dateFrom?: Date;
   dateTo?: Date;
+  startDate?: Date;  // Alternative naming for API compatibility
+  endDate?: Date;    // Alternative naming for API compatibility
   search?: string;
+  searchText?: string;  // Alternative naming for API compatibility
   tags?: string[];
   amountMin?: number;
   amountMax?: number;
+  cleared?: boolean;
   clearedOnly?: boolean;
+  reconciled?: boolean;
   reconciledOnly?: boolean;
   businessOnly?: boolean;
   personalOnly?: boolean;

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { TrendingUp, TrendingDown, Wallet, AlertCircle, Clock, Briefcase, User } from 'lucide-react';
 import type { AccountWithBalance, RegisterEntry } from '../../types';
-import { accountAPI, transactionAPI } from '../../lib/api';
+import { transactionAPI } from '../../lib/api';
 
 interface DashboardProps {
   accounts: AccountWithBalance[];
   onSelectAccount: (accountId: string) => void;
+  onShowAccountSetup?: () => void;
 }
 
 interface Summary {
@@ -19,7 +20,7 @@ interface Summary {
   gstLiability: number;
 }
 
-export function DashboardView({ accounts, onSelectAccount }: DashboardProps) {
+export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _onShowAccountSetup }: DashboardProps) {
   const [recentTransactions, setRecentTransactions] = useState<RegisterEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
