@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { format } from 'date-fns';
-import { Check, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle, Download } from 'lucide-react';
+import { Check, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle, Download, Upload } from 'lucide-react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import type { RegisterEntry, RegisterFilter } from '../../types';
 import { transactionAPI } from '../../lib/api';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
+import { BankStatementImport } from '../Import/BankStatementImport';
 import { generateCSV, downloadCSV, formatDateForCSV, formatCurrencyForCSV } from '../../lib/utils/csvExport';
 import { useToast } from '../../hooks/useToast';
 
@@ -22,6 +23,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
   const [filter, setFilter] = useState<RegisterFilter>({});
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
+  const lastRowRef = useRef<HTMLTableRowElement>(null);
 
   useEffect(() => {
     setFilter(prev => ({ ...prev, searchText: debouncedSearchTerm }));
@@ -32,10 +34,21 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
   const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
   const [isCreateMode, setIsCreateMode] = useState(false);
   const [operationLoading, setOperationLoading] = useState<string | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   useEffect(() => {
     loadEntries();
   }, [accountId, filter]);
+
+  // Auto-scroll to most recent transaction (bottom of list) when entries load
+  useEffect(() => {
+    if (!loading && entries.length > 0 && lastRowRef.current) {
+      // Use a small delay to ensure DOM is fully rendered
+      setTimeout(() => {
+        lastRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }, 100);
+    }
+  }, [loading, entries.length]);
 
   const loadEntries = async () => {
     setLoading(true);
@@ -179,6 +192,11 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
   };
 
   const handleRowClick = (transactionId: string, e: React.MouseEvent) => {
+    // Don't allow editing opening balance entry
+    if (transactionId.startsWith('opening-')) {
+      return;
+    }
+
     // Don't trigger if clicking on checkbox, buttons, or action elements
     const target = e.target as HTMLElement;
     if (
@@ -190,7 +208,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
     ) {
       return;
     }
-    
+
     // Set as selected and open edit modal
     setSelectedTransactionId(transactionId);
     handleEditTransaction(transactionId);
@@ -376,6 +394,13 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
             Personal Only
           </button>
           <button
+            onClick={() => setShowImportModal(true)}
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
+          >
+            <Upload className="w-4 h-4" />
+            Import CSV
+          </button>
+          <button
             onClick={handleExportCSV}
             className="px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
           >
@@ -455,6 +480,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
             {entries.map((entry, idx) => (
               <tr
                 key={entry.id}
+                ref={idx === entries.length - 1 ? lastRowRef : null}
                 onClick={(e) => handleRowClick(entry.id, e)}
                 onMouseEnter={() => setFocusedIndex(idx)}
                 className={getRowClassName(entry, idx)}
@@ -580,11 +606,11 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
               Ending balance:
             </span>
             <span className={`text-lg font-bold tabular-nums ${
-              entries.length > 0 && entries[0].runningBalance >= 0
+              entries.length > 0 && entries[entries.length - 1].runningBalance >= 0
                 ? 'text-slate-900 dark:text-white'
                 : 'text-red-600 dark:text-red-400'
             }`}>
-              {entries.length > 0 && formatCurrency(entries[0].runningBalance)}
+              {entries.length > 0 && formatCurrency(entries[entries.length - 1].runningBalance)}
             </span>
           </div>
         </div>
@@ -601,7 +627,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
           isOpen={true}
           onClose={handleModalClose}
           accountId={accountId}
-          transactionId={editingTransactionId}
+          transactionId={editingTransactionId || undefined}
           onSuccess={() => {
             loadEntries();
             handleModalClose();
@@ -646,6 +672,18 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
           </AlertDialog.Content>
         </AlertDialog.Portal>
       </AlertDialog.Root>
+
+      {/* Import CSV Modal */}
+      <BankStatementImport
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        accountId={accountId}
+        accountName="Account"
+        onImportComplete={() => {
+          loadEntries();
+          setShowImportModal(false);
+        }}
+      />
     </div>
   );
 }

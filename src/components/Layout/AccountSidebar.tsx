@@ -12,7 +12,8 @@ import {
   Package,
   ChevronRight,
   ChevronLeft,
-  RefreshCw
+  RefreshCw,
+  Plus
 } from 'lucide-react';
 import type { AccountWithBalance, AccountType } from '../../types';
 
@@ -23,6 +24,7 @@ interface AccountSidebarProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   onRefresh: () => void;
+  onAddAccount: () => void;
 }
 
 export function AccountSidebar({
@@ -32,6 +34,7 @@ export function AccountSidebar({
   collapsed,
   onToggleCollapse,
   onRefresh,
+  onAddAccount,
 }: AccountSidebarProps) {
   // Group accounts by type
   const accountsByType = useMemo(() => {
@@ -196,15 +199,24 @@ export function AccountSidebar({
       )}
 
       {/* Footer actions */}
-      <div className="p-4 border-t border-slate-200 dark:border-slate-700">
+      <div className="p-4 border-t border-slate-200 dark:border-slate-700 space-y-2">
         {!collapsed && (
-          <button
-            onClick={onRefresh}
-            className="w-full px-4 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-150 flex items-center justify-center gap-2"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh Accounts
-          </button>
+          <>
+            <button
+              onClick={onAddAccount}
+              className="w-full px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-150 flex items-center justify-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Add Account
+            </button>
+            <button
+              onClick={onRefresh}
+              className="w-full px-4 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white rounded-lg text-sm font-medium shadow-sm hover:shadow transition-all duration-150 flex items-center justify-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Refresh Accounts
+            </button>
+          </>
         )}
       </div>
     </aside>

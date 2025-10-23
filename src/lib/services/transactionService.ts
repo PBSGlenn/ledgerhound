@@ -221,6 +221,16 @@ export class TransactionService {
     accountId: string,
     filter?: RegisterFilter
   ): Promise<RegisterEntry[]> {
+    // Get account details for opening balance
+    const account = await this.prisma.account.findUnique({
+      where: { id: accountId },
+      select: { openingBalance: true, openingDate: true, name: true },
+    });
+
+    if (!account) {
+      throw new Error('Account not found');
+    }
+
     // Build where clause
     const where: any = {
       accountId,
@@ -253,7 +263,7 @@ export class TransactionService {
         transaction: true,
         account: true,
       },
-      orderBy: [{ transaction: { date: 'desc' } }, { createdAt: 'desc' }],
+      orderBy: [{ transaction: { date: 'asc' } }, { createdAt: 'asc' }],
     });
 
     // Get all related transactions with all their postings
@@ -275,11 +285,28 @@ export class TransactionService {
       postingsByTransaction.set(p.transactionId, existing);
     });
 
-    // Calculate running balance
-    let runningBalance = 0;
+    // Start running balance with opening balance
+    let runningBalance = account.openingBalance;
+
+    // Create opening balance entry (first entry in register)
+    const openingBalanceEntry: RegisterEntry = {
+      id: `opening-${accountId}`,
+      date: account.openingDate,
+      payee: 'Opening Balance',
+      memo: undefined,
+      reference: undefined,
+      tags: undefined,
+      debit: account.openingBalance > 0 ? account.openingBalance : undefined,
+      credit: account.openingBalance < 0 ? Math.abs(account.openingBalance) : undefined,
+      runningBalance: account.openingBalance,
+      postings: [],
+      status: 'NORMAL',
+      cleared: true,
+      reconciled: true,
+    };
 
     // Convert to register entries
-    const entries: RegisterEntry[] = postings.map((posting) => {
+    const transactionEntries: RegisterEntry[] = postings.map((posting) => {
       const txPostings = postingsByTransaction.get(posting.transactionId) || [];
       const accountPosting = txPostings.find((p) => p.accountId === accountId);
 
@@ -304,7 +331,8 @@ export class TransactionService {
       };
     });
 
-    return entries;
+    // Return opening balance + transaction entries
+    return [openingBalanceEntry, ...transactionEntries];
   }
 
   /**

@@ -67,10 +67,14 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: Ma
       <AccountSidebar
         accounts={accounts}
         selectedAccountId={selectedAccountId}
-        onSelectAccount={setSelectedAccountId}
+        onSelectAccount={(id) => {
+          setSelectedAccountId(id);
+          setCurrentView('register');
+        }}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
         onRefresh={loadAccounts}
+        onAddAccount={onShowAccountSetup}
       />
 
       {/* Main content area */}

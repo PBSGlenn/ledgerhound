@@ -140,7 +140,8 @@ export function TransactionFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (Math.abs(remainingAmount) > 0.01) {
+    // Validate split totals only in split mode
+    if (transactionType === 'split' && Math.abs(remainingAmount) > 0.01) {
       alert('The splits must sum to the total amount.');
       return;
     }
@@ -151,7 +152,10 @@ export function TransactionFormModal({
       const totalAmountNum = parseFloat(totalAmount);
 
       const categoryPostings = splits.map(split => {
-        const splitAmountNum = parseFloat(split.amount);
+        // In simple mode, use total amount; in split mode, use split amount
+        const splitAmountNum = transactionType === 'simple'
+          ? totalAmountNum
+          : parseFloat(split.amount);
         const accountType = getAccountType(split.accountId);
         const isTransfer = accountType !== 'INCOME' && accountType !== 'EXPENSE';
 
@@ -268,79 +272,210 @@ export function TransactionFormModal({
                 <div className="bg-slate-200 dark:bg-slate-700 p-1 rounded-lg flex gap-1">
                   <button
                     type="button"
-                    onClick={() => setTransactionType('simple')}
+                    onClick={() => {
+                      setTransactionType('simple');
+                      // Keep only first split when switching to simple mode
+                      if (splits.length > 1) {
+                        setSplits([splits[0]]);
+                      }
+                    }}
                     className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${transactionType === 'simple' ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-300'}`}>
                     Simple
                   </button>
                   <button
                     type="button"
-                    onClick={() => setTransactionType('split')}
+                    onClick={() => {
+                      setTransactionType('split');
+                      // Add a second split if only one exists
+                      if (splits.length === 1) {
+                        setSplits([
+                          splits[0],
+                          {
+                            id: `temp-${Date.now()}`,
+                            accountId: '',
+                            amount: '',
+                            isBusiness: false,
+                          }
+                        ]);
+                      }
+                    }}
                     className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${transactionType === 'split' ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-300'}`}>
                     Split
                   </button>
                 </div>
               </div>
 
-              {/* Amount and Category Row */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Amount */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  💰 Total Amount (AUD)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={totalAmount}
+                  onChange={(e) => setTotalAmount(e.target.value)}
+                  required
+                  placeholder="0.00"
+                  className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors text-lg font-semibold"
+                />
+              </div>
+
+              {/* Simple Mode: Single Category */}
+              {transactionType === 'simple' && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                    💰 Amount (AUD)
+                    📁 Category
                   </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={totalAmount}
-                    onChange={(e) => setTotalAmount(e.target.value)}
+                  <CategorySelector
+                    value={splits[0]?.accountId || null}
+                    onChange={(categoryId) => {
+                      const newSplits = [...splits];
+                      newSplits[0] = {
+                        ...newSplits[0],
+                        accountId: categoryId || '',
+                        amount: totalAmount
+                      };
+                      setSplits(newSplits);
+                    }}
+                    placeholder="Select category..."
                     required
-                    placeholder="0.00"
-                    className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors text-lg font-semibold"
                   />
-                </div>
 
-                  <div className="grid grid-cols-1 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                        📁 Category
-                      </label>
-                      <CategorySelector
-                        value={splits[0]?.accountId || null}
-                        onChange={(categoryId) => {
+                  {/* Transfer Account Option */}
+                  {transferAccounts.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="text-xs text-slate-500 dark:text-slate-400 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300">
+                        Or transfer to another account
+                      </summary>
+                      <select
+                        value={splits[0]?.accountId || ''}
+                        onChange={(e) => {
                           const newSplits = [...splits];
-                          newSplits[0] = { ...newSplits[0], accountId: categoryId || '' };
+                          newSplits[0] = { ...newSplits[0], accountId: e.target.value, amount: totalAmount };
                           setSplits(newSplits);
                         }}
-                        placeholder="Select category..."
-                        required
-                      />
+                        className="w-full mt-2 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white text-sm"
+                      >
+                        <option value="">Select transfer account...</option>
+                        {transferAccounts.map((acc) => (
+                          <option key={acc.id} value={acc.id}>
+                            {acc.name}
+                          </option>
+                        ))}
+                      </select>
+                    </details>
+                  )}
+                </div>
+              )}
 
-                      {/* Transfer Account Option */}
-                      {transferAccounts.length > 0 && (
-                        <details className="mt-2">
-                          <summary className="text-xs text-slate-500 dark:text-slate-400 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300">
-                            Or transfer to another account
-                          </summary>
-                          <select
-                            value={splits[0]?.accountId || ''}
-                            onChange={(e) => {
+              {/* Split Mode: Multiple Categories */}
+              {transactionType === 'split' && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                      📊 Split Categories
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSplits([...splits, {
+                          id: `temp-${Date.now()}`,
+                          accountId: '',
+                          amount: '',
+                          isBusiness: false,
+                        }]);
+                      }}
+                      className="px-3 py-1 text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                    >
+                      + Add Split
+                    </button>
+                  </div>
+
+                  {/* Split Lines */}
+                  <div className="space-y-2 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
+                    {splits.map((split, index) => (
+                      <div key={split.id} className="flex gap-2 items-start">
+                        <div className="flex-1">
+                          <CategorySelector
+                            value={split.accountId || null}
+                            onChange={(categoryId) => {
                               const newSplits = [...splits];
-                              newSplits[0] = { ...newSplits[0], accountId: e.target.value };
+                              newSplits[index] = { ...newSplits[index], accountId: categoryId || '' };
                               setSplits(newSplits);
                             }}
-                            className="w-full mt-2 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white text-sm"
+                            placeholder="Select category..."
+                            required
+                          />
+                        </div>
+                        <div className="w-32">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={split.amount}
+                            onChange={(e) => {
+                              const newSplits = [...splits];
+                              newSplits[index] = { ...newSplits[index], amount: e.target.value };
+                              setSplits(newSplits);
+                            }}
+                            placeholder="0.00"
+                            required
+                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white text-sm"
+                          />
+                        </div>
+                        {splits.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSplits(splits.filter((_, i) => i !== index));
+                            }}
+                            className="p-2 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                            aria-label="Remove split"
                           >
-                            <option value="">Select transfer account...</option>
-                            {transferAccounts.map((acc) => (
-                              <option key={acc.id} value={acc.id}>
-                                {acc.name}
-                              </option>
-                            ))}
-                          </select>
-                        </details>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+
+                    {/* Remaining Amount Indicator */}
+                    <div className={`mt-3 p-2 rounded-lg text-sm font-medium ${
+                      Math.abs(remainingAmount) < 0.01
+                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                        : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
+                    }`}>
+                      <div className="flex justify-between items-center">
+                        <span>Remaining to allocate:</span>
+                        <span className="font-bold">${remainingAmount.toFixed(2)}</span>
+                      </div>
+                      {Math.abs(remainingAmount) < 0.01 ? (
+                        <div className="text-xs mt-1">✓ Splits balanced</div>
+                      ) : remainingAmount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Find first empty split and fill it with remaining amount
+                            const emptyIndex = splits.findIndex(s => !s.amount || parseFloat(s.amount) === 0);
+                            if (emptyIndex !== -1) {
+                              const newSplits = [...splits];
+                              newSplits[emptyIndex] = {
+                                ...newSplits[emptyIndex],
+                                amount: remainingAmount.toFixed(2)
+                              };
+                              setSplits(newSplits);
+                            }
+                          }}
+                          className="text-xs mt-2 px-2 py-1 bg-yellow-200 dark:bg-yellow-800 hover:bg-yellow-300 dark:hover:bg-yellow-700 rounded transition-colors"
+                        >
+                          Fill remaining to empty split
+                        </button>
                       )}
                     </div>
                   </div>
-              </div>
+                </div>
+              )}
 
               {/* Business Toggle - More Prominent */}
               <div className="border-2 border-purple-200 dark:border-purple-800 rounded-lg p-4 bg-purple-50 dark:bg-purple-900/20">
