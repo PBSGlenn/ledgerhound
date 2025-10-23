@@ -63,8 +63,11 @@ enum MatchType {
 model Account {
   id                  String          @id @default(uuid())
   name                String
+  fullPath            String?         @map("full_path")      // e.g., "Expense/Business/Marketing/Digital Marketing"
   type                AccountType
-  kind                AccountKind      @default(TRANSFER)
+  kind                AccountKind     @default(TRANSFER)
+  parentId            String?         @map("parent_id")      // Parent category (for hierarchy)
+  level               Int             @default(0)            // Hierarchy depth: 0=root, 1=Personal/Business, 2=Category, 3+=Subcategory
   subtype             AccountSubtype?
   isReal              Boolean         @default(true) @map("is_real")
   isBusinessDefault   Boolean         @default(false) @map("is_business_default")
@@ -77,13 +80,18 @@ model Account {
   updatedAt           DateTime        @updatedAt @map("updated_at")
 
   // Relations
+  parent              Account?        @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children            Account[]       @relation("CategoryHierarchy")
   postings            Posting[]
   reconciliations     Reconciliation[]
   importBatches       ImportBatch[]
   memorizedRules      MemorizedRule[]
 
-  @@unique([name, type])
+  @@unique([name, type, parentId])  // Unique name within same parent and type
   @@index([type])
+  @@index([parentId])
+  @@index([level])
+  @@index([fullPath])
   @@index([isReal])
   @@map("accounts")
 }
