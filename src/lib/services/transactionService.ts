@@ -296,8 +296,8 @@ export class TransactionService {
       memo: undefined,
       reference: undefined,
       tags: undefined,
-      debit: account.openingBalance > 0 ? account.openingBalance : undefined,
-      credit: account.openingBalance < 0 ? Math.abs(account.openingBalance) : undefined,
+      debit: undefined,  // Opening balance shows only in balance column
+      credit: undefined,
       runningBalance: account.openingBalance,
       postings: [],
       status: 'NORMAL',
@@ -321,8 +321,9 @@ export class TransactionService {
         tags: posting.transaction.tags
           ? JSON.parse(posting.transaction.tags)
           : undefined,
-        debit: posting.amount > 0 ? posting.amount : undefined,
-        credit: posting.amount < 0 ? Math.abs(posting.amount) : undefined,
+        // For asset accounts: negative = debit (money out), positive = credit (money in)
+        debit: posting.amount < 0 ? Math.abs(posting.amount) : undefined,
+        credit: posting.amount > 0 ? posting.amount : undefined,
         runningBalance,
         postings: txPostings,
         status: posting.transaction.status,
