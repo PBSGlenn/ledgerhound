@@ -1,0 +1,480 @@
+/**
+ * Generate Tax Report PDF for FY 2024-25
+ *
+ * Creates a formatted HTML report that can be printed to PDF
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+
+const reportHTML = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Tax Report FY 2024-25 - Pet Behaviour Services</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 2cm;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    h1 {
+      color: #1a5490;
+      border-bottom: 3px solid #1a5490;
+      padding-bottom: 10px;
+      margin-bottom: 30px;
+    }
+
+    h2 {
+      color: #2c5aa0;
+      margin-top: 30px;
+      margin-bottom: 15px;
+      border-left: 4px solid #2c5aa0;
+      padding-left: 15px;
+    }
+
+    h3 {
+      color: #4a4a4a;
+      margin-top: 20px;
+      margin-bottom: 10px;
+    }
+
+    .header-info {
+      background: #f5f5f5;
+      padding: 15px;
+      border-radius: 5px;
+      margin-bottom: 30px;
+    }
+
+    .header-info p {
+      margin: 5px 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      background: white;
+    }
+
+    th {
+      background: #2c5aa0;
+      color: white;
+      padding: 12px;
+      text-align: left;
+      font-weight: 600;
+    }
+
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #ddd;
+    }
+
+    tr:hover {
+      background: #f9f9f9;
+    }
+
+    .amount {
+      text-align: right;
+      font-family: 'Courier New', monospace;
+      font-weight: 600;
+    }
+
+    .total-row {
+      background: #e8f0f8;
+      font-weight: bold;
+      font-size: 1.1em;
+    }
+
+    .summary-box {
+      background: #e8f4e8;
+      border: 2px solid #4caf50;
+      border-radius: 5px;
+      padding: 20px;
+      margin: 20px 0;
+    }
+
+    .summary-box h3 {
+      color: #2e7d32;
+      margin-top: 0;
+    }
+
+    .warning-box {
+      background: #fff3cd;
+      border: 2px solid #ffc107;
+      border-radius: 5px;
+      padding: 15px;
+      margin: 20px 0;
+    }
+
+    .section {
+      page-break-inside: avoid;
+      margin-bottom: 30px;
+    }
+
+    .footer {
+      margin-top: 50px;
+      padding-top: 20px;
+      border-top: 2px solid #ccc;
+      font-size: 0.9em;
+      color: #666;
+    }
+
+    .due-date {
+      color: #d32f2f;
+      font-weight: bold;
+    }
+
+    @media print {
+      body {
+        padding: 0;
+      }
+
+      .no-print {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1>Tax Return Summary - FY 2024-25</h1>
+
+  <div class="header-info">
+    <p><strong>Business Name:</strong> Pet Behaviour Services</p>
+    <p><strong>Taxpayer:</strong> Glenn Mark Tobiansky</p>
+    <p><strong>Structure:</strong> Sole Trader</p>
+    <p><strong>ABN:</strong> [Your ABN]</p>
+    <p><strong>Financial Year:</strong> 1 July 2024 - 30 June 2025</p>
+    <p><strong>Report Generated:</strong> ${new Date().toLocaleDateString('en-AU', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric'
+    })}</p>
+  </div>
+
+  <!-- BAS Q1 Report -->
+  <div class="section">
+    <h2>📋 BAS Q1 (Jul-Sep 2025)</h2>
+    <p class="due-date">⏰ Due Date: 28 October 2025</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Label</th>
+          <th>Description</th>
+          <th class="amount">Amount (AUD)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>G1</strong></td>
+          <td>Total Sales (GST inclusive)</td>
+          <td class="amount">$3,800.96</td>
+        </tr>
+        <tr>
+          <td><strong>G11</strong></td>
+          <td>Non-Capital Purchases (GST inclusive)</td>
+          <td class="amount">$867.22</td>
+        </tr>
+        <tr style="background: #f5f5f5;">
+          <td colspan="3" style="padding: 5px;"></td>
+        </tr>
+        <tr>
+          <td><strong>1A</strong></td>
+          <td>GST on Sales (G1 ÷ 11)</td>
+          <td class="amount">$345.54</td>
+        </tr>
+        <tr>
+          <td><strong>1B</strong></td>
+          <td>GST on Purchases (G11 ÷ 11)</td>
+          <td class="amount">$78.84</td>
+        </tr>
+        <tr class="total-row">
+          <td><strong>7</strong></td>
+          <td>GST Payable (1A - 1B)</td>
+          <td class="amount">$266.70</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="summary-box">
+      <h3>💰 Amount to Pay ATO</h3>
+      <p style="font-size: 1.3em; margin: 0;"><strong>$266.70</strong></p>
+      <p style="margin: 5px 0 0 0; font-size: 0.9em;">Lodge via Business Portal</p>
+    </div>
+
+    <h3>Transaction Summary (Q1)</h3>
+    <ul>
+      <li><strong>Income:</strong> 12 Stripe payments totaling $3,800.96</li>
+      <li><strong>Expenses:</strong> 46 business transactions totaling $867.22</li>
+      <li><strong>Main Expenses:</strong> OpenAI ChatGPT, Perplexity AI, Calendly, Claude AI, Netlify</li>
+    </ul>
+  </div>
+
+  <!-- Income Tax Return -->
+  <div class="section" style="page-break-before: always;">
+    <h2>💼 Income Tax Return - FY 2024-25</h2>
+    <p class="due-date">⏰ Due Date: 31 October 2025</p>
+
+    <h3>Business Income & Expenses (Item 13)</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th>Transactions</th>
+          <th class="amount">Amount (AUD)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Business Income</strong> (Stripe payments)</td>
+          <td>55</td>
+          <td class="amount">$14,642.51</td>
+        </tr>
+        <tr>
+          <td><strong>Business Expenses</strong></td>
+          <td>119</td>
+          <td class="amount">($13,749.72)</td>
+        </tr>
+        <tr class="total-row">
+          <td colspan="2"><strong>Net Business Income</strong></td>
+          <td class="amount">$892.79</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Interest Income (Item 10)</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Account</th>
+          <th>Type</th>
+          <th class="amount">Total Interest</th>
+          <th class="amount">Your Share (50%)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Macquarie Bank Savings</td>
+          <td>Joint Account</td>
+          <td class="amount">$2,377.38</td>
+          <td class="amount">$1,188.69</td>
+        </tr>
+        <tr>
+          <td>RaboDirect Bank (RBB)</td>
+          <td>Joint Account</td>
+          <td class="amount">$1,817.85</td>
+          <td class="amount">$908.92</td>
+        </tr>
+        <tr class="total-row">
+          <td colspan="3"><strong>Total Interest Income (Your Share)</strong></td>
+          <td class="amount">$2,097.61</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Tax Calculation</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th class="amount">Amount (AUD)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Net Business Income</td>
+          <td class="amount">$892.79</td>
+        </tr>
+        <tr>
+          <td>Interest Income</td>
+          <td class="amount">$2,097.61</td>
+        </tr>
+        <tr class="total-row">
+          <td><strong>Taxable Income</strong></td>
+          <td class="amount">$2,990.40</td>
+        </tr>
+        <tr style="background: #f5f5f5;">
+          <td colspan="2" style="padding: 5px;"></td>
+        </tr>
+        <tr>
+          <td>Income Tax Payable</td>
+          <td class="amount">$0.00</td>
+        </tr>
+        <tr>
+          <td>Medicare Levy (2%)</td>
+          <td class="amount">$59.81</td>
+        </tr>
+        <tr class="total-row" style="background: #4caf50; color: white;">
+          <td><strong>TOTAL TAX PAYABLE</strong></td>
+          <td class="amount">$59.81</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="summary-box">
+      <h3>💰 Amount to Pay ATO</h3>
+      <p style="font-size: 1.3em; margin: 0;"><strong>$59.81</strong></p>
+      <p style="margin: 5px 0 0 0; font-size: 0.9em;">Lodge via myGov</p>
+    </div>
+
+    <div class="warning-box">
+      <p><strong>⚠️ Note:</strong> Your taxable income of $2,990.40 is well below the tax-free threshold of $18,200. You only pay the 2% Medicare Levy.</p>
+    </div>
+  </div>
+
+  <!-- Total Summary -->
+  <div class="section" style="page-break-before: always;">
+    <h2>📊 Total Tax Obligations - FY 2024-25</h2>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Obligation</th>
+          <th>Due Date</th>
+          <th class="amount">Amount (AUD)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>BAS Q1 (Jul-Sep 2025)</strong></td>
+          <td class="due-date">28 October 2025</td>
+          <td class="amount">$266.70</td>
+        </tr>
+        <tr>
+          <td><strong>Income Tax Return (FY 2024-25)</strong></td>
+          <td class="due-date">31 October 2025</td>
+          <td class="amount">$59.81</td>
+        </tr>
+        <tr class="total-row" style="background: #1a5490; color: white;">
+          <td colspan="2"><strong>GRAND TOTAL TO PAY ATO</strong></td>
+          <td class="amount">$326.51</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="summary-box">
+      <h3>✅ Next Steps</h3>
+      <ol>
+        <li><strong>Lodge BAS Q1</strong> via Business Portal (due 28 Oct 2025)</li>
+        <li><strong>Lodge Income Tax Return</strong> via myGov (due 31 Oct 2025)</li>
+        <li><strong>Pay ATO</strong> total of $326.51</li>
+        <li>Keep this report for your records</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- Business Expense Breakdown -->
+  <div class="section">
+    <h2>📑 Business Expense Categories (FY 2024-25)</h2>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th>Description</th>
+          <th class="amount">Estimated Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Software & Subscriptions</td>
+          <td>OpenAI ChatGPT, Perplexity AI, Claude AI, Calendly, Netlify, Elementor</td>
+          <td class="amount">~$6,500</td>
+        </tr>
+        <tr>
+          <td>Professional Development</td>
+          <td>AggressiveDog.com, training materials</td>
+          <td class="amount">~$2,000</td>
+        </tr>
+        <tr>
+          <td>Bank Fees & Charges</td>
+          <td>International transaction fees</td>
+          <td class="amount">~$500</td>
+        </tr>
+        <tr>
+          <td>Other Business Expenses</td>
+          <td>PayPal fees, miscellaneous</td>
+          <td class="amount">~$4,750</td>
+        </tr>
+        <tr class="total-row">
+          <td colspan="2"><strong>Total Business Expenses</strong></td>
+          <td class="amount">$13,749.72</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Important Notes -->
+  <div class="section">
+    <h2>📝 Important Notes</h2>
+
+    <div class="warning-box">
+      <p><strong>Data Sources:</strong></p>
+      <ul>
+        <li>Business transactions from CBA Transaction Account (PBS)</li>
+        <li>Stripe payments (55 transactions over FY)</li>
+        <li>Interest income from joint accounts (50% share calculated)</li>
+        <li>All figures in Australian Dollars (AUD)</li>
+      </ul>
+    </div>
+
+    <h3>Verification Checklist</h3>
+    <ul>
+      <li>✅ All Stripe payments included (55 transactions = $14,642.51)</li>
+      <li>✅ All business expenses tracked (119 transactions = $13,749.72)</li>
+      <li>✅ Interest income from MacBank (50% = $1,188.69)</li>
+      <li>✅ Interest income from RBB (50% = $908.92)</li>
+      <li>✅ Drawings to personal account excluded from expenses</li>
+      <li>✅ GST calculations verified (Q1 only)</li>
+    </ul>
+
+    <h3>Record Keeping</h3>
+    <p>Keep the following documents for 5 years:</p>
+    <ul>
+      <li>Bank statements (CBA Transaction Account, MacBank, RBB)</li>
+      <li>Stripe payment reports</li>
+      <li>Business expense receipts</li>
+      <li>This tax summary report</li>
+      <li>BAS lodgement confirmation</li>
+      <li>Tax return lodgement confirmation</li>
+    </ul>
+  </div>
+
+  <div class="footer">
+    <p><strong>Disclaimer:</strong> This report is generated from your transaction data for reference purposes. Please verify all figures before lodging with the ATO. Consult with a registered tax agent if you have any questions.</p>
+    <p style="margin-top: 20px; text-align: center; color: #999;">
+      Generated by Ledgerhound Tax Calculator<br>
+      ${new Date().toLocaleDateString('en-AU')} ${new Date().toLocaleTimeString('en-AU')}
+    </p>
+  </div>
+
+  <div class="no-print" style="position: fixed; bottom: 20px; right: 20px; background: #1a5490; color: white; padding: 15px 25px; border-radius: 5px; cursor: pointer;" onclick="window.print()">
+    🖨️ Print to PDF
+  </div>
+</body>
+</html>
+`;
+
+// Write HTML file
+const outputPath = path.join(process.cwd(), 'Tax_Report_FY_2024-25.html');
+fs.writeFileSync(outputPath, reportHTML, 'utf-8');
+
+console.log('✅ Tax Report Generated Successfully!');
+console.log(`📄 File: ${outputPath}`);
+console.log('\n📋 To create PDF:');
+console.log('   1. Open the HTML file in your browser');
+console.log('   2. Press Ctrl+P (or Cmd+P on Mac)');
+console.log('   3. Select "Save as PDF" as the destination');
+console.log('   4. Click "Save"');
+console.log('\nOr click the "Print to PDF" button in the bottom-right corner of the page.');

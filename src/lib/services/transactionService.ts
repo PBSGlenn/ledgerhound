@@ -331,6 +331,13 @@ export class TransactionService {
       };
     });
 
+    // Sort transaction entries by date (oldest first)
+    transactionEntries.sort((a, b) => {
+      const dateA = new Date(a.date).getTime();
+      const dateB = new Date(b.date).getTime();
+      return dateA - dateB; // Ascending order
+    });
+
     // Return opening balance + transaction entries
     return [openingBalanceEntry, ...transactionEntries];
   }
