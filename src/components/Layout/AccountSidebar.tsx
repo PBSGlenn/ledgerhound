@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Wallet,
   CreditCard,
@@ -13,9 +13,12 @@ import {
   ChevronRight,
   ChevronLeft,
   RefreshCw,
-  Plus
+  Plus,
+  FolderOpen
 } from 'lucide-react';
 import type { AccountWithBalance, AccountType } from '../../types';
+
+type TabType = 'real' | 'categories';
 
 interface AccountSidebarProps {
   accounts: AccountWithBalance[];
@@ -36,6 +39,18 @@ export function AccountSidebar({
   onRefresh,
   onAddAccount,
 }: AccountSidebarProps) {
+  const [activeTab, setActiveTab] = useState<TabType>('real');
+
+  // Filter accounts by tab (using 'kind' field)
+  const filteredAccounts = useMemo(() => {
+    return accounts.filter((account) => {
+      if (account.archived) return false;
+      // 'real' tab shows TRANSFER accounts (real accounts where money sits)
+      // 'categories' tab shows CATEGORY accounts (income/expense classifications)
+      return activeTab === 'real' ? account.kind === 'TRANSFER' : account.kind === 'CATEGORY';
+    });
+  }, [accounts, activeTab]);
+
   // Group accounts by type
   const accountsByType = useMemo(() => {
     const groups: Record<AccountType, AccountWithBalance[]> = {
@@ -46,14 +61,12 @@ export function AccountSidebar({
       EXPENSE: [],
     };
 
-    accounts.forEach((account) => {
-      if (!account.archived) {
-        groups[account.type].push(account);
-      }
+    filteredAccounts.forEach((account) => {
+      groups[account.type].push(account);
     });
 
     return groups;
-  }, [accounts]);
+  }, [filteredAccounts]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-AU', {
@@ -186,6 +199,36 @@ export function AccountSidebar({
           </button>
         </div>
       </div>
+
+      {/* Tabs */}
+      {!collapsed && (
+        <div className="px-4 pt-4 border-b border-slate-200 dark:border-slate-700">
+          <div className="flex gap-2 pb-3">
+            <button
+              onClick={() => setActiveTab('real')}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 flex items-center justify-center gap-2 ${
+                activeTab === 'real'
+                  ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-sm'
+                  : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              <Wallet className="w-4 h-4" />
+              Accounts
+            </button>
+            <button
+              onClick={() => setActiveTab('categories')}
+              className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 flex items-center justify-center gap-2 ${
+                activeTab === 'categories'
+                  ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-sm'
+                  : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+              }`}
+            >
+              <FolderOpen className="w-4 h-4" />
+              Categories
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Account list */}
       {!collapsed && (

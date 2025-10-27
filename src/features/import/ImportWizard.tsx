@@ -62,7 +62,11 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
         memorizedRuleAPI.getAllRules(),
         importAPI.getImportMappingTemplates(),
       ]);
-      setAccounts(allAccounts);
+      // Filter to only show bank accounts (ASSET and LIABILITY), not income/expense categories
+      const bankAccounts = allAccounts.filter(
+        acc => acc.type === 'ASSET' || acc.type === 'LIABILITY'
+      );
+      setAccounts(bankAccounts);
       setCategories(allCategories);
       setMemorizedRules(allRules);
       setImportMappingTemplates(allTemplates);
@@ -517,19 +521,19 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
                   <table className="w-full text-sm text-left text-slate-500 dark:text-slate-400">
                     <thead className="text-xs text-slate-700 uppercase bg-slate-50 dark:bg-slate-700 dark:text-slate-400">
                       <tr>
-                        <th scope="col" className="px-6 py-3">Date</th>
-                        <th scope="col" className="px-6 py-3">Payee</th>
-                        <th scope="col" className="px-6 py-3">Amount</th>
-                        <th scope="col" className="px-6 py-3">Category</th>
-                        <th scope="col" className="px-6 py-3">Memo</th>
-                        <th scope="col" className="px-6 py-3">Duplicate</th>
+                        <th scope="col" className="px-4 py-3 w-28">Date</th>
+                        <th scope="col" className="px-4 py-3" style={{ minWidth: '360px' }}>Payee</th>
+                        <th scope="col" className="px-4 py-3 w-28 text-right">Amount</th>
+                        <th scope="col" className="px-4 py-3 w-48">Category</th>
+                        <th scope="col" className="px-4 py-3 w-32">Memo</th>
+                        <th scope="col" className="px-4 py-3 w-24 text-center">Duplicate</th>
                       </tr>
                     </thead>
                     <tbody>
                       {previewTransactions.map((tx, index) => (
                         <tr key={tx.id} className="bg-white border-b dark:bg-slate-800 dark:border-slate-700">
-                          <td className="px-6 py-4">{new Date(tx.date).toLocaleDateString()}</td>
-                          <td className="px-6 py-4">
+                          <td className="px-4 py-3 text-sm">{new Date(tx.date).toLocaleDateString()}</td>
+                          <td className="px-4 py-3">
                             <input
                               type="text"
                               value={tx.payee}
@@ -538,13 +542,13 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
                                 newTxs[index].payee = e.target.value;
                                 setPreviewTransactions(newTxs);
                               }}
-                              className="w-full px-2 py-1 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1 text-xs border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
                           </td>
-                          <td className="px-6 py-4 font-semibold">
-                            {(tx.debit ? '-' : '') + (tx.debit || tx.credit)}
+                          <td className="px-4 py-3 font-semibold text-sm text-right tabular-nums">
+                            {(tx.debit ? '-' : '') + parseFloat(tx.debit || tx.credit || '0').toFixed(2)}
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-4 py-3">
                             <select
                               value={tx.categoryId || ''}
                               onChange={(e) => {
@@ -552,17 +556,22 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
                                 newTxs[index].categoryId = e.target.value;
                                 setPreviewTransactions(newTxs);
                               }}
-                              className="w-full px-2 py-1 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1 text-xs border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             >
-                              <option value="">Select a category...</option>
-                              {categories.map((cat) => (
-                                <option key={cat.id} value={cat.id}>
-                                  {cat.name}
-                                </option>
-                              ))}
+                              <option value="">Uncategorized</option>
+                              {categories
+                                .filter(cat => cat.parentId !== null) // Only show subcategories (leaf nodes)
+                                .map((cat) => {
+                                  const parent = categories.find(c => c.id === cat.parentId);
+                                  return (
+                                    <option key={cat.id} value={cat.id}>
+                                      {parent ? `${parent.name}: ${cat.name}` : cat.name}
+                                    </option>
+                                  );
+                                })}
                             </select>
                           </td>
-                          <td className="px-6 py-4">
+                          <td className="px-4 py-3">
                             <input
                               type="text"
                               value={tx.memo || ''}
@@ -571,10 +580,10 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
                                 newTxs[index].memo = e.target.value;
                                 setPreviewTransactions(newTxs);
                               }}
-                              className="w-full px-2 py-1 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full px-2 py-1 text-xs border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
                           </td>
-                          <td className="px-6 py-4 text-center">
+                          <td className="px-4 py-3 text-center">
                             {tx.isDuplicate && (
                               <span className="inline-flex items-center gap-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 px-2 py-0.5 rounded-full text-xs font-medium">
                                 <AlertCircle className="w-3 h-3" /> Duplicate

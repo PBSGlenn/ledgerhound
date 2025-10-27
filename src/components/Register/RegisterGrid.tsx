@@ -145,6 +145,43 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+
+    const confirmed = confirm(
+      `Are you sure you want to delete ${selectedIds.size} transaction(s)? This action cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    const transactionIds = Array.from(selectedIds);
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      for (const transactionId of transactionIds) {
+        try {
+          await transactionAPI.deleteTransaction(transactionId);
+          successCount++;
+        } catch (error) {
+          errorCount++;
+          console.error(`Failed to delete transaction ${transactionId}:`, error);
+        }
+      }
+
+      await loadEntries();
+      setSelectedIds(new Set());
+
+      if (errorCount === 0) {
+        showSuccess('Transactions deleted', `${successCount} transaction(s) successfully deleted`);
+      } else {
+        showError('Partial deletion', `${successCount} deleted, ${errorCount} failed`);
+      }
+    } catch (error) {
+      showError('Failed to delete transactions', (error as Error).message);
+    }
+  };
+
   const handleEditTransaction = async (transactionId: string) => {
     setOperationLoading('edit');
     try {
@@ -200,7 +237,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
     // Don't trigger if clicking on checkbox, buttons, or action elements
     const target = e.target as HTMLElement;
     if (
-      target.type === 'checkbox' ||
+      (target as HTMLInputElement).type === 'checkbox' ||
       target.closest('button') ||
       target.closest('[data-action]') ||
       target.closest('input') ||
@@ -366,6 +403,13 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
             >
               <Tag className="w-4 h-4" />
               Add Tag
+            </button>
+            <button
+              onClick={handleBulkDelete}
+              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
+            >
+              <Trash2 className="w-4 h-4" />
+              Delete
             </button>
           </div>
         )}

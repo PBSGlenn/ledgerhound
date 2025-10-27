@@ -9,12 +9,15 @@ import { reconciliationService } from '../src/lib/services/reconciliationService
 import { memorizedRuleService } from '../src/lib/services/memorizedRuleService.js';
 import { backupService } from '../src/lib/services/backupService.js';
 import { categoryService } from '../src/lib/services/categoryService.js';
+import { settingsService } from '../src/lib/services/settingsService.js';
+import { stripeImportService } from '../src/lib/services/stripeImportService.js';
 
 const app = express();
 const PORT = 3001;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // ============================================================================
 // ACCOUNT ENDPOINTS
@@ -309,7 +312,10 @@ app.post('/api/transactions', async (req, res) => {
 
 app.put('/api/transactions/:id', async (req, res) => {
   try {
-    const transaction = await transactionService.updateTransaction(req.params.id, req.body);
+    const transaction = await transactionService.updateTransaction({
+      id: req.params.id,
+      ...req.body
+    });
     res.json(transaction);
   } catch (error) {
     res.status(400).json({ error: (error as Error).message });
@@ -535,6 +541,53 @@ app.post('/api/rules/match', async (req, res) => {
   }
 });
 
+app.put('/api/rules/:id', async (req, res) => {
+  try {
+    const rule = await memorizedRuleService.updateRule(req.params.id, req.body);
+    res.json(rule);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+app.delete('/api/rules/:id', async (req, res) => {
+  try {
+    await memorizedRuleService.deleteRule(req.params.id);
+    res.status(204).send();
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+app.put('/api/rules/reorder', async (req, res) => {
+  try {
+    const { ruleIds } = req.body as { ruleIds: string[] };
+    await memorizedRuleService.reorderRules(ruleIds);
+    res.status(204).send();
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/rules/:id/preview', async (req, res) => {
+  try {
+    const result = await memorizedRuleService.previewRuleApplication(req.params.id);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+app.post('/api/rules/:id/apply-to-existing', async (req, res) => {
+  try {
+    const { transactionIds } = req.body as { transactionIds?: string[] };
+    const result = await memorizedRuleService.applyRuleToExisting(req.params.id, transactionIds);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
 // ============================================================================
 // BACKUP ENDPOINTS
 // ============================================================================
@@ -602,6 +655,112 @@ app.get('/api/backup/stats', async (req, res) => {
   try {
     const stats = await backupService.getStats();
     res.json(stats);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// ============================================================================
+// STRIPE IMPORT ENDPOINTS
+// ============================================================================
+
+app.get('/api/stripe/settings', async (req, res) => {
+  try {
+    // Use public method that masks the API key
+    const settings = await settingsService.getStripeSettingsPublic();
+    res.json(settings);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post('/api/stripe/settings', async (req, res) => {
+  try {
+    const { apiKey, accountId } = req.body;
+
+    if (!apiKey || !accountId) {
+      res.status(400).json({ error: 'Missing required fields: apiKey and accountId' });
+      return;
+    }
+
+    await settingsService.saveStripeSettings(apiKey, accountId);
+
+    res.json({ success: true, settings: await settingsService.getStripeSettingsPublic() });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.delete('/api/stripe/settings', async (req, res) => {
+  try {
+    await settingsService.deleteStripeSettings();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post('/api/stripe/test', async (req, res) => {
+  try {
+    const { apiKey, accountId } = req.body;
+
+    if (!apiKey) {
+      res.status(400).json({ error: 'API key required' });
+      return;
+    }
+
+    // Use a temporary account ID for testing if not provided
+    await stripeImportService.initialize({
+      apiKey,
+      accountId: accountId || 'temp-test-account-id',
+    });
+
+    const result = await stripeImportService.testConnection();
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.post('/api/stripe/import', async (req, res) => {
+  try {
+    // Get stored settings
+    const settings = await settingsService.getStripeSettings();
+    if (!settings) {
+      res.status(400).json({ error: 'Stripe not configured' });
+      return;
+    }
+
+    // Initialize Stripe service
+    await stripeImportService.initialize(settings);
+
+    // Parse date options
+    const { startDate, endDate, limit } = req.body;
+    const options = {
+      startDate: startDate ? new Date(startDate) : undefined,
+      endDate: endDate ? new Date(endDate) : undefined,
+      limit: limit ? parseInt(limit) : undefined,
+    };
+
+    // Import transactions
+    const result = await stripeImportService.importTransactions(options);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+app.get('/api/stripe/balance', async (req, res) => {
+  try {
+    const settings = await settingsService.getStripeSettings();
+    if (!settings) {
+      res.status(400).json({ error: 'Stripe not configured' });
+      return;
+    }
+
+    await stripeImportService.initialize(settings);
+    const balance = await stripeImportService.getBalance();
+    res.json(balance);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

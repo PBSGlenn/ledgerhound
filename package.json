@@ -63,8 +63,12 @@
     "express": "^5.1.0",
     "lucide-react": "^0.544.0",
     "papaparse": "^5.5.3",
+    "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^5.4.149",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-hot-toast": "^2.6.0",
+    "string-similarity": "^4.0.4",
+    "stripe": "^19.1.0"
   }
 }

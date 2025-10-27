@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Upload, GitCompare, BarChart3, Settings } from 'lucide-react';
+import { Plus, Upload, GitCompare, BarChart3, Settings, CreditCard } from 'lucide-react';
 import type { AccountWithBalance } from '../../types';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
 
@@ -8,6 +8,7 @@ interface TopBarProps {
   currentView?: string;
   onRefresh?: () => void;
   onImportClick: () => void;
+  onStripeImportClick?: () => void;
   onReportsClick?: () => void;
   onReconcileClick?: () => void;
   onDashboardClick?: () => void;
@@ -19,6 +20,7 @@ export function TopBar({
   currentView,
   onRefresh,
   onImportClick,
+  onStripeImportClick,
   onReportsClick,
   onReconcileClick,
   onDashboardClick,
@@ -130,12 +132,15 @@ export function TopBar({
             <Upload className="w-4 h-4" />
             Import CSV
           </button>
-          <button
-            onClick={() => console.log('Test Button clicked!')}
-            className="px-4 py-2.5 bg-purple-100 hover:bg-purple-200 dark:bg-purple-700 dark:hover:bg-purple-600 text-purple-700 dark:text-purple-300 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2"
-          >
-            Test Button
-          </button>
+          {selectedAccount?.name === 'Stripe' && onStripeImportClick && (
+            <button
+              onClick={onStripeImportClick}
+              className="px-4 py-2.5 bg-purple-100 hover:bg-purple-200 dark:bg-purple-700 dark:hover:bg-purple-600 text-purple-700 dark:text-purple-300 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2"
+            >
+              <CreditCard className="w-4 h-4" />
+              Sync from Stripe
+            </button>
+          )}
           <button
             onClick={onReconcileClick}
             disabled={!selectedAccount}

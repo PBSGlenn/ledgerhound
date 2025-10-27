@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { AccountSidebar } from './AccountSidebar';
+import { AccountSidebarTree } from './AccountSidebarTree';
 import { TopBar } from './TopBar';
 import { RegisterView } from '../Register/RegisterView';
 import { DashboardView } from '../Dashboard/DashboardView';
@@ -11,6 +11,7 @@ import { OnboardingWizard } from '../Onboarding/OnboardingWizard';
 import type { AccountWithBalance } from '../../types';
 import type { Book } from '../../types/book';
 import { ImportWizard } from '../../features/import/ImportWizard';
+import { StripeImportWizard } from '../../features/import/StripeImportWizard';
 import { accountAPI } from '../../lib/api';
 
 type ViewType = 'dashboard' | 'register' | 'reports' | 'reconciliation' | 'settings';
@@ -29,6 +30,7 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: Ma
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
 
   const [isImporting, setIsImporting] = useState(false);
+  const [isStripeImporting, setIsStripeImporting] = useState(false);
 
   useEffect(() => {
     loadAccounts();
@@ -64,7 +66,7 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: Ma
       </div>
 
       {/* Sidebar */}
-      <AccountSidebar
+      <AccountSidebarTree
         accounts={accounts}
         selectedAccountId={selectedAccountId}
         onSelectAccount={(id) => {
@@ -89,6 +91,7 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: Ma
           currentView={currentView}
           onRefresh={loadAccounts}
           onImportClick={() => setIsImporting(true)}
+          onStripeImportClick={() => setIsStripeImporting(true)}
           onReportsClick={() => setCurrentView('reports')}
           onReconcileClick={() => {
             if (selectedAccountId) {
@@ -132,6 +135,15 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: Ma
           isOpen={isImporting}
           onClose={() => setIsImporting(false)}
           onImportSuccess={loadAccounts}
+        />
+      )}
+
+      {isStripeImporting && (
+        <StripeImportWizard
+          onClose={() => {
+            setIsStripeImporting(false);
+            loadAccounts();
+          }}
         />
       )}
     </div>

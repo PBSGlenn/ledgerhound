@@ -67,6 +67,13 @@ npm run test:e2e        # Run Playwright E2E tests
 - Validation enforced in `transactionService.ts`
 - Transfers auto-balance (bank-to-bank, no category needed)
 
+**Why Categories Are Accounts:**
+In double-entry accounting, everything is an account. The `Account` table stores both:
+- **Real accounts** (`kind='TRANSFER'`): Banks, credit cards, Stripe (where money physically sits)
+- **Category accounts** (`kind='CATEGORY'`): Income/expense classifications (how transactions are categorized)
+
+See [STRIPE_ACCOUNTING_EXPLAINED.md](./STRIPE_ACCOUNTING_EXPLAINED.md) for detailed examples.
+
 ### Business vs Personal
 - **Default**: All transactions are personal (no GST)
 - **Business flag**: Set `isBusiness=true` on individual postings to enable GST tracking
@@ -75,9 +82,10 @@ npm run test:e2e        # Run Playwright E2E tests
 
 ### GST (Australian Tax)
 - 10% standard rate
-- Codes: GST, GST_FREE, INPUT_TAXED, EXPORT, OTHER
-- Stored on each business posting (not as separate account postings)
-- Reports filter to business transactions only
+- **GST Collected** (LIABILITY, category): GST you owe to ATO
+- **GST Paid** (ASSET, category): GST you can claim back from ATO
+- Net GST position = GST Collected - GST Paid
+- BAS payments are transfers from bank to ATO (not to/from GST accounts)
 
 ### Database
 - SQLite via Prisma ORM
@@ -87,8 +95,12 @@ npm run test:e2e        # Run Playwright E2E tests
 ### Services Layer
 All business logic is in TypeScript services (not Rust):
 - **accountService**: CRUD, balances, archiving
-- **transactionService**: Create/update/delete, double-entry validation, GST validation, register views
-- (TODO) **importService**: CSV parsing, column mapping, deduplication, rule matching
+- **transactionService**: Create/update/delete, double-entry validation, GST validation, register views, bulk operations
+- **stripeImportService**: Stripe Balance Transaction API integration, auto-creates GST categories, 5-way split accounting
+- **settingsService**: JSON-based settings storage in database
+- **backupService**: Automatic database backups on startup
+- **memorizedRuleService**: Transaction auto-categorization rules
+- (TODO) **importService**: CSV parsing improvements, column mapping UI
 - (TODO) **reconciliationService**: Manual tick-off, statement-based sessions
 - (TODO) **reportService**: P&L, GST Summary, BAS Draft
 
@@ -105,25 +117,42 @@ All business logic is in TypeScript services (not Rust):
 5. CSV import with deduplication
 6. Reconciliation flow
 
-## Current Status (2025-10-04)
+## Current Status (2025-10-28)
 
 ### ✅ Completed
 - Project setup (Tauri + React + TypeScript + Vite + Prisma)
-- Database schema with all entities
-- Seed data (personal, business, mixed examples)
-- Account service (CRUD + balances)
-- Transaction service (double-entry + GST validation)
-- TypeScript types
+- Database schema with all entities and migrations
+- Account service (CRUD, balances, archiving, hierarchies)
+- Transaction service (double-entry + GST validation + bulk operations)
+- **UI Components**:
+  - Hierarchical tree sidebar with tabs (Accounts vs Categories)
+  - Dashboard with net worth, cash flow, and recent transactions
+  - Register grid with bulk select/delete
+  - Transaction form modal with splits
+  - Account setup wizard
+  - Settings view (Stripe, categories, memorized rules)
+- **Stripe Integration**:
+  - Balance Transaction API import
+  - Auto-create GST categories (GST Collected, GST Paid)
+  - 5-way split accounting for charges (net, fee ex-GST, fee GST, income ex-GST, GST collected)
+  - Separate handling for stripe_fee transactions
+- **CSV Import**: Bank statement import with column mapping
+- **Backup System**: Auto-backup on API server startup
+- **Memorized Rules**: Auto-categorization based on payee matching
+- Desktop launcher (`start-ledgerhound.bat` + shortcut)
 
 ### 🔨 In Progress
-- UI components (register, transaction forms)
-- CSV import system
-- Reconciliation interface
-- Reporting system
+- Fixing Stripe GST extraction bug (code ready, needs clean re-import)
+- Virtual accounts system (GST Control, Savings Goals)
 
 ### 📋 TODO
-- PDF viewer integration
-- Settings UI
-- Backup/export
+- Reconciliation interface
+- Reporting system (P&L, GST Summary, BAS Draft)
+- PDF statement import
 - Comprehensive tests
 - User documentation
+
+### 🐛 Known Issues
+- Stripe import: GST extraction from fee_details not working (feeGst: 0 instead of 0.37)
+  - Fix is in code but requires API server restart and re-import of transactions
+  - 51 transactions need to be deleted and re-imported

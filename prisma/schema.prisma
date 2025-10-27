@@ -103,6 +103,7 @@ model Transaction {
   memo            String?
   reference       String?
   tags            String?             // JSON array of strings
+  metadata        String?             // JSON object for provider-specific data (Stripe fees, etc.)
   importBatchId   String?             @map("import_batch_id")
   externalId      String?             @map("external_id")
   status          TransactionStatus   @default(NORMAL)

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import type { Account, CreateTransactionDTO, GSTCode, AccountType } from '../../types';
-import { transactionAPI, accountAPI } from '../../lib/api';
+import { transactionAPI, accountAPI, memorizedRuleAPI } from '../../lib/api';
 import { CategorySelector } from '../Category/CategorySelector';
 
 interface TransactionFormModalProps {
@@ -21,6 +21,9 @@ export function TransactionFormModal({
 }: TransactionFormModalProps) {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [payee, setPayee] = useState('');
+  const [originalPayee, setOriginalPayee] = useState(''); // Track original payee for rule suggestion
+  const [showRuleSuggestion, setShowRuleSuggestion] = useState(false);
+  const [suggestedRuleData, setSuggestedRuleData] = useState<{originalPayee: string; newPayee: string; matchValue: string} | null>(null);
   const [transactionType, setTransactionType] = useState<'simple' | 'split'>('simple');
   const [totalAmount, setTotalAmount] = useState('');
   const [memo, setMemo] = useState('');
@@ -38,7 +41,7 @@ export function TransactionFormModal({
 
   useEffect(() => {
     const total = parseFloat(totalAmount) || 0;
-    const allocated = splits.reduce((sum, split) => sum + (parseFloat(split.amount) || 0), 0);
+    const allocated = (splits || []).reduce((sum, split) => sum + (parseFloat(split.amount) || 0), 0);
     setRemainingAmount(total - allocated);
   }, [totalAmount, splits]);
   const [isBusiness, setIsBusiness] = useState(false);
@@ -79,12 +82,32 @@ export function TransactionFormModal({
 
       // Populate form from transaction data
       setDate(new Date(transaction.date).toISOString().split('T')[0]);
-      setPayee(transaction.payee || '');
+      const originalPayeeName = transaction.payee || '';
+      console.log('Loading transaction - original payee:', originalPayeeName);
+      setPayee(originalPayeeName);
+      setOriginalPayee(originalPayeeName); // Store original for comparison
       setMemo(transaction.memo || '');
 
       const categoryPostings = transaction.postings.filter(p => p.accountId !== accountId);
-      const total = Math.abs(transaction.postings.find(p => p.accountId === accountId)?.amount || 0);
+
+      // For Stripe transactions, use the gross amount from metadata (what customer paid)
+      // Otherwise, use the amount from the account posting
+      let total = Math.abs(transaction.postings.find(p => p.accountId === accountId)?.amount || 0);
+      if (transaction.metadata) {
+        try {
+          const metadata = JSON.parse(transaction.metadata);
+          if (metadata.stripeType && metadata.grossAmount) {
+            total = Math.abs(metadata.grossAmount);
+          }
+        } catch (e) {
+          // Ignore JSON parse errors, use standard total
+        }
+      }
       setTotalAmount(total.toString());
+
+      // Set business flag from any category posting that has it enabled
+      const hasBusinessPosting = categoryPostings.some(p => p.isBusiness);
+      setIsBusiness(hasBusinessPosting);
 
       if (categoryPostings.length > 1) {
         setTransactionType('split');
@@ -184,7 +207,7 @@ export function TransactionFormModal({
           {
             accountId: accountId,
             amount: -totalAmountNum,
-            isBusiness: false,
+            isBusiness: isBusiness,
           },
           ...categoryPostings,
         ],
@@ -196,12 +219,27 @@ export function TransactionFormModal({
         await transactionAPI.createTransaction(transactionData as CreateTransactionDTO);
       }
 
-      // Success!
-      if (onSuccess) {
-        onSuccess();
-      }
+      // Check if payee was changed during edit - suggest creating a rule
+      console.log('Checking for payee change:', {
+        transactionId,
+        originalPayee,
+        payee,
+        changed: payee !== originalPayee
+      });
 
-      onClose();
+      if (transactionId && originalPayee && payee !== originalPayee && originalPayee.trim() && payee.trim()) {
+        console.log('Payee changed! Showing rule suggestion dialog');
+        setSuggestedRuleData({ originalPayee, newPayee: payee, matchValue: originalPayee });
+        setShowRuleSuggestion(true);
+        // Don't close yet - let the rule suggestion dialog handle closing
+        // Don't call onSuccess yet - call it when the rule dialog closes
+      } else {
+        // Success! Call onSuccess and close
+        if (onSuccess) {
+          onSuccess();
+        }
+        onClose();
+      }
     } catch (error) {
       console.error(`Failed to ${transactionId ? 'update' : 'create'} transaction:`, error);
       alert(`Failed to ${transactionId ? 'update' : 'create'} transaction: ` + (error as Error).message);
@@ -230,6 +268,42 @@ export function TransactionFormModal({
     }
   };
 
+  const handleCreateRule = async () => {
+    if (!suggestedRuleData) return;
+
+    try {
+      // Use CONTAINS matching with the user-editable match value
+      await memorizedRuleAPI.createRule({
+        name: `Auto: ${suggestedRuleData.newPayee}`,
+        matchType: 'CONTAINS',
+        matchValue: suggestedRuleData.matchValue,
+        defaultPayee: suggestedRuleData.newPayee,
+        defaultAccountId: splits.length > 0 ? splits[0].accountId : undefined,
+        applyOnImport: true,
+        applyOnManualEntry: true,
+      });
+
+      setShowRuleSuggestion(false);
+      setSuggestedRuleData(null);
+      if (onSuccess) {
+        onSuccess();
+      }
+      onClose();
+    } catch (error) {
+      console.error('Failed to create memorized rule:', error);
+      alert('Failed to create rule: ' + (error as Error).message);
+    }
+  };
+
+  const handleSkipRule = () => {
+    setShowRuleSuggestion(false);
+    setSuggestedRuleData(null);
+    if (onSuccess) {
+      onSuccess();
+    }
+    onClose();
+  };
+
   // Reset form on close
   useEffect(() => {
     if (!isOpen) {
@@ -248,8 +322,16 @@ export function TransactionFormModal({
     }
   }, [isOpen]);
 
+  // Custom close handler to prevent closing when showing rule suggestion
+  const handleDialogClose = (open: boolean) => {
+    if (!open && !showRuleSuggestion) {
+      onClose();
+    }
+  };
+
   return (
-    <Dialog.Root open={isOpen} onOpenChange={onClose}>
+    <>
+    <Dialog.Root open={isOpen || showRuleSuggestion} onOpenChange={handleDialogClose}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100]" />
         <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl p-6 w-full max-w-2xl shadow-2xl z-[101] border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto">
@@ -527,32 +609,6 @@ export function TransactionFormModal({
               </div>
 
             {/* GST Info (only if business) */}
-            {isBusiness && totalAmount && parseFloat(totalAmount) > 0 && (
-              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-3 rounded-lg text-sm">
-                <div className="font-medium text-green-900 dark:text-green-100 mb-2">
-                  GST Calculation (10%)
-                </div>
-                <div className="space-y-1 text-green-800 dark:text-green-200">
-                  <div className="flex justify-between">
-                    <span>Total (GST inc.):</span>
-                    <span className="font-medium">${parseFloat(totalAmount).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>GST amount:</span>
-                    <span className="font-medium">
-                      ${calculateGST(parseFloat(totalAmount)).gstAmount.toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>GST-exclusive:</span>
-                    <span className="font-medium">
-                      ${calculateGST(parseFloat(totalAmount)).gstExclusive.toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
               {/* Memo */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
@@ -613,5 +669,59 @@ export function TransactionFormModal({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+
+    {/* Memorized Rule Suggestion Dialog */}
+    <Dialog.Root open={showRuleSuggestion} onOpenChange={(open) => !open && setShowRuleSuggestion(false)}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 bg-black/50 z-[200]" />
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-lg shadow-xl p-6 w-full max-w-lg z-[201]">
+          <Dialog.Title className="text-lg font-bold text-slate-900 dark:text-white mb-4">
+            Create Memorized Rule?
+          </Dialog.Title>
+
+          <div className="text-slate-600 dark:text-slate-400 mb-6">
+            <p className="mb-4">
+              You changed the payee name. Would you like to create a rule to automatically rename similar transactions in the future?
+            </p>
+            {suggestedRuleData && (
+              <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4 space-y-2">
+                <div>
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">When payee contains:</span>
+                  <input
+                    type="text"
+                    value={suggestedRuleData.matchValue}
+                    onChange={(e) => setSuggestedRuleData({ ...suggestedRuleData, matchValue: e.target.value })}
+                    className="font-mono text-sm text-slate-900 dark:text-white mt-1 p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700 w-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div className="text-center text-slate-400">→</div>
+                <div>
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Rename to:</span>
+                  <div className="font-mono text-sm text-slate-900 dark:text-white mt-1 p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
+                    {suggestedRuleData.newPayee}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={handleSkipRule}
+              className="px-4 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-medium transition-colors"
+            >
+              No, Just This Once
+            </button>
+            <button
+              onClick={handleCreateRule}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+            >
+              Yes, Create Rule
+            </button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+    </>
   );
 }

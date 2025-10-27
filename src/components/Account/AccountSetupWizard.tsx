@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { Building2, CreditCard, DollarSign, PiggyBank, ShoppingCart, Home, Car, CheckCircle, ArrowRight, ArrowLeft, X } from 'lucide-react';
+import { Building2, CreditCard, DollarSign, PiggyBank, ShoppingCart, Home, Car, CheckCircle, ArrowRight, ArrowLeft, X, Wallet } from 'lucide-react';
 import { accountAPI } from '../../lib/api';
 import { useToast } from '../../hooks/useToast';
 import type { AccountType, AccountSubtype } from '@prisma/client';
@@ -65,6 +65,39 @@ const ACCOUNT_TEMPLATES: AccountTemplate[] = [
     icon: <CreditCard className="w-6 h-6" />,
     description: 'Credit card for purchases',
     category: 'liabilities',
+  },
+  // Payment Service Providers (PSP)
+  {
+    id: 'stripe',
+    name: 'Stripe',
+    type: 'ASSET',
+    subtype: 'PSP',
+    kind: 'TRANSFER',
+    icon: <Wallet className="w-6 h-6" />,
+    description: 'Stripe payment processor',
+    category: 'banking',
+    isBusinessDefault: true,
+  },
+  {
+    id: 'paypal',
+    name: 'PayPal',
+    type: 'ASSET',
+    subtype: 'PSP',
+    kind: 'TRANSFER',
+    icon: <Wallet className="w-6 h-6" />,
+    description: 'PayPal payment processor',
+    category: 'banking',
+  },
+  {
+    id: 'square',
+    name: 'Square',
+    type: 'ASSET',
+    subtype: 'PSP',
+    kind: 'TRANSFER',
+    icon: <Wallet className="w-6 h-6" />,
+    description: 'Square payment processor',
+    category: 'banking',
+    isBusinessDefault: true,
   },
   // Assets
   {

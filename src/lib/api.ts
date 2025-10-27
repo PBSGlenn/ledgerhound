@@ -260,6 +260,50 @@ export const memorizedRuleAPI = {
     if (!response.ok) throw new Error('Failed to fetch memorized rules');
     return response.json();
   },
+
+  async createRule(data: Partial<MemorizedRule>): Promise<MemorizedRule> {
+    const response = await fetch(`${API_BASE}/rules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to create rule');
+    return response.json();
+  },
+
+  async updateRule(id: string, data: Partial<MemorizedRule>): Promise<MemorizedRule> {
+    const response = await fetch(`${API_BASE}/rules/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Failed to update rule');
+    return response.json();
+  },
+
+  async deleteRule(id: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/rules/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete rule');
+  },
+
+  async reorderRules(ruleIds: string[]): Promise<void> {
+    const response = await fetch(`${API_BASE}/rules/reorder`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ruleIds }),
+    });
+    if (!response.ok) throw new Error('Failed to reorder rules');
+  },
+
+  async applyToExisting(ruleId: string): Promise<{ count: number; transactions: string[] }> {
+    const response = await fetch(`${API_BASE}/rules/${ruleId}/apply-to-existing`, {
+      method: 'POST',
+    });
+    if (!response.ok) throw new Error('Failed to apply rule to existing transactions');
+    return response.json();
+  },
 };
 
 /**

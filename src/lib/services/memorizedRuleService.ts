@@ -205,6 +205,108 @@ export class MemorizedRuleService {
       priority: 0,
     });
   }
+
+  /**
+   * Preview which transactions would be affected by applying a rule
+   * Returns matching transactions without modifying them
+   */
+  async previewRuleApplication(ruleId: string) {
+    const rule = await this.getRuleById(ruleId);
+    if (!rule) {
+      throw new Error(`Rule not found: ${ruleId}`);
+    }
+
+    // Get all transactions
+    const transactions = await this.prisma.transaction.findMany({
+      include: {
+        postings: {
+          include: {
+            account: true,
+          },
+        },
+      },
+      orderBy: {
+        date: 'desc',
+      },
+    });
+
+    // Filter transactions that match the rule
+    const matchingTransactions = transactions.filter((tx) =>
+      this.testMatch(tx.payee || '', rule.matchType, rule.matchValue)
+    );
+
+    return {
+      rule,
+      transactions: matchingTransactions.map(tx => ({
+        id: tx.id,
+        date: tx.date,
+        currentPayee: tx.payee,
+        newPayee: rule.defaultPayee || tx.payee,
+        amount: tx.postings.reduce((sum, p) => sum + p.amount, 0),
+        memo: tx.memo,
+      })),
+    };
+  }
+
+  /**
+   * Apply a rule to specific existing transactions
+   * Returns count of transactions updated
+   */
+  async applyRuleToExisting(ruleId: string, transactionIds?: string[]): Promise<{ count: number; transactions: string[] }> {
+    const rule = await this.getRuleById(ruleId);
+    if (!rule) {
+      throw new Error(`Rule not found: ${ruleId}`);
+    }
+
+    // If no specific transaction IDs provided, find all matching transactions
+    let transactionsToUpdate;
+    if (transactionIds && transactionIds.length > 0) {
+      transactionsToUpdate = await this.prisma.transaction.findMany({
+        where: {
+          id: { in: transactionIds },
+        },
+      });
+    } else {
+      const allTransactions = await this.prisma.transaction.findMany();
+      transactionsToUpdate = allTransactions.filter((tx) =>
+        this.testMatch(tx.payee || '', rule.matchType, rule.matchValue)
+      );
+    }
+
+    if (transactionsToUpdate.length === 0) {
+      return { count: 0, transactions: [] };
+    }
+
+    // Update transactions
+    const updatedIds: string[] = [];
+    for (const tx of transactionsToUpdate) {
+      // Update payee if rule has a default payee
+      if (rule.defaultPayee) {
+        await this.prisma.transaction.update({
+          where: { id: tx.id },
+          data: { payee: rule.defaultPayee },
+        });
+        updatedIds.push(tx.id);
+      }
+    }
+
+    return {
+      count: updatedIds.length,
+      transactions: updatedIds,
+    };
+  }
+
+  /**
+   * Find a matching rule for a given payee and memo
+   */
+  async findMatchingRule(
+    payee: string,
+    memo?: string
+  ): Promise<MemorizedRule | null> {
+    const rules = await this.getAllRules();
+    const match = this.matchPayee(payee, rules, 'manual');
+    return match;
+  }
 }
 
 export const memorizedRuleService = new MemorizedRuleService();

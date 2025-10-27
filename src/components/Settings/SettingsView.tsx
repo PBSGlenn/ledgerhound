@@ -4,11 +4,14 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Settings, Save, RotateCcw, Database, Download, Upload, Trash2, HardDrive } from 'lucide-react';
+import { Settings, Save, RotateCcw, Database, Download, Upload, Trash2, HardDrive, FolderTree, ListFilter, CreditCard } from 'lucide-react';
 import { format } from 'date-fns';
 import { useToast } from '../../hooks/useToast';
 import { backupAPI } from '../../lib/api';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
+import { CategoriesManager } from './CategoriesManager';
+import { MemorizedRulesManager } from './MemorizedRulesManager';
+import { StripeSettings } from './StripeSettings';
 
 interface AppSettings {
   currency: string;
@@ -40,8 +43,11 @@ interface DBStats {
   size: number;
 }
 
+type SettingsTab = 'settings' | 'categories' | 'rules' | 'stripe';
+
 export function SettingsView() {
   const { showSuccess, showError } = useToast();
+  const [activeTab, setActiveTab] = useState<SettingsTab>('settings');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [hasChanges, setHasChanges] = useState(false);
   const [backups, setBackups] = useState<BackupInfo[]>([]);
@@ -179,32 +185,86 @@ export function SettingsView() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleReset}
-              className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md font-medium flex items-center gap-2 transition-colors"
-            >
-              <RotateCcw className="w-4 h-4" />
-              Reset to Defaults
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={!hasChanges}
-              className={`px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors ${
-                hasChanges
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                  : 'bg-slate-300 dark:bg-slate-600 text-slate-500 dark:text-slate-400 cursor-not-allowed'
-              }`}
-            >
-              <Save className="w-4 h-4" />
-              Save Changes
-            </button>
-          </div>
+          {activeTab === 'settings' && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleReset}
+                className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-md font-medium flex items-center gap-2 transition-colors"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Reset to Defaults
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!hasChanges}
+                className={`px-4 py-2 rounded-md font-medium flex items-center gap-2 transition-colors ${
+                  hasChanges
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    : 'bg-slate-300 dark:bg-slate-600 text-slate-500 dark:text-slate-400 cursor-not-allowed'
+                }`}
+              >
+                <Save className="w-4 h-4" />
+                Save Changes
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 mt-6 border-b border-slate-200 dark:border-slate-700">
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`px-4 py-2 font-medium transition-colors border-b-2 flex items-center gap-2 ${
+              activeTab === 'settings'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            <Settings className="w-4 h-4" />
+            App Settings
+          </button>
+          <button
+            onClick={() => setActiveTab('categories')}
+            className={`px-4 py-2 font-medium transition-colors border-b-2 flex items-center gap-2 ${
+              activeTab === 'categories'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            <FolderTree className="w-4 h-4" />
+            Categories
+          </button>
+          <button
+            onClick={() => setActiveTab('rules')}
+            className={`px-4 py-2 font-medium transition-colors border-b-2 flex items-center gap-2 ${
+              activeTab === 'rules'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            <ListFilter className="w-4 h-4" />
+            Memorized Rules
+          </button>
+          <button
+            onClick={() => setActiveTab('stripe')}
+            className={`px-4 py-2 font-medium transition-colors border-b-2 flex items-center gap-2 ${
+              activeTab === 'stripe'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            <CreditCard className="w-4 h-4" />
+            Stripe
+          </button>
         </div>
       </div>
 
-      {/* Settings Content */}
+      {/* Content */}
       <div className="flex-1 overflow-y-auto p-6">
+        {activeTab === 'categories' && <CategoriesManager />}
+        {activeTab === 'rules' && <MemorizedRulesManager />}
+        {activeTab === 'stripe' && <StripeSettings />}
+        {activeTab === 'settings' && (
         <div className="max-w-3xl mx-auto space-y-6">
           {/* Regional Settings */}
           <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
@@ -508,6 +568,7 @@ export function SettingsView() {
             </p>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

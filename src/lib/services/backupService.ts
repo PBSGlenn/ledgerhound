@@ -44,7 +44,8 @@ export class BackupService {
     // Use SQLite VACUUM INTO for proper backup
     try {
       // First, ensure all transactions are committed
-      await this.prisma.$executeRawUnsafe('PRAGMA wal_checkpoint(TRUNCATE)');
+      // PRAGMA commands return results, so use $queryRawUnsafe
+      await this.prisma.$queryRawUnsafe('PRAGMA wal_checkpoint(TRUNCATE)');
 
       // Create backup using file copy (simpler and more reliable)
       fs.copyFileSync(this.dbPath, backupPath);
