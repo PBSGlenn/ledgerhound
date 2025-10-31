@@ -678,12 +678,29 @@ app.post('/api/stripe/settings', async (req, res) => {
   try {
     const { apiKey, accountId, payoutDestinationAccountId } = req.body;
 
-    if (!apiKey || !accountId) {
+    // Get existing settings to allow partial updates
+    const existingSettings = await settingsService.getStripeSettings();
+
+    // Validate required fields (use existing values if not provided)
+    const finalApiKey = apiKey || existingSettings?.apiKey;
+    const finalAccountId = accountId || existingSettings?.accountId;
+
+    if (!finalApiKey || !finalAccountId) {
       res.status(400).json({ error: 'Missing required fields: apiKey and accountId' });
       return;
     }
 
-    await settingsService.saveStripeSettings(apiKey, accountId, payoutDestinationAccountId);
+    // Allow partial update: if payoutDestinationAccountId is explicitly provided (even as empty string),
+    // use it; otherwise preserve existing value
+    const finalPayoutDestination = payoutDestinationAccountId !== undefined
+      ? payoutDestinationAccountId
+      : existingSettings?.payoutDestinationAccountId;
+
+    await settingsService.saveStripeSettings(
+      finalApiKey,
+      finalAccountId,
+      finalPayoutDestination
+    );
 
     res.json({ success: true, settings: await settingsService.getStripeSettingsPublic() });
   } catch (error) {
