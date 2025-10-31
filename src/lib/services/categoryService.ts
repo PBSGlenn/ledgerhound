@@ -62,6 +62,7 @@ export async function getAllCategories(options?: {
 
 /**
  * Get categories organized as a tree structure
+ * Organized as: Income/Expense > Business/Personal > Categories
  */
 export async function getCategoryTree(options?: CategoryTreeOptions): Promise<CategoryNode[]> {
   const categories = await getAllCategories({
@@ -72,7 +73,8 @@ export async function getCategoryTree(options?: CategoryTreeOptions): Promise<Ca
   // Filter based on options
   let filtered = categories;
 
-  if (!options?.includeRoot) {
+  // Include root categories (level 0) by default
+  if (options?.includeRoot === false) {
     filtered = filtered.filter((c) => c.level > 0);
   }
 
@@ -88,9 +90,95 @@ export async function getCategoryTree(options?: CategoryTreeOptions): Promise<Ca
     filtered = filtered.filter((c) => c.level <= options.maxLevel!);
   }
 
-  // Build tree structure
-  const tree = buildTree(filtered);
+  // Build tree structure organized by type then business/personal
+  const tree = buildTypeFirstTree(filtered);
   return tree;
+}
+
+/**
+ * Build tree structure organized by Type (Income/Expense) > Business/Personal > Categories
+ */
+function buildTypeFirstTree(categories: CategoryNode[]): CategoryNode[] {
+  const roots: CategoryNode[] = [];
+
+  // Separate by type
+  const incomeCategories = categories.filter((c) => c.type === AccountType.INCOME);
+  const expenseCategories = categories.filter((c) => c.type === AccountType.EXPENSE);
+
+  // Create virtual parent nodes for each type+business combination
+  const createVirtualParent = (name: string, type: AccountType, isBusiness: boolean): CategoryNode => ({
+    id: `virtual-${type}-${isBusiness ? 'business' : 'personal'}`,
+    name,
+    fullPath: null,
+    type,
+    parentId: null,
+    level: 0,
+    isBusinessDefault: isBusiness,
+    sortOrder: 0,
+    children: [],
+  });
+
+  // Process Income - always show even if empty
+  const businessIncome = incomeCategories.filter((c) => c.isBusinessDefault);
+  const personalIncome = incomeCategories.filter((c) => !c.isBusinessDefault);
+
+  const incomeNode: CategoryNode = {
+    id: 'virtual-income',
+    name: 'Income',
+    fullPath: null,
+    type: AccountType.INCOME,
+    parentId: null,
+    level: 0,
+    isBusinessDefault: false,
+    sortOrder: 0,
+    children: [],
+  };
+
+  // Always add Business Income and Personal Income nodes, even if empty
+  const businessIncomeNode = createVirtualParent('Business Income', AccountType.INCOME, true);
+  console.log('businessIncome categories:', businessIncome.length, businessIncome.map(c => c.name));
+  businessIncomeNode.children = buildTree(businessIncome);
+  console.log('businessIncomeNode.children after buildTree:', businessIncomeNode.children.length);
+  incomeNode.children!.push(businessIncomeNode);
+
+  const personalIncomeNode = createVirtualParent('Personal Income', AccountType.INCOME, false);
+  console.log('personalIncome categories:', personalIncome.length, personalIncome.map(c => c.name));
+  personalIncomeNode.children = buildTree(personalIncome);
+  console.log('personalIncomeNode.children after buildTree:', personalIncomeNode.children.length);
+  incomeNode.children!.push(personalIncomeNode);
+
+  // Always add income node
+  roots.push(incomeNode);
+
+  // Process Expenses - always show even if empty
+  const businessExpense = expenseCategories.filter((c) => c.isBusinessDefault);
+  const personalExpense = expenseCategories.filter((c) => !c.isBusinessDefault);
+
+  const expenseNode: CategoryNode = {
+    id: 'virtual-expense',
+    name: 'Expenses',
+    fullPath: null,
+    type: AccountType.EXPENSE,
+    parentId: null,
+    level: 0,
+    isBusinessDefault: false,
+    sortOrder: 1,
+    children: [],
+  };
+
+  // Always add Business Expenses and Personal Expenses nodes, even if empty
+  const businessExpenseNode = createVirtualParent('Business Expenses', AccountType.EXPENSE, true);
+  businessExpenseNode.children = buildTree(businessExpense);
+  expenseNode.children!.push(businessExpenseNode);
+
+  const personalExpenseNode = createVirtualParent('Personal Expenses', AccountType.EXPENSE, false);
+  personalExpenseNode.children = buildTree(personalExpense);
+  expenseNode.children!.push(personalExpenseNode);
+
+  // Always add expense node
+  roots.push(expenseNode);
+
+  return roots;
 }
 
 /**
@@ -323,20 +411,26 @@ export async function createCategory(data: {
   type: AccountType;
   parentId?: string;
   isBusinessDefault?: boolean;
+  defaultHasGst?: boolean;
 }): Promise<CategoryNode> {
   // Determine level and fullPath based on parent
   let level = 1;
   let fullPath = `${data.type}/${data.name}`;
+  let inheritedIsBusinessDefault = false;
+  let inheritedDefaultHasGst = true;
 
   if (data.parentId) {
     const parent = await prisma.account.findUnique({
       where: { id: data.parentId },
-      select: { level: true, fullPath: true },
+      select: { level: true, fullPath: true, isBusinessDefault: true, defaultHasGst: true },
     });
 
     if (parent) {
       level = parent.level + 1;
       fullPath = parent.fullPath ? `${parent.fullPath}/${data.name}` : fullPath;
+      // Inherit parent's business and GST settings
+      inheritedIsBusinessDefault = parent.isBusinessDefault;
+      inheritedDefaultHasGst = parent.defaultHasGst ?? true;
     }
   }
 
@@ -362,7 +456,8 @@ export async function createCategory(data: {
       level,
       fullPath,
       isReal: false,
-      isBusinessDefault: data.isBusinessDefault ?? false,
+      isBusinessDefault: data.isBusinessDefault ?? inheritedIsBusinessDefault,
+      defaultHasGst: data.defaultHasGst ?? inheritedDefaultHasGst,
       sortOrder,
     },
     select: {

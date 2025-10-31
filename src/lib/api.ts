@@ -127,6 +127,8 @@ export const accountAPI = {
     openingBalance?: number;
     openingDate?: Date;
     isBusinessDefault?: boolean;
+    defaultHasGst?: boolean;
+    parentId?: string;
   }): Promise<Account> {
     const response = await fetch(`${API_BASE}/accounts`, {
       method: 'POST',
@@ -140,6 +142,8 @@ export const accountAPI = {
         openingBalance: payload.openingBalance ?? 0,
         openingDate: payload.openingDate ? payload.openingDate.toISOString() : new Date().toISOString(),
         isBusinessDefault: payload.isBusinessDefault ?? false,
+        defaultHasGst: payload.defaultHasGst,
+        parentId: payload.parentId,
         sortOrder: 0,
       }),
     });
@@ -158,6 +162,59 @@ export const accountAPI = {
     }
 
     return response.json();
+  },
+
+  async updateAccount(accountId: string, payload: {
+    name?: string;
+    isBusinessDefault?: boolean;
+    defaultHasGst?: boolean;
+    openingBalance?: number;
+    openingDate?: Date;
+    currency?: string;
+    sortOrder?: number;
+  }): Promise<Account> {
+    const response = await fetch(`${API_BASE}/accounts/${accountId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...payload,
+        openingDate: payload.openingDate ? payload.openingDate.toISOString() : undefined,
+      }),
+    });
+
+    if (!response.ok) {
+      let message = 'Failed to update account';
+      try {
+        const error = await response.json();
+        if (error?.error) {
+          message = error.error;
+        }
+      } catch {
+        // ignore parse errors
+      }
+      throw new Error(message);
+    }
+
+    return response.json();
+  },
+
+  async deleteAccount(accountId: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/accounts/${accountId}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      let message = 'Failed to delete account';
+      try {
+        const error = await response.json();
+        if (error?.error) {
+          message = error.error;
+        }
+      } catch {
+        // ignore parse errors
+      }
+      throw new Error(message);
+    }
   },
 };
 

@@ -1,6 +1,6 @@
 import { getPrismaClient } from '../db';
 import { parse } from 'date-fns';
-import type { ImportBatch, Transaction, Account } from '@prisma/client';
+import type { ImportBatch, Transaction, Account, Settings } from '@prisma/client';
 import type { CSVColumnMapping, CSVRow, ImportPreview } from '../../types';
 import { memorizedRuleService } from './memorizedRuleService';
 
@@ -394,6 +394,69 @@ export class ImportService {
         categoryAccountId = preview.suggestedCategory.id;
       }
 
+      // Prepare postings
+      const postings: any[] = [
+        // Source account posting
+        {
+          accountId: sourceAccountId,
+          amount: -preview.parsed.amount,
+          isBusiness: false,
+        },
+      ];
+
+      // If business transaction with GST, create separate GST posting
+      if (isBusiness && gstAmount && Math.abs(gstAmount) > 0.01) {
+        // Find GST account based on transaction type
+        const isExpense = preview.parsed.amount > 0;
+        const gstAccount = await this.prisma.account.findFirst({
+          where: {
+            name: isExpense ? 'GST Paid' : 'GST Collected',
+            type: isExpense ? 'ASSET' : 'LIABILITY',
+          },
+        });
+
+        if (gstAccount) {
+          // Category posting (GST-exclusive amount)
+          const gstExclusiveAmount = preview.parsed.amount - gstAmount;
+          postings.push({
+            accountId: categoryAccountId,
+            amount: gstExclusiveAmount,
+            isBusiness: true,
+            gstCode,
+            gstRate,
+            gstAmount,
+          });
+
+          // GST posting
+          postings.push({
+            accountId: gstAccount.id,
+            amount: gstAmount,
+            isBusiness: false,
+          });
+        } else {
+          console.warn('GST account not found, falling back to single posting with metadata');
+          // Fallback to old behavior
+          postings.push({
+            accountId: categoryAccountId,
+            amount: preview.parsed.amount,
+            isBusiness,
+            gstCode,
+            gstRate,
+            gstAmount,
+          });
+        }
+      } else {
+        // No GST - single posting
+        postings.push({
+          accountId: categoryAccountId,
+          amount: preview.parsed.amount,
+          isBusiness,
+          gstCode,
+          gstRate,
+          gstAmount,
+        });
+      }
+
       // Create transaction
       await this.prisma.transaction.create({
         data: {
@@ -403,23 +466,7 @@ export class ImportService {
           importBatchId: batch.id,
           externalId: preview.parsed.reference,
           postings: {
-            create: [
-              // Source account posting
-              {
-                accountId: sourceAccountId,
-                amount: -preview.parsed.amount,
-                isBusiness: false,
-              },
-              // Category posting
-              {
-                accountId: categoryAccountId,
-                amount: preview.parsed.amount,
-                isBusiness,
-                gstCode,
-                gstRate,
-                gstAmount,
-              },
-            ],
+            create: postings,
           },
         },
       });

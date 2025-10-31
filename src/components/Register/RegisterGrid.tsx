@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { format } from 'date-fns';
 import { Check, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle, Download, Upload } from 'lucide-react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
-import type { RegisterEntry, RegisterFilter } from '../../types';
+import type { RegisterEntry, RegisterFilter, Account } from '../../types';
 import { transactionAPI } from '../../lib/api';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
 import { BankStatementImport } from '../Import/BankStatementImport';
+import { StripeImportModal } from '../Stripe/StripeImportModal';
 import { generateCSV, downloadCSV, formatDateForCSV, formatCurrencyForCSV } from '../../lib/utils/csvExport';
 import { useToast } from '../../hooks/useToast';
 
@@ -35,10 +36,28 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
   const [isCreateMode, setIsCreateMode] = useState(false);
   const [operationLoading, setOperationLoading] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showStripeImportModal, setShowStripeImportModal] = useState(false);
+  const [account, setAccount] = useState<Account | null>(null);
 
   useEffect(() => {
     loadEntries();
   }, [accountId, filter]);
+
+  // Load account details
+  useEffect(() => {
+    const loadAccount = async () => {
+      try {
+        const response = await fetch(`http://localhost:3001/api/accounts/${accountId}`);
+        if (response.ok) {
+          const data = await response.json();
+          setAccount(data);
+        }
+      } catch (error) {
+        console.error('Failed to load account:', error);
+      }
+    };
+    loadAccount();
+  }, [accountId]);
 
   // Auto-scroll to most recent transaction (bottom of list) when entries load
   useEffect(() => {
@@ -437,6 +456,15 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
             <User className="w-4 h-4" />
             Personal Only
           </button>
+          {account?.subtype === 'PSP' && (
+            <button
+              onClick={() => setShowStripeImportModal(true)}
+              className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white rounded-lg text-sm font-medium transition-all shadow-sm flex items-center gap-1.5"
+            >
+              <Download className="w-4 h-4" />
+              Sync from Stripe
+            </button>
+          )}
           <button
             onClick={() => setShowImportModal(true)}
             className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
@@ -726,6 +754,15 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
         onImportComplete={() => {
           loadEntries();
           setShowImportModal(false);
+        }}
+      />
+
+      {/* Stripe Import Modal */}
+      <StripeImportModal
+        isOpen={showStripeImportModal}
+        onClose={() => setShowStripeImportModal(false)}
+        onSuccess={() => {
+          loadEntries();
         }}
       />
     </div>

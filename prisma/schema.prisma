@@ -71,6 +71,7 @@ model Account {
   subtype             AccountSubtype?
   isReal              Boolean         @default(true) @map("is_real")
   isBusinessDefault   Boolean         @default(false) @map("is_business_default")
+  defaultHasGst       Boolean         @default(true) @map("default_has_gst")  // Only applies if isBusinessDefault=true
   openingBalance      Float           @default(0) @map("opening_balance")
   openingDate         DateTime        @default(now()) @map("opening_date")
   currency            String          @default("AUD")
