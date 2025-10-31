@@ -379,22 +379,45 @@ export class StripeImportService {
 
   /**
    * Determine payee from transaction type and description
+   * Extracts invoice numbers and customer names from Stripe descriptions
    */
   private getPayeeFromType(type: string, description: string | null): string {
-    if (description) return description;
+    if (!description) {
+      const typeMap: Record<string, string> = {
+        charge: 'Stripe Charge',
+        refund: 'Stripe Refund',
+        payout: 'Stripe Payout',
+        payment: 'Stripe Payment',
+        payment_refund: 'Stripe Payment Refund',
+        adjustment: 'Stripe Adjustment',
+        application_fee: 'Stripe Application Fee',
+        transfer: 'Stripe Transfer',
+      };
+      return typeMap[type] || `Stripe ${type}`;
+    }
 
-    const typeMap: Record<string, string> = {
-      charge: 'Stripe Charge',
-      refund: 'Stripe Refund',
-      payout: 'Stripe Payout',
-      payment: 'Stripe Payment',
-      payment_refund: 'Stripe Payment Refund',
-      adjustment: 'Stripe Adjustment',
-      application_fee: 'Stripe Application Fee',
-      transfer: 'Stripe Transfer',
-    };
+    // Extract invoice number from patterns like:
+    // "[Calendly] Behaviour Consultation (Payment for Invoice PBS-XXXXX)"
+    // "Payment for Invoice PBS-XXXXX"
+    const invoiceMatch = description.match(/Invoice\s+([A-Z0-9-]+)/i);
+    if (invoiceMatch) {
+      return `Invoice ${invoiceMatch[1]}`;
+    }
 
-    return typeMap[type] || `Stripe ${type}`;
+    // Extract customer name from Calendly charges:
+    // "[Calendly] Behaviour Consultation with Bridget Kennedy"
+    const calendlyMatch = description.match(/\[Calendly\].*with\s+(.+?)(?:\s*\(|$)/i);
+    if (calendlyMatch) {
+      return calendlyMatch[1];
+    }
+
+    // For Stripe invoicing fees, clean up the description
+    if (description.startsWith('Invoicing')) {
+      return 'Stripe';
+    }
+
+    // Default to the full description
+    return description;
   }
 
   /**
