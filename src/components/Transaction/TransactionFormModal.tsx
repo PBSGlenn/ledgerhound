@@ -24,7 +24,7 @@ export function TransactionFormModal({
   const [originalPayee, setOriginalPayee] = useState(''); // Track original payee for rule suggestion
   const [showRuleSuggestion, setShowRuleSuggestion] = useState(false);
   const [suggestedRuleData, setSuggestedRuleData] = useState<{originalPayee: string; newPayee: string; matchValue: string} | null>(null);
-  const [transactionType, setTransactionType] = useState<'simple' | 'split'>('simple');
+  // Removed transactionType - all transactions are split transactions
   const [totalAmount, setTotalAmount] = useState('');
   const [memo, setMemo] = useState('');
   
@@ -34,6 +34,10 @@ export function TransactionFormModal({
     amount: string;
     isBusiness: boolean;
     gstCode?: GSTCode;
+    isGstSplit?: boolean;        // True if this is an auto-generated GST Paid/Collected line
+    parentSplitId?: string;      // Links to the parent split (for GST splits)
+    originalAmount?: string;     // Original gross amount before GST splitting
+    manuallyEdited?: boolean;    // True if user manually changed the GST amount
   };
 
   const [splits, setSplits] = useState<Split[]>([]);
@@ -49,10 +53,29 @@ export function TransactionFormModal({
   const [loadingTransaction, setLoadingTransaction] = useState(false);
   const [categories, setCategories] = useState<Account[]>([]);
   const [transferAccounts, setTransferAccounts] = useState<Account[]>([]);
+  const [gstPaidAccount, setGstPaidAccount] = useState<Account | null>(null);
+  const [gstCollectedAccount, setGstCollectedAccount] = useState<Account | null>(null);
+  const [accountName, setAccountName] = useState<string>('');
 
   useEffect(() => {
     loadCategories();
-  }, []);
+    if (accountId) {
+      loadAccountName();
+    }
+  }, [accountId]);
+
+  const loadAccountName = async () => {
+    if (!accountId) return;
+    try {
+      const accounts = await accountAPI.getAllAccountsWithBalances();
+      const account = accounts.find(a => a.id === accountId);
+      if (account) {
+        setAccountName(account.name);
+      }
+    } catch (error) {
+      console.error('Failed to load account name:', error);
+    }
+  };
 
   useEffect(() => {
     if (transactionId) {
@@ -103,31 +126,92 @@ export function TransactionFormModal({
           // Ignore JSON parse errors, use standard total
         }
       }
-      setTotalAmount(total.toString());
+      setTotalAmount(total.toFixed(2));
 
       // Set business flag from any category posting that has it enabled
       const hasBusinessPosting = categoryPostings.some(p => p.isBusiness);
       setIsBusiness(hasBusinessPosting);
 
-      if (categoryPostings.length > 1) {
-        setTransactionType('split');
-        setSplits(categoryPostings.map(p => ({
-          id: p.id,
-          accountId: p.accountId,
-          amount: Math.abs(p.amount).toString(),
-          isBusiness: p.isBusiness || false,
-          gstCode: p.gstCode || undefined,
-        })));
-      } else if (categoryPostings.length === 1) {
-        setTransactionType('simple');
-        setSplits([{
-          id: categoryPostings[0].id,
-          accountId: categoryPostings[0].accountId,
-          amount: Math.abs(categoryPostings[0].amount).toString(),
-          isBusiness: categoryPostings[0].isBusiness || false,
-          gstCode: categoryPostings[0].gstCode || undefined,
-        }]);
+      // Find GST accounts directly (in case state hasn't been set yet)
+      const allAccounts = await accountAPI.getAllAccountsWithBalances({ kind: 'CATEGORY' });
+      const localGstPaid = allAccounts.find(acc => acc.name === 'GST Paid' && acc.type === 'ASSET');
+      const localGstCollected = allAccounts.find(acc => acc.name === 'GST Collected' && acc.type === 'LIABILITY');
+
+      // Identify GST postings (GST Paid or GST Collected)
+      const gstPostingIds = [localGstPaid?.id, localGstCollected?.id].filter(Boolean) as string[];
+      const gstPostings = categoryPostings.filter(p => gstPostingIds.includes(p.accountId));
+      const nonGstPostings = categoryPostings.filter(p => !gstPostingIds.includes(p.accountId));
+
+      // Build splits array with GST relationships
+      const loadedSplits: Split[] = [];
+
+      for (const posting of nonGstPostings) {
+        const postingAmount = posting.amount; // Preserve sign
+
+        // Check if this posting has an associated GST posting
+        // GST postings are usually created right after the main posting
+        const associatedGst = gstPostings.find(gp => {
+          // Match by similar timing and amount relationship
+          // GST should be roughly 1/11 of the gross amount
+          const gstAmount = gp.amount; // Preserve sign
+          const expectedGross = Math.abs(postingAmount) + Math.abs(gstAmount);
+          const calculatedGst = expectedGross * 0.1 / 1.1;
+          return Math.abs(Math.abs(calculatedGst) - Math.abs(gstAmount)) < 0.02; // Within 2 cents
+        });
+
+        if (associatedGst) {
+          // This posting has GST - mark it as business and store original gross amount
+          const gstAmount = associatedGst.amount; // Preserve sign
+          loadedSplits.push({
+            id: posting.id,
+            accountId: posting.accountId,
+            amount: postingAmount.toFixed(2), // GST-exclusive with sign
+            isBusiness: true,
+            gstCode: posting.gstCode || undefined,
+            originalAmount: (postingAmount + gstAmount).toFixed(2), // Original gross with sign
+          });
+
+          // Add the GST split (preserving sign)
+          loadedSplits.push({
+            id: associatedGst.id,
+            accountId: associatedGst.accountId,
+            amount: gstAmount.toFixed(2), // Preserves sign
+            isBusiness: false,
+            isGstSplit: true,
+            parentSplitId: posting.id,
+            manuallyEdited: false,
+          });
+
+          // Remove this GST posting from the list so it's not added again
+          const gstIndex = gstPostings.indexOf(associatedGst);
+          if (gstIndex > -1) {
+            gstPostings.splice(gstIndex, 1);
+          }
+        } else {
+          // No GST for this posting (preserve sign)
+          loadedSplits.push({
+            id: posting.id,
+            accountId: posting.accountId,
+            amount: postingAmount.toFixed(2), // Preserves sign
+            isBusiness: posting.isBusiness || false,
+            gstCode: posting.gstCode || undefined,
+          });
+        }
       }
+
+      // Add any remaining unmatched GST postings (preserve sign)
+      for (const gstPosting of gstPostings) {
+        loadedSplits.push({
+          id: gstPosting.id,
+          accountId: gstPosting.accountId,
+          amount: gstPosting.amount.toFixed(2), // Preserves sign
+          isBusiness: false,
+          isGstSplit: true,
+          manuallyEdited: false,
+        });
+      }
+
+      setSplits(loadedSplits);
     } catch (error) {
       console.error('Failed to load transaction:', error);
       alert('Failed to load transaction');
@@ -145,6 +229,17 @@ export function TransactionFormModal({
       setCategories(categoryAccounts);
       // Exclude the current account from the list of transfer destinations
       setTransferAccounts(allTransferAccounts.filter(acc => acc.id !== accountId));
+
+      // Find GST Paid and GST Collected accounts
+      const gstPaid = categoryAccounts.find(acc => acc.name === 'GST Paid' && acc.type === 'ASSET');
+      const gstCollected = categoryAccounts.find(acc => acc.name === 'GST Collected' && acc.type === 'LIABILITY');
+
+      setGstPaidAccount(gstPaid || null);
+      setGstCollectedAccount(gstCollected || null);
+
+      if (!gstPaid || !gstCollected) {
+        console.warn('GST Paid or GST Collected account not found. GST splitting may not work correctly.');
+      }
     } catch (error) {
       console.error('Failed to load accounts:', error);
     }
@@ -160,11 +255,86 @@ export function TransactionFormModal({
     return { gstAmount, gstExclusive };
   };
 
+  const handleGstToggle = (split: Split, index: number, checked: boolean) => {
+    const newSplits = [...splits];
+
+    if (checked) {
+      // User checked GST - split into two lines
+      const grossAmount = parseFloat(split.amount) || 0;
+
+      // Calculate GST, preserving sign
+      // GST amount = gross * 0.1 / 1.1 (with same sign as gross)
+      const absGross = Math.abs(grossAmount);
+      const { gstAmount: absGst, gstExclusive: absExclusive } = calculateGST(absGross);
+      const sign = grossAmount >= 0 ? 1 : -1;
+      const gstAmount = absGst * sign;
+      const gstExclusive = absExclusive * sign;
+
+      // Determine which GST account to use based on amount sign
+      // Positive = expense (use GST Paid), Negative = income (use GST Collected)
+      const gstAccount = grossAmount >= 0 ? gstPaidAccount : gstCollectedAccount;
+
+      if (!gstAccount) {
+        alert('GST Paid or GST Collected account not found. Please ensure these accounts exist.');
+        return;
+      }
+
+      // Update the original split to GST-exclusive amount
+      newSplits[index] = {
+        ...split,
+        isBusiness: true,
+        amount: gstExclusive.toFixed(2),
+        originalAmount: grossAmount.toFixed(2), // Store original for restoration
+      };
+
+      // Insert GST split immediately after
+      const gstSplit: Split = {
+        id: `gst-${split.id}-${Date.now()}`,
+        accountId: gstAccount.id,
+        amount: gstAmount.toFixed(2),
+        isBusiness: false, // GST splits don't have GST themselves
+        isGstSplit: true,
+        parentSplitId: split.id,
+        manuallyEdited: false,
+      };
+
+      newSplits.splice(index + 1, 0, gstSplit);
+    } else {
+      // User unchecked GST - remove GST split and restore original amount
+      const originalAmount = split.originalAmount || split.amount;
+
+      // Update the split back to original amount
+      newSplits[index] = {
+        ...split,
+        isBusiness: false,
+        amount: originalAmount,
+        originalAmount: undefined,
+      };
+
+      // Find and remove the associated GST split
+      const gstSplitIndex = newSplits.findIndex(
+        s => s.isGstSplit && s.parentSplitId === split.id
+      );
+
+      if (gstSplitIndex !== -1) {
+        newSplits.splice(gstSplitIndex, 1);
+      }
+    }
+
+    setSplits(newSplits);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validate split totals only in split mode
-    if (transactionType === 'split' && Math.abs(remainingAmount) > 0.01) {
+    // Validate accountId exists
+    if (!accountId) {
+      alert('No account selected');
+      return;
+    }
+
+    // Validate balance (splits must equal total amount)
+    if (Math.abs(remainingAmount) > 0.01) {
       alert('The splits must sum to the total amount.');
       return;
     }
@@ -180,24 +350,35 @@ export function TransactionFormModal({
         return;
       }
 
+      // Validate all splits have accountIds
+      const invalidSplit = splits.find(s => !s.accountId);
+      if (invalidSplit) {
+        alert('Please select a category for all splits');
+        return;
+      }
+
       const categoryPostings = splits.map(split => {
-        // In simple mode, use total amount; in split mode, use split amount
-        const splitAmountNum = transactionType === 'simple'
-          ? totalAmountNum
-          : parseFloat(split.amount);
+        const splitAmountNum = parseFloat(split.amount);
         const accountType = getAccountType(split.accountId);
         const isTransfer = accountType !== 'INCOME' && accountType !== 'EXPENSE';
 
-        const gst = !isTransfer && isBusiness ? calculateGST(splitAmountNum) : null;
+        // GST splits are already split out - don't calculate GST on them
+        // Only calculate GST metadata for non-GST splits that have isBusiness=true
+        const shouldCalculateGst = !isTransfer && split.isBusiness && !split.isGstSplit;
+        const gst = shouldCalculateGst ? { gstAmount: parseFloat(split.originalAmount || '0') - splitAmountNum } : null;
+
         return {
-          accountId: split.accountId,
+          accountId: split.accountId!, // Validated above
           amount: splitAmountNum,
-          isBusiness: !isTransfer && isBusiness,
-          gstCode: !isTransfer && isBusiness ? ('GST' as GSTCode) : undefined,
-          gstRate: !isTransfer && isBusiness ? 0.1 : undefined,
+          isBusiness: !isTransfer && split.isBusiness,
+          gstCode: shouldCalculateGst ? ('GST' as GSTCode) : undefined,
+          gstRate: shouldCalculateGst ? 0.1 : undefined,
           gstAmount: gst ? gst.gstAmount : undefined,
         };
       });
+
+      // Mark the main account posting as business if ANY split is business
+      const hasBusinessSplit = splits.some(s => s.isBusiness);
 
       const transactionData = {
         date: new Date(date),
@@ -205,9 +386,9 @@ export function TransactionFormModal({
         memo: memo || undefined,
         postings: [
           {
-            accountId: accountId,
+            accountId: accountId!, // Validated above
             amount: -totalAmountNum,
-            isBusiness: isBusiness,
+            isBusiness: hasBusinessSplit,
           },
           ...categoryPostings,
         ],
@@ -318,7 +499,6 @@ export function TransactionFormModal({
       }]);
       setMemo('');
       setIsBusiness(false);
-      setTransactionType('simple');
     }
   }, [isOpen]);
 
@@ -334,177 +514,124 @@ export function TransactionFormModal({
     <Dialog.Root open={isOpen || showRuleSuggestion} onOpenChange={handleDialogClose}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100]" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl p-6 w-full max-w-2xl shadow-2xl z-[101] border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto">
-          <Dialog.Title className="text-2xl font-bold text-slate-900 dark:text-white mb-6">
-            {transactionId ? 'Edit Transaction' : 'New Transaction'}
-          </Dialog.Title>
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl w-full max-w-2xl shadow-2xl z-[101] border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto">
+          {/* Header */}
+          <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700">
+            <div>
+              <Dialog.Title className="text-lg font-bold text-slate-900 dark:text-white">
+                {transactionId ? 'Edit Transaction' : 'New Transaction'}
+              </Dialog.Title>
+              {accountName && (
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                  {accountName}
+                </p>
+              )}
+            </div>
+            <Dialog.Close className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+              <span className="text-slate-500">✕</span>
+            </Dialog.Close>
+          </div>
 
           {loadingTransaction ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-slate-500 dark:text-slate-400">Loading transaction...</div>
+            <div className="flex items-center justify-center py-8">
+              <div className="text-sm text-slate-500 dark:text-slate-400">Loading...</div>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {/* Date and Payee Row */}
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={handleSubmit} className="p-4 space-y-3">
+              {/* Row 1: Date and Payee */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                    📅 Date
+                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                    Date
                   </label>
                   <input
                     type="date"
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
                     required
-                    className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors"
+                    className="w-full px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                    👤 Payee
+                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                    Payee
                   </label>
                   <input
                     type="text"
                     value={payee}
                     onChange={(e) => setPayee(e.target.value)}
                     required
-                    placeholder="Who did you pay?"
-                    className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors"
+                    placeholder="Enter payee name"
+                    className="w-full px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
                   />
                 </div>
               </div>
 
-              {/* Transaction Type Toggle */}
-              <div className="flex justify-center mb-4">
-                <div className="bg-slate-200 dark:bg-slate-700 p-1 rounded-lg flex gap-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTransactionType('simple');
-                      // Keep only first split when switching to simple mode
-                      if (splits.length > 1) {
-                        setSplits([splits[0]]);
-                      }
-                    }}
-                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${transactionType === 'simple' ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-300'}`}>
-                    Simple
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTransactionType('split');
-                      // Add a second split if only one exists
-                      if (splits.length === 1) {
-                        setSplits([
-                          splits[0],
-                          {
-                            id: `temp-${Date.now()}`,
-                            accountId: '',
-                            amount: '',
-                            isBusiness: false,
-                          }
-                        ]);
-                      }
-                    }}
-                    className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${transactionType === 'split' ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-300'}`}>
-                    Split
-                  </button>
-                </div>
-              </div>
-
-              {/* Amount */}
+              {/* Row 2: Total Amount */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                  💰 Total Amount (AUD)
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  Amount
                 </label>
                 <input
                   type="number"
                   step="0.01"
                   value={totalAmount}
                   onChange={(e) => setTotalAmount(e.target.value)}
+                  onBlur={(e) => {
+                    const val = parseFloat(e.target.value) || 0;
+                    setTotalAmount(val.toFixed(2));
+                  }}
                   required
                   placeholder="0.00"
-                  className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors text-lg font-semibold"
+                  className="w-full px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
                 />
               </div>
 
-              {/* Simple Mode: Single Category */}
-              {transactionType === 'simple' && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                    📁 Category
+              {/* Row 3: Split Categories Panel */}
+              <div className="border border-slate-300 dark:border-slate-600 rounded-lg p-3 bg-slate-50 dark:bg-slate-900/50">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
+                    Items
                   </label>
-                  <CategorySelector
-                    value={splits[0]?.accountId || null}
-                    onChange={(categoryId) => {
-                      const newSplits = [...splits];
-                      newSplits[0] = {
-                        ...newSplits[0],
-                        accountId: categoryId || '',
-                        amount: totalAmount
-                      };
-                      setSplits(newSplits);
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSplits([...splits, {
+                        id: `temp-${Date.now()}`,
+                        accountId: '',
+                        amount: '',
+                        isBusiness: false,
+                      }]);
                     }}
-                    placeholder="Select category..."
-                    required
-                  />
-
-                  {/* Transfer Account Option */}
-                  {transferAccounts.length > 0 && (
-                    <details className="mt-2">
-                      <summary className="text-xs text-slate-500 dark:text-slate-400 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300">
-                        Or transfer to another account
-                      </summary>
-                      <select
-                        value={splits[0]?.accountId || ''}
-                        onChange={(e) => {
-                          const newSplits = [...splits];
-                          newSplits[0] = { ...newSplits[0], accountId: e.target.value, amount: totalAmount };
-                          setSplits(newSplits);
-                        }}
-                        className="w-full mt-2 px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white text-sm"
-                      >
-                        <option value="">Select transfer account...</option>
-                        {transferAccounts.map((acc) => (
-                          <option key={acc.id} value={acc.id}>
-                            {acc.name}
-                          </option>
-                        ))}
-                      </select>
-                    </details>
-                  )}
+                    className="px-2 py-0.5 text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                  >
+                    + Add Split
+                  </button>
                 </div>
-              )}
 
-              {/* Split Mode: Multiple Categories */}
-              {transactionType === 'split' && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                      📊 Split Categories
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSplits([...splits, {
-                          id: `temp-${Date.now()}`,
-                          accountId: '',
-                          amount: '',
-                          isBusiness: false,
-                        }]);
-                      }}
-                      className="px-3 py-1 text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                {/* Split lines */}
+                <div className="space-y-2">
+                  {splits.map((split, index) => (
+                    <div
+                      key={split.id}
+                      className={`flex gap-2 items-center ${split.isGstSplit ? 'ml-6 bg-purple-50/50 dark:bg-purple-900/10 rounded-lg px-2 py-1' : ''}`}
                     >
-                      + Add Split
-                    </button>
-                  </div>
-
-                  {/* Split Lines */}
-                  <div className="space-y-2 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
-                    {splits.map((split, index) => (
-                      <div key={split.id} className="flex gap-2 items-start">
-                        <div className="flex-1">
+                      <div className="flex-1">
+                        {split.isGstSplit ? (
+                          // GST splits show a locked/linked display instead of selector
+                          <div className="flex items-center gap-2 px-2 py-1.5 border border-purple-200 dark:border-purple-700 rounded-lg bg-white dark:bg-slate-700">
+                            <svg className="w-3 h-3 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                            </svg>
+                            <span className="text-sm text-purple-700 dark:text-purple-300 font-medium">
+                              {categories.find(c => c.id === split.accountId)?.name || 'GST'}
+                            </span>
+                            {split.manuallyEdited && (
+                              <span className="text-xs text-orange-600 dark:text-orange-400" title="Manually adjusted">⚠</span>
+                            )}
+                          </div>
+                        ) : (
                           <CategorySelector
                             value={split.accountId || null}
                             onChange={(categoryId) => {
@@ -515,139 +642,164 @@ export function TransactionFormModal({
                             placeholder="Select category..."
                             required
                           />
-                        </div>
-                        <div className="w-32">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={split.amount}
-                            onChange={(e) => {
-                              const newSplits = [...splits];
-                              newSplits[index] = { ...newSplits[index], amount: e.target.value };
-                              setSplits(newSplits);
-                            }}
-                            placeholder="0.00"
-                            required
-                            className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white text-sm"
-                          />
-                        </div>
-                        {splits.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSplits(splits.filter((_, i) => i !== index));
-                            }}
-                            className="p-2 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
-                            aria-label="Remove split"
-                          >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
                         )}
                       </div>
-                    ))}
+                      <div className="w-28">
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={split.amount}
+                          onChange={(e) => {
+                            const newSplits = [...splits];
+                            const newAmount = e.target.value;
 
-                    {/* Remaining Amount Indicator */}
-                    <div className={`mt-3 p-2 rounded-lg text-sm font-medium ${
-                      Math.abs(remainingAmount) < 0.01
-                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                        : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
-                    }`}>
-                      <div className="flex justify-between items-center">
-                        <span>Remaining to allocate:</span>
-                        <span className="font-bold">${remainingAmount.toFixed(2)}</span>
+                            // Mark GST splits as manually edited if changed
+                            if (split.isGstSplit) {
+                              newSplits[index] = {
+                                ...newSplits[index],
+                                amount: newAmount,
+                                manuallyEdited: true
+                              };
+                            } else {
+                              newSplits[index] = { ...newSplits[index], amount: newAmount };
+                            }
+
+                            setSplits(newSplits);
+                          }}
+                          onBlur={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            const newSplits = [...splits];
+                            newSplits[index] = { ...newSplits[index], amount: val.toFixed(2) };
+                            setSplits(newSplits);
+                          }}
+                          placeholder="0.00"
+                          required
+                          className={`w-full px-2 py-1.5 border rounded-lg focus:ring-2 text-sm text-right font-mono ${
+                            split.isGstSplit
+                              ? 'border-purple-200 dark:border-purple-700 bg-white dark:bg-slate-700 focus:ring-purple-500 focus:border-purple-500'
+                              : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 focus:ring-blue-500 focus:border-blue-500'
+                          } dark:text-white`}
+                        />
                       </div>
-                      {Math.abs(remainingAmount) < 0.01 ? (
-                        <div className="text-xs mt-1">✓ Splits balanced</div>
-                      ) : remainingAmount > 0 && (
+                      {!split.isGstSplit && (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="checkbox"
+                            id={`gst-${split.id}`}
+                            checked={split.isBusiness}
+                            onChange={(e) => handleGstToggle(split, index, e.target.checked)}
+                            className="w-4 h-4 rounded border-slate-300 dark:border-slate-600 text-purple-600 focus:ring-2 focus:ring-purple-500"
+                            title="Track GST"
+                          />
+                          <label
+                            htmlFor={`gst-${split.id}`}
+                            className="text-xs text-slate-600 dark:text-slate-400 cursor-pointer whitespace-nowrap"
+                            title="Track GST"
+                          >
+                            GST
+                          </label>
+                        </div>
+                      )}
+                      {split.isGstSplit && (
+                        <div className="w-16" title="Spacer for GST splits"></div>
+                      )}
+                      {splits.length > 1 && !split.isGstSplit && (
                         <button
                           type="button"
                           onClick={() => {
-                            // Find first empty split and fill it with remaining amount
-                            const emptyIndex = splits.findIndex(s => !s.amount || parseFloat(s.amount) === 0);
-                            if (emptyIndex !== -1) {
-                              const newSplits = [...splits];
-                              newSplits[emptyIndex] = {
-                                ...newSplits[emptyIndex],
-                                amount: remainingAmount.toFixed(2)
-                              };
-                              setSplits(newSplits);
+                            // When deleting a split with GST, also remove its GST split
+                            const hasGstSplit = split.isBusiness && splits.some(s => s.isGstSplit && s.parentSplitId === split.id);
+                            if (hasGstSplit) {
+                              const filteredSplits = splits.filter((s, i) => i !== index && !(s.isGstSplit && s.parentSplitId === split.id));
+                              setSplits(filteredSplits);
+                            } else {
+                              setSplits(splits.filter((_, i) => i !== index));
                             }
                           }}
-                          className="text-xs mt-2 px-2 py-1 bg-yellow-200 dark:bg-yellow-800 hover:bg-yellow-300 dark:hover:bg-yellow-700 rounded transition-colors"
+                          className="p-1 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors"
+                          aria-label="Remove split"
                         >
-                          Fill remaining to empty split
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
                         </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Balance Summary */}
+                <div className="mt-3 pt-3 border-t border-slate-300 dark:border-slate-600">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex gap-4">
+                      <div>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">BALANCE:</span>
+                        <span className="ml-1 font-mono font-semibold text-slate-900 dark:text-white">
+                          ${(parseFloat(totalAmount) || 0).toFixed(2)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">AMOUNT:</span>
+                        <span className="ml-1 font-mono font-semibold text-slate-900 dark:text-white">
+                          ${((splits || []).reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0)).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      {Math.abs(remainingAmount) < 0.01 ? (
+                        <span className="text-green-600 dark:text-green-400 font-semibold text-sm">
+                          ✓ BALANCED
+                        </span>
+                      ) : (
+                        <span className="text-red-600 dark:text-red-400 font-semibold text-sm">
+                          {remainingAmount > 0 ? `+$${remainingAmount.toFixed(2)}` : `-$${Math.abs(remainingAmount).toFixed(2)}`}
+                        </span>
                       )}
                     </div>
                   </div>
                 </div>
-              )}
-
-              {/* Business Toggle - More Prominent */}
-              <div className="border-2 border-purple-200 dark:border-purple-800 rounded-lg p-4 bg-purple-50 dark:bg-purple-900/20">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="business"
-                      checked={isBusiness}
-                      onChange={(e) => setIsBusiness(e.target.checked)}
-                      className="w-5 h-5 rounded border-purple-300 dark:border-purple-600 text-purple-600 focus:ring-2 focus:ring-purple-500"
-                    />
-                    <label htmlFor="business" className="text-sm font-semibold text-slate-900 dark:text-white cursor-pointer">
-                      💼 Business Transaction (track GST)
-                    </label>
-                  </div>
-                  {isBusiness && (
-                    <span className="text-xs font-medium px-2 py-1 bg-purple-100 dark:bg-purple-800 text-purple-700 dark:text-purple-200 rounded-full">
-                      GST Enabled
-                    </span>
-                  )}
-                </div>
               </div>
 
-            {/* GST Info (only if business) */}
+
               {/* Memo */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                  📝 Memo (optional)
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                  Memo (optional)
                 </label>
                 <textarea
                   value={memo}
                   onChange={(e) => setMemo(e.target.value)}
                   placeholder="Add a note..."
                   rows={2}
-                  className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white resize-none transition-colors"
+                  className="w-full px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-700 text-slate-900 dark:text-white resize-none"
                 />
               </div>
 
-              {/* Buttons */}
-              <div className="flex justify-between gap-3 pt-6 border-t border-slate-200 dark:border-slate-700">
+              {/* Footer - Buttons */}
+              <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-200 dark:border-slate-700">
                 {/* Delete button - only show when editing */}
                 {transactionId && (
                   <button
                     type="button"
                     onClick={handleDelete}
                     disabled={loading}
-                    className="px-5 py-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Delete
                   </button>
                 )}
-                <div className="flex gap-3 ml-auto">
+                <div className="flex gap-2 ml-auto">
                   <button
                     type="button"
                     onClick={onClose}
-                    className="px-5 py-2.5 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-medium transition-colors"
+                    className="px-3 py-1.5 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-medium transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    disabled={loading}
-                    className="px-6 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white rounded-lg font-semibold shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    disabled={loading || Math.abs(remainingAmount) > 0.01}
+                    className="px-4 py-1.5 text-sm bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white rounded-lg font-semibold shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
                     {loading ? 'Saving...' : transactionId ? 'Update Transaction' : 'Save Transaction'}
                   </button>
@@ -655,17 +807,6 @@ export function TransactionFormModal({
               </div>
             </form>
           )}
-
-          <Dialog.Close asChild>
-            <button
-              className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-              aria-label="Close"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </Dialog.Close>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
@@ -674,30 +815,30 @@ export function TransactionFormModal({
     <Dialog.Root open={showRuleSuggestion} onOpenChange={(open) => !open && setShowRuleSuggestion(false)}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 z-[200]" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-lg shadow-xl p-6 w-full max-w-lg z-[201]">
-          <Dialog.Title className="text-lg font-bold text-slate-900 dark:text-white mb-4">
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-lg shadow-xl p-4 w-full max-w-md z-[201]">
+          <Dialog.Title className="text-base font-bold text-slate-900 dark:text-white mb-3">
             Create Memorized Rule?
           </Dialog.Title>
 
-          <div className="text-slate-600 dark:text-slate-400 mb-6">
-            <p className="mb-4">
-              You changed the payee name. Would you like to create a rule to automatically rename similar transactions in the future?
+          <div className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+            <p className="mb-3">
+              You changed the payee name. Create a rule to automatically rename similar transactions?
             </p>
             {suggestedRuleData && (
-              <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-4 space-y-2">
+              <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 space-y-2">
                 <div>
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">When payee contains:</span>
+                  <span className="text-xs font-medium text-slate-700 dark:text-slate-300">When payee contains:</span>
                   <input
                     type="text"
                     value={suggestedRuleData.matchValue}
                     onChange={(e) => setSuggestedRuleData({ ...suggestedRuleData, matchValue: e.target.value })}
-                    className="font-mono text-sm text-slate-900 dark:text-white mt-1 p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700 w-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="font-mono text-xs text-slate-900 dark:text-white mt-1 p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700 w-full focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
-                <div className="text-center text-slate-400">→</div>
+                <div className="text-center text-slate-400 text-xs">→</div>
                 <div>
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Rename to:</span>
-                  <div className="font-mono text-sm text-slate-900 dark:text-white mt-1 p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
+                  <span className="text-xs font-medium text-slate-700 dark:text-slate-300">Rename to:</span>
+                  <div className="font-mono text-xs text-slate-900 dark:text-white mt-1 p-2 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
                     {suggestedRuleData.newPayee}
                   </div>
                 </div>
@@ -705,16 +846,16 @@ export function TransactionFormModal({
             )}
           </div>
 
-          <div className="flex justify-end gap-3">
+          <div className="flex justify-end gap-2">
             <button
               onClick={handleSkipRule}
-              className="px-4 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-medium transition-colors"
+              className="px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg font-medium transition-colors"
             >
               No, Just This Once
             </button>
             <button
               onClick={handleCreateRule}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+              className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
             >
               Yes, Create Rule
             </button>

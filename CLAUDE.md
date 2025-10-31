@@ -212,9 +212,6 @@ All business logic is in TypeScript services (not Rust):
 - **Memorized Rules**: Pattern matching (exact, contains, regex), priority-based, auto-categorization on import
 - Desktop launcher (`start-ledgerhound.bat` + shortcut)
 
-### 🔨 In Progress
-- Fixing Stripe GST extraction bug (code ready, requires API restart and transaction re-import)
-
 ### 📋 TODO
 - Reconciliation UI polish (backend complete, needs PDF viewer integration and tick-off UI)
 - Comprehensive tests (unit + E2E)
@@ -248,15 +245,11 @@ All business logic is in TypeScript services (not Rust):
   - Better GST split visualization
   - Enhanced transfer detection
   - Stripe metadata display
-
-### 🐛 Known Issues
-- **Stripe Fee GST Extraction Bug**:
-  - **Symptom**: `feeGst: 0` instead of calculated amount (e.g., 0.37 for a $4.07 fee)
-  - **Root Cause**: Fee details extraction logic in stripeImportService
-  - **Fix Status**: Code is corrected in stripeImportService.ts
-  - **Action Required**: Restart API server and re-import affected transactions
-  - **Impact**: 51 transactions show incorrect fee GST amounts
-  - **Workaround**: Delete affected transactions and re-import from Stripe
+- **Bug Fixes (2025-10-31)**:
+  - Fixed duplicate React key warnings in AccountSidebarTree by filtering child accounts from main tree structure
+  - Fixed Radix UI accessibility warnings by adding Dialog.Description to CategoryFormModal and AccountSettingsModal
+  - Fixed CategorySelector not showing root-level income categories by adding includeRoot=true parameter
+  - Fixed sign preservation bug in TransactionFormModal where negative amounts were converted to positive during edit, causing balance errors in Stripe transactions
 
 ---
 
@@ -286,7 +279,6 @@ All business logic is in TypeScript services (not Rust):
 - ✅ 14 business logic services
 
 **What Needs Work:**
-- ⚠️ Stripe GST bug (simple fix, needs re-import)
 - ⚠️ Reconciliation UI polish (backend complete)
 - ⚠️ Comprehensive testing (unit + E2E)
 - ⚠️ User documentation
@@ -302,12 +294,11 @@ All business logic is in TypeScript services (not Rust):
 7. **Mature Architecture**: Services layer, REST API, proper separation of concerns
 
 ### Next Steps (Priority Order)
-1. Fix Stripe GST extraction (restart API + re-import 51 transactions)
-2. Polish reconciliation UI (add PDF viewer + tick-off interface)
-3. Write comprehensive tests (unit tests for services + E2E for critical flows)
-4. Create user documentation (setup guide, workflow docs, screenshots)
-5. Package as Tauri desktop app (currently web-based)
-6. Implement multi-book support (stub exists in bookManager)
+1. Polish reconciliation UI (add PDF viewer + tick-off interface)
+2. Write comprehensive tests (unit tests for services + E2E for critical flows)
+3. Create user documentation (setup guide, workflow docs, screenshots)
+4. Package as Tauri desktop app (currently web-based)
+5. Implement multi-book support (stub exists in bookManager)
 
 ### Technology Highlights
 - **Type Safety**: TypeScript throughout with strict mode
@@ -324,4 +315,4 @@ All business logic is in TypeScript services (not Rust):
 - ✅ BAS preparation and lodgement preparation
 - ✅ Mixed personal/business accounting (per-transaction granularity)
 
-The application is ready for real-world use with careful monitoring of the Stripe GST issue. All core functionality is operational and tested through actual usage.
+The application is ready for real-world use. All core functionality is operational and tested through actual usage.
