@@ -13,6 +13,8 @@ interface StripeSettingsData {
   configured: boolean;
   accountId?: string;
   accountName?: string;
+  payoutDestinationAccountId?: string;
+  payoutDestinationAccountName?: string;
   apiKeyMasked?: string;
 }
 
@@ -21,13 +23,16 @@ export const StripeSettings: React.FC = () => {
   const [testing, setTesting] = useState(false);
   const [settings, setSettings] = useState<StripeSettingsData | null>(null);
   const [pspAccounts, setPspAccounts] = useState<Account[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<Account[]>([]);
   const [apiKey, setApiKey] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [payoutDestinationAccountId, setPayoutDestinationAccountId] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
 
   useEffect(() => {
     loadSettings();
     loadPspAccounts();
+    loadBankAccounts();
   }, []);
 
   const loadSettings = async () => {
@@ -38,6 +43,10 @@ export const StripeSettings: React.FC = () => {
 
       if (data.configured && data.accountId) {
         setSelectedAccountId(data.accountId);
+      }
+
+      if (data.configured && data.payoutDestinationAccountId) {
+        setPayoutDestinationAccountId(data.payoutDestinationAccountId);
       }
     } catch (error) {
       console.error('Failed to load Stripe settings:', error);
@@ -54,6 +63,21 @@ export const StripeSettings: React.FC = () => {
       setPspAccounts(psp);
     } catch (error) {
       console.error('Failed to load PSP accounts:', error);
+    }
+  };
+
+  const loadBankAccounts = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/accounts?kind=TRANSFER');
+      const accounts = await response.json();
+
+      // Filter for bank accounts (not PSP) that can receive payouts
+      const banks = accounts.filter((acc: Account) =>
+        acc.type === 'ASSET' && acc.subtype !== 'PSP'
+      );
+      setBankAccounts(banks);
+    } catch (error) {
+      console.error('Failed to load bank accounts:', error);
     }
   };
 
@@ -104,6 +128,7 @@ export const StripeSettings: React.FC = () => {
         body: JSON.stringify({
           apiKey: apiKey || undefined,
           accountId: selectedAccountId,
+          payoutDestinationAccountId: payoutDestinationAccountId || undefined,
         }),
       });
 
@@ -207,6 +232,35 @@ export const StripeSettings: React.FC = () => {
               </div>
             </div>
 
+            <div className="border-t border-slate-200 dark:border-slate-700 pt-6">
+              <div className="flex items-center gap-2 mb-2">
+                <CreditCard className="w-4 h-4 text-slate-400" />
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Payout Destination
+                </label>
+              </div>
+              <select
+                value={payoutDestinationAccountId}
+                onChange={(e) => {
+                  setPayoutDestinationAccountId(e.target.value);
+                  handleSave();
+                }}
+                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-purple-500 dark:bg-slate-900 dark:text-white"
+              >
+                <option value="">None (skip payout imports)</option>
+                {bankAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                {payoutDestinationAccountId
+                  ? `Payouts will be imported as transfers to ${settings?.payoutDestinationAccountName || 'selected account'}`
+                  : 'Payouts will be skipped during import (manual entry required)'}
+              </p>
+            </div>
+
             {showApiKey && (
               <div className="border-t border-slate-200 dark:border-slate-700 pt-6">
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
@@ -301,6 +355,27 @@ export const StripeSettings: React.FC = () => {
                   </select>
                   <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
                     Select the Stripe, PayPal, or other PSP account you created
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    Payout Destination (Optional)
+                  </label>
+                  <select
+                    value={payoutDestinationAccountId}
+                    onChange={(e) => setPayoutDestinationAccountId(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-purple-500 dark:bg-slate-900 dark:text-white"
+                  >
+                    <option value="">None (skip payout imports)</option>
+                    {bankAccounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                    Select the bank account that receives Stripe payouts. If set, payouts will be automatically imported as transfers.
                   </p>
                 </div>
 
