@@ -113,12 +113,13 @@ export function TransactionFormModal({
 
       // For Stripe transactions, use the gross amount from metadata (what customer paid)
       // Otherwise, use the amount from the account posting
-      let total = Math.abs(transaction.postings.find(p => p.accountId === accountId)?.amount || 0);
+      // Preserve sign: positive = money in (credit for income), negative = money out (debit for expense)
+      let total = transaction.postings.find(p => p.accountId === accountId)?.amount || 0;
       if (transaction.metadata) {
         try {
           const metadata = JSON.parse(transaction.metadata);
           if (metadata.stripeType && metadata.grossAmount) {
-            total = Math.abs(metadata.grossAmount);
+            total = metadata.grossAmount;
           }
         } catch (e) {
           // Ignore JSON parse errors, use standard total
