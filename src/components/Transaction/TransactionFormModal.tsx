@@ -48,7 +48,6 @@ export function TransactionFormModal({
     const allocated = (splits || []).reduce((sum, split) => sum + (parseFloat(split.amount) || 0), 0);
     setRemainingAmount(total - allocated);
   }, [totalAmount, splits]);
-  const [isBusiness, setIsBusiness] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingTransaction, setLoadingTransaction] = useState(false);
   const [categories, setCategories] = useState<Account[]>([]);
@@ -92,7 +91,6 @@ export function TransactionFormModal({
         isBusiness: false,
       }]);
       setMemo('');
-      setIsBusiness(false);
     }
   }, [transactionId]);
 
@@ -128,10 +126,6 @@ export function TransactionFormModal({
       }
       setTotalAmount(total.toFixed(2));
 
-      // Set business flag from any category posting that has it enabled
-      const hasBusinessPosting = categoryPostings.some(p => p.isBusiness);
-      setIsBusiness(hasBusinessPosting);
-
       // Find GST accounts directly (in case state hasn't been set yet)
       const allAccounts = await accountAPI.getAllAccountsWithBalances({ kind: 'CATEGORY' });
       const localGstPaid = allAccounts.find(acc => acc.name === 'GST Paid' && acc.type === 'ASSET');
@@ -146,14 +140,14 @@ export function TransactionFormModal({
       const loadedSplits: Split[] = [];
 
       for (const posting of nonGstPostings) {
-        const postingAmount = posting.amount; // Preserve sign
+        const postingAmount = posting.amount; // From database (negated when saved)
 
         // Check if this posting has an associated GST posting
         // GST postings are usually created right after the main posting
         const associatedGst = gstPostings.find(gp => {
           // Match by similar timing and amount relationship
           // GST should be roughly 1/11 of the gross amount
-          const gstAmount = gp.amount; // Preserve sign
+          const gstAmount = gp.amount; // From database (negated when saved)
           const expectedGross = Math.abs(postingAmount) + Math.abs(gstAmount);
           const calculatedGst = expectedGross * 0.1 / 1.1;
           return Math.abs(Math.abs(calculatedGst) - Math.abs(gstAmount)) < 0.02; // Within 2 cents
@@ -161,21 +155,22 @@ export function TransactionFormModal({
 
         if (associatedGst) {
           // This posting has GST - mark it as business and store original gross amount
-          const gstAmount = associatedGst.amount; // Preserve sign
+          const gstAmount = associatedGst.amount; // From database (negated when saved)
+          // Negate back to show user what they originally entered
           loadedSplits.push({
             id: posting.id,
             accountId: posting.accountId,
-            amount: postingAmount.toFixed(2), // GST-exclusive with sign
+            amount: (-postingAmount).toFixed(2), // Negate back for display
             isBusiness: true,
             gstCode: posting.gstCode || undefined,
-            originalAmount: (postingAmount + gstAmount).toFixed(2), // Original gross with sign
+            originalAmount: (-(postingAmount + gstAmount)).toFixed(2), // Negate back for display
           });
 
-          // Add the GST split (preserving sign)
+          // Add the GST split (negate back for display)
           loadedSplits.push({
             id: associatedGst.id,
             accountId: associatedGst.accountId,
-            amount: gstAmount.toFixed(2), // Preserves sign
+            amount: (-gstAmount).toFixed(2), // Negate back for display
             isBusiness: false,
             isGstSplit: true,
             parentSplitId: posting.id,
@@ -188,23 +183,23 @@ export function TransactionFormModal({
             gstPostings.splice(gstIndex, 1);
           }
         } else {
-          // No GST for this posting (preserve sign)
+          // No GST for this posting (negate back for display)
           loadedSplits.push({
             id: posting.id,
             accountId: posting.accountId,
-            amount: postingAmount.toFixed(2), // Preserves sign
+            amount: (-postingAmount).toFixed(2), // Negate back for display
             isBusiness: posting.isBusiness || false,
             gstCode: posting.gstCode || undefined,
           });
         }
       }
 
-      // Add any remaining unmatched GST postings (preserve sign)
+      // Add any remaining unmatched GST postings (negate back for display)
       for (const gstPosting of gstPostings) {
         loadedSplits.push({
           id: gstPosting.id,
           accountId: gstPosting.accountId,
-          amount: gstPosting.amount.toFixed(2), // Preserves sign
+          amount: (-gstPosting.amount).toFixed(2), // Negate back for display
           isBusiness: false,
           isGstSplit: true,
           manuallyEdited: false,
@@ -369,7 +364,7 @@ export function TransactionFormModal({
 
         return {
           accountId: split.accountId!, // Validated above
-          amount: splitAmountNum,
+          amount: -splitAmountNum, // Negate: splits are opposite direction from account
           isBusiness: !isTransfer && split.isBusiness,
           gstCode: shouldCalculateGst ? ('GST' as GSTCode) : undefined,
           gstRate: shouldCalculateGst ? 0.1 : undefined,
@@ -387,7 +382,7 @@ export function TransactionFormModal({
         postings: [
           {
             accountId: accountId!, // Validated above
-            amount: -totalAmountNum,
+            amount: totalAmountNum, // Positive = credit (money in), Negative = debit (money out)
             isBusiness: hasBusinessSplit,
           },
           ...categoryPostings,
@@ -498,7 +493,6 @@ export function TransactionFormModal({
         isBusiness: false,
       }]);
       setMemo('');
-      setIsBusiness(false);
     }
   }, [isOpen]);
 

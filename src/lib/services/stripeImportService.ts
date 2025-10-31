@@ -92,10 +92,10 @@ export class StripeImportService {
    * Ensure all required accounts exist for Stripe transactions with proper GST tracking
    */
   private async ensureRequiredAccounts(): Promise<void> {
-    // Find or create Client Service Fee (income ex-GST)
+    // Find or create Consultation Income (for Calendly/invoice payments)
     let incomeAccount = await this.prisma.account.findFirst({
       where: {
-        name: 'Client Service Fee',
+        name: 'Consultation Income',
         type: AccountType.INCOME,
       },
     });
@@ -103,11 +103,12 @@ export class StripeImportService {
     if (!incomeAccount) {
       incomeAccount = await this.prisma.account.create({
         data: {
-          name: 'Client Service Fee',
+          name: 'Consultation Income',
           type: AccountType.INCOME,
           kind: 'CATEGORY',
           isReal: false,
           isBusinessDefault: true,
+          defaultHasGst: true,
           level: 0,
         },
       });
@@ -397,6 +398,51 @@ export class StripeImportService {
   }
 
   /**
+   * Detect and return the appropriate income category based on transaction description
+   * Creates the category if it doesn't exist
+   */
+  private async getIncomeCategoryForTransaction(description: string | null): Promise<string> {
+    // Default to Consultation Income
+    let categoryName = 'Consultation Income';
+
+    if (description) {
+      // Calendly charges - all go to Consultation Income
+      if (description.includes('[Calendly]') || description.includes('Behaviour Consultation')) {
+        categoryName = 'Consultation Income';
+      }
+      // Stripe Invoice payments
+      else if (description === 'Payment for Invoice' || description.includes('Invoice')) {
+        categoryName = 'Consultation Income'; // Can be changed to 'Invoiced Sales' if needed
+      }
+      // Other charges default to Consultation Income
+    }
+
+    // Find or create the category
+    let category = await this.prisma.account.findFirst({
+      where: {
+        name: categoryName,
+        type: AccountType.INCOME,
+      },
+    });
+
+    if (!category) {
+      category = await this.prisma.account.create({
+        data: {
+          name: categoryName,
+          type: AccountType.INCOME,
+          kind: 'CATEGORY',
+          isReal: false,
+          isBusinessDefault: true,
+          defaultHasGst: true,
+          level: 0,
+        },
+      });
+    }
+
+    return category.id;
+  }
+
+  /**
    * Create a Stripe transaction with proper Australian GST accounting
    *
    * Handles two main types:
@@ -426,7 +472,7 @@ export class StripeImportService {
    * - DR Stripe Account: $215.96 (net received)
    * - DR Stripe Fee: $3.67 (fee ex-GST)
    * - DR GST Paid: $0.37 (claimable GST on fee)
-   * - CR Client Service Fee: $200.00 (income ex-GST)
+   * - CR Consultation Income: $200.00 (income ex-GST) - auto-detected from description
    * - CR GST Collected: $20.00 (GST owed to ATO)
    */
   private async createStripeChargeTransaction(
@@ -445,6 +491,9 @@ export class StripeImportService {
     const incomeExGst = grossAmount / 1.1;  // Income excluding GST
     const gstCollected = grossAmount - incomeExGst;  // GST collected from customer
     const feeExGst = feeAmount - feeGst;  // Fee excluding GST
+
+    // Auto-detect income category based on description
+    const incomeCategoryId = await this.getIncomeCategoryForTransaction(bt.description);
 
     // Create the transaction with 5-way split postings
     return await this.prisma.transaction.create({
@@ -475,9 +524,9 @@ export class StripeImportService {
               amount: feeGst,
               isBusiness: true,
             },
-            // Credit: Client Service Fee (income ex-GST)
+            // Credit: Income (ex-GST) - category auto-detected from description
             {
-              accountId: this.incomeAccountId!,
+              accountId: incomeCategoryId,
               amount: -incomeExGst,
               isBusiness: true,
             },
