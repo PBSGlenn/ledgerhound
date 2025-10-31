@@ -676,14 +676,14 @@ app.get('/api/stripe/settings', async (req, res) => {
 
 app.post('/api/stripe/settings', async (req, res) => {
   try {
-    const { apiKey, accountId } = req.body;
+    const { apiKey, accountId, payoutDestinationAccountId } = req.body;
 
     if (!apiKey || !accountId) {
       res.status(400).json({ error: 'Missing required fields: apiKey and accountId' });
       return;
     }
 
-    await settingsService.saveStripeSettings(apiKey, accountId);
+    await settingsService.saveStripeSettings(apiKey, accountId, payoutDestinationAccountId);
 
     res.json({ success: true, settings: await settingsService.getStripeSettingsPublic() });
   } catch (error) {

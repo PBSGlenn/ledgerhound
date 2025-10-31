@@ -8,12 +8,15 @@ import { getPrismaClient } from '../db';
 export interface StripeSettings {
   apiKey: string;
   accountId: string; // Ledgerhound account ID for Stripe PSP account
+  payoutDestinationAccountId?: string; // Bank account that receives Stripe payouts
 }
 
 export interface StripeSettingsPublic {
   configured: boolean;
   accountId?: string;
   accountName?: string;
+  payoutDestinationAccountId?: string;
+  payoutDestinationAccountName?: string;
   apiKeyMasked?: string;
 }
 
@@ -84,10 +87,15 @@ export class SettingsService {
   /**
    * Save Stripe settings
    */
-  async saveStripeSettings(apiKey: string, accountId: string): Promise<StripeSettings> {
+  async saveStripeSettings(
+    apiKey: string,
+    accountId: string,
+    payoutDestinationAccountId?: string
+  ): Promise<StripeSettings> {
     const settings: StripeSettings = {
       apiKey,
       accountId,
+      payoutDestinationAccountId,
     };
 
     await this.setJSON('stripe', settings);
@@ -110,11 +118,21 @@ export class SettingsService {
       return { configured: false };
     }
 
-    // Get account name
+    // Get Stripe PSP account name
     const account = await this.prisma.account.findUnique({
       where: { id: settings.accountId },
       select: { name: true },
     });
+
+    // Get payout destination account name
+    let payoutDestinationAccountName: string | undefined;
+    if (settings.payoutDestinationAccountId) {
+      const payoutAccount = await this.prisma.account.findUnique({
+        where: { id: settings.payoutDestinationAccountId },
+        select: { name: true },
+      });
+      payoutDestinationAccountName = payoutAccount?.name;
+    }
 
     // Mask API key - show first 7 + last 4 characters
     const apiKeyMasked = settings.apiKey
@@ -125,6 +143,8 @@ export class SettingsService {
       configured: true,
       accountId: settings.accountId,
       accountName: account?.name,
+      payoutDestinationAccountId: settings.payoutDestinationAccountId,
+      payoutDestinationAccountName,
       apiKeyMasked,
     };
   }

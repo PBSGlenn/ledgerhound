@@ -34,6 +34,7 @@ import { AccountType, GSTCode } from '@prisma/client';
 export interface StripeConfig {
   apiKey: string;
   accountId: string;  // Ledgerhound account ID for Stripe (PSP account)
+  payoutDestinationAccountId?: string;  // Bank account that receives Stripe payouts (optional)
 }
 
 export interface StripeTransactionMetadata {
@@ -312,12 +313,6 @@ export class StripeImportService {
 
       for (const bt of balanceTransactions) {
         try {
-          // Skip payouts - these are just transfers to bank that user will enter manually
-          if (bt.type === 'payout') {
-            result.skipped++;
-            continue;
-          }
-
           // Check if already imported
           const existing = await this.prisma.transaction.findFirst({
             where: { externalId: bt.id },
@@ -325,6 +320,20 @@ export class StripeImportService {
 
           if (existing) {
             result.skipped++;
+            continue;
+          }
+
+          // Handle payouts as transfers if destination account is configured
+          if (bt.type === 'payout') {
+            if (this.config?.payoutDestinationAccountId) {
+              // Create payout transfer
+              const transaction = await this.createStripePayoutTransfer(bt);
+              result.imported++;
+              result.transactions.push(transaction);
+            } else {
+              // Skip - user will enter manually
+              result.skipped++;
+            }
             continue;
           }
 
@@ -622,6 +631,79 @@ export class StripeImportService {
             {
               accountId: this.config.accountId,
               amount: -totalFee,
+              isBusiness: true,
+            },
+          ],
+        },
+      },
+      include: {
+        postings: {
+          include: {
+            account: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Create a Stripe payout transfer transaction
+   * Simple 2-posting transfer from Stripe account to destination bank account
+   * Example for a $248.10 payout:
+   * - CR Stripe PSP: -$248.10 (money OUT of Stripe)
+   * - DR Bank Account: +$248.10 (money IN to your bank)
+   */
+  private async createStripePayoutTransfer(bt: Stripe.BalanceTransaction) {
+    if (!this.config) {
+      throw new Error('Stripe not configured');
+    }
+
+    if (!this.config.payoutDestinationAccountId) {
+      throw new Error('Payout destination account not configured');
+    }
+
+    const date = new Date(bt.created * 1000);
+    const amount = Math.abs(bt.amount) / 100; // Payout amount in dollars (always positive)
+
+    // Determine payee from description
+    const payee = this.getPayeeFromType(bt.type, bt.description);
+
+    // Create metadata for tracking
+    const metadata: StripeTransactionMetadata = {
+      stripeType: bt.type,
+      stripeId: bt.id,
+      grossAmount: amount,
+      feeAmount: 0,
+      feeGst: 0,
+      netAmount: amount,
+      currency: bt.currency.toUpperCase(),
+      description: bt.description || undefined,
+      availableOn: bt.available_on,
+      status: bt.status,
+      reportingCategory: bt.reporting_category,
+    };
+
+    // Create transfer transaction (2 postings, no categories)
+    return await this.prisma.transaction.create({
+      data: {
+        date,
+        payee,
+        memo: `Stripe payout`,
+        reference: bt.id,
+        externalId: bt.id,
+        metadata: JSON.stringify(metadata),
+        postings: {
+          create: [
+            // Credit: Stripe account (money OUT)
+            {
+              accountId: this.config.accountId,
+              amount: -amount,
+              isBusiness: true,
+            },
+            // Debit: Destination bank account (money IN)
+            {
+              accountId: this.config.payoutDestinationAccountId,
+              amount: amount,
               isBusiness: true,
             },
           ],
