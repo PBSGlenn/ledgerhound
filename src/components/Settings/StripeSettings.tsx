@@ -148,6 +148,36 @@ export const StripeSettings: React.FC = () => {
     }
   };
 
+  const handlePayoutDestinationChange = async (newDestinationId: string) => {
+    setPayoutDestinationAccountId(newDestinationId);
+
+    // Save immediately with the new value
+    setLoading(true);
+    try {
+      const response = await fetch('http://localhost:3001/api/stripe/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey: undefined, // Don't change API key
+          accountId: selectedAccountId,
+          payoutDestinationAccountId: newDestinationId || undefined,
+        }),
+      });
+
+      if (response.ok) {
+        toast.success('Payout destination updated');
+        await loadSettings();
+      } else {
+        const error = await response.json();
+        toast.error(error.error || 'Failed to update payout destination');
+      }
+    } catch (error) {
+      toast.error('Failed to update payout destination');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (!confirm('Are you sure you want to disconnect Stripe? This will not delete the account or transactions.')) {
       return;
@@ -241,11 +271,9 @@ export const StripeSettings: React.FC = () => {
               </div>
               <select
                 value={payoutDestinationAccountId}
-                onChange={(e) => {
-                  setPayoutDestinationAccountId(e.target.value);
-                  handleSave();
-                }}
-                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-purple-500 dark:bg-slate-900 dark:text-white"
+                onChange={(e) => handlePayoutDestinationChange(e.target.value)}
+                disabled={loading}
+                className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-purple-500 dark:bg-slate-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <option value="">None (skip payout imports)</option>
                 {bankAccounts.map((account) => (
