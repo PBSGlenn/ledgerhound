@@ -1,6 +1,7 @@
 /**
  * Bank Statement Import Wizard
  * Complete workflow for importing CSV bank statements (Commonwealth Bank format)
+ * NOW WITH AUTOMATIC RULE MATCHING!
  */
 
 import { useState } from 'react';
@@ -16,6 +17,7 @@ import {
   Download,
   ChevronRight,
   ChevronLeft,
+  Sparkles,
 } from 'lucide-react';
 import { CategorySelector } from '../Category/CategorySelector';
 import { useToast } from '../../hooks/useToast';
@@ -29,19 +31,38 @@ interface BankStatementImportProps {
   onImportComplete: () => void;
 }
 
-interface ParsedTransaction {
-  date: string;
-  description: string;
-  amount: number;
-  categoryId: string | null;
+interface ImportPreview {
+  row: any;
+  parsed: {
+    date?: Date;
+    payee?: string;
+    amount?: number;
+    reference?: string;
+  };
   isDuplicate: boolean;
-  externalId: string;  // Generated from date+amount+description for duplicate detection
+  matchedRule?: {
+    id: string;
+    name: string;
+    matchType: string;
+    matchValue: string;
+    defaultPayee?: string;
+    defaultAccountId?: string;
+  };
+  suggestedCategory?: {
+    id: string;
+    name: string;
+    type: string;
+  };
 }
 
 interface ColumnMapping {
-  dateColumn: number | null;
-  descriptionColumn: number | null;
-  amountColumn: number | null;
+  date?: string;
+  payee?: string;
+  description?: string;
+  amount?: string;
+  debit?: string;
+  credit?: string;
+  reference?: string;
 }
 
 export function BankStatementImport({
@@ -53,13 +74,12 @@ export function BankStatementImport({
 }: BankStatementImportProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [file, setFile] = useState<File | null>(null);
+  const [csvText, setCsvText] = useState('');
   const [csvData, setCsvData] = useState<string[][]>([]);
-  const [columnMapping, setColumnMapping] = useState<ColumnMapping>({
-    dateColumn: null,
-    descriptionColumn: null,
-    amountColumn: null,
-  });
-  const [transactions, setTransactions] = useState<ParsedTransaction[]>([]);
+  const [columnMapping, setColumnMapping] = useState<ColumnMapping>({});
+  const [previews, setPreviews] = useState<ImportPreview[]>([]);
+  const [categoryOverrides, setCategoryOverrides] = useState<Record<number, string>>({});
+  const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
 
   const { showToast } = useToast();
@@ -80,6 +100,8 @@ export function BankStatementImport({
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
+      setCsvText(text);
+
       const rows = text
         .split('\n')
         .map((line) => parseCSVLine(line))
@@ -88,12 +110,12 @@ export function BankStatementImport({
       setCsvData(rows);
 
       // Auto-detect column mapping for CBA format
-      // CBA format: Date, Amount, Description
+      // CBA format: Date, Amount, Description (no headers)
       if (rows.length > 0 && rows[0].length === 3) {
         setColumnMapping({
-          dateColumn: 0,
-          amountColumn: 1,
-          descriptionColumn: 2,
+          date: '0',
+          amount: '1',
+          description: '2',
         });
       }
 
@@ -128,84 +150,93 @@ export function BankStatementImport({
     return result;
   };
 
-  // Step 2: Map columns & parse transactions
-  const handleParseTransactions = () => {
-    if (columnMapping.dateColumn === null || columnMapping.amountColumn === null || columnMapping.descriptionColumn === null) {
-      showToast('Please map all required columns', 'error');
+  // Step 2: Map columns & fetch preview from backend (WITH RULE MATCHING!)
+  const handleFetchPreview = async () => {
+    if (!columnMapping.date || (!columnMapping.amount && (!columnMapping.debit || !columnMapping.credit))) {
+      showToast('Please map at least Date and Amount columns', 'error');
       return;
     }
 
-    const parsed: ParsedTransaction[] = [];
-
-    // Skip first row if it looks like a header
-    const startRow = csvData[0]?.[0]?.match(/date|description/i) ? 1 : 0;
-
-    for (let i = startRow; i < csvData.length; i++) {
-      const row = csvData[i];
-      if (row.length < 3) continue;
-
-      const dateStr = row[columnMapping.dateColumn];
-      const amountStr = row[columnMapping.amountColumn];
-      const description = row[columnMapping.descriptionColumn];
-
-      const date = parseDate(dateStr);
-      const amount = parseFloat(amountStr);
-
-      if (!date || isNaN(amount)) continue;
-
-      // Generate external ID for duplicate detection
-      const externalId = `${dateStr}-${amountStr}-${description}`.substring(0, 100);
-
-      parsed.push({
-        date: date.toISOString().split('T')[0],
-        description,
-        amount,
-        categoryId: null,
-        isDuplicate: false,  // Will check against database in next step
-        externalId,
+    setLoading(true);
+    try {
+      // Call backend API to get preview with rule matching
+      const response = await fetch('http://localhost:3001/api/import/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          csvText,
+          mapping: columnMapping,
+          sourceAccountId: accountId,
+        }),
       });
-    }
 
-    setTransactions(parsed);
-    setStep(3);
-  };
-
-  const parseDate = (dateStr: string): Date | null => {
-    // Handle Australian date format: DD/MM/YYYY
-    const parts = dateStr.split('/');
-    if (parts.length === 3) {
-      const day = parseInt(parts[0]);
-      const month = parseInt(parts[1]) - 1;
-      const year = parseInt(parts[2]);
-      const date = new Date(year, month, day);
-      if (!isNaN(date.getTime())) {
-        return date;
+      if (!response.ok) {
+        throw new Error('Failed to preview import');
       }
+
+      const previewData: ImportPreview[] = await response.json();
+      setPreviews(previewData);
+
+      // Count how many were matched
+      const matchedCount = previewData.filter(p => p.matchedRule).length;
+      if (matchedCount > 0) {
+        showToast(`${matchedCount} transactions auto-matched with memorized rules!`, 'success');
+      }
+
+      setStep(3);
+    } catch (error) {
+      console.error('Preview failed:', error);
+      showToast('Failed to preview import: ' + (error as Error).message, 'error');
+    } finally {
+      setLoading(false);
     }
-    return null;
   };
 
-  // Step 3: Assign categories
+  // Step 3: Assign categories (with rule suggestions!)
   const handleCategoryChange = (index: number, categoryId: string | null) => {
-    const updated = [...transactions];
-    updated[index].categoryId = categoryId;
-    setTransactions(updated);
+    if (categoryId) {
+      setCategoryOverrides({ ...categoryOverrides, [index]: categoryId });
+    } else {
+      const newOverrides = { ...categoryOverrides };
+      delete newOverrides[index];
+      setCategoryOverrides(newOverrides);
+    }
   };
 
   const handleBulkCategoryAssign = (categoryId: string | null) => {
-    const updated = transactions.map((txn) => ({
-      ...txn,
-      categoryId: txn.categoryId || categoryId,  // Only assign if not already assigned
-    }));
-    setTransactions(updated);
-    showToast('Category assigned to unassigned transactions', 'success');
+    if (!categoryId) return;
+
+    const newOverrides = { ...categoryOverrides };
+    previews.forEach((preview, idx) => {
+      // Only assign to uncategorized and non-duplicate transactions
+      if (!preview.isDuplicate && !preview.suggestedCategory && !categoryOverrides[idx]) {
+        newOverrides[idx] = categoryId;
+      }
+    });
+    setCategoryOverrides(newOverrides);
+    showToast('Category assigned to uncategorized transactions', 'success');
   };
 
-  // Step 4: Import
+  const getCategoryForPreview = (preview: ImportPreview, index: number): string | null => {
+    // User override takes precedence
+    if (categoryOverrides[index]) {
+      return categoryOverrides[index];
+    }
+    // Then use suggested category from rule matching
+    return preview.suggestedCategory?.id || null;
+  };
+
+  // Step 4: Import using backend API
   const handleImport = async () => {
-    const uncategorized = transactions.filter((txn) => !txn.isDuplicate && !txn.categoryId);
+    const categorized = previews.filter((p, idx) =>
+      !p.isDuplicate && getCategoryForPreview(p, idx)
+    );
+    const uncategorized = previews.filter((p, idx) =>
+      !p.isDuplicate && !getCategoryForPreview(p, idx)
+    );
+
     if (uncategorized.length > 0) {
-      if (!confirm(`${uncategorized.length} transactions are uncategorized. Continue anyway?`)) {
+      if (!confirm(`${uncategorized.length} transactions are uncategorized and will be skipped. Continue?`)) {
         return;
       }
     }
@@ -213,50 +244,38 @@ export function BankStatementImport({
     setImporting(true);
 
     try {
-      // Import each transaction
-      const toImport = transactions.filter((txn) => !txn.isDuplicate);
-      let imported = 0;
-      let skipped = 0;
+      // Prepare data for backend import
+      const previewsWithCategories = previews.map((preview, idx) => ({
+        ...preview,
+        selectedCategoryId: getCategoryForPreview(preview, idx),
+      }));
 
-      for (const txn of toImport) {
-        if (!txn.categoryId) {
-          skipped++;
-          continue;
-        }
+      // Call backend import API
+      const response = await fetch('http://localhost:3001/api/import/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          previews: previewsWithCategories,
+          sourceAccountId: accountId,
+          sourceName: accountName,
+          mapping: columnMapping,
+          options: {
+            applyRules: true,  // Rules were already applied in preview
+          },
+        }),
+      });
 
-        try {
-          // Create transaction
-          await fetch('http://localhost:3001/api/transactions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              date: new Date(txn.date),
-              payee: txn.description.substring(0, 50),  // Limit length
-              memo: txn.description,
-              externalId: txn.externalId,
-              postings: [
-                {
-                  accountId: accountId,
-                  amount: txn.amount,  // CBA uses negative for expenses
-                  isBusiness: false,
-                },
-                {
-                  accountId: txn.categoryId,
-                  amount: -txn.amount,  // Double-entry: opposite sign
-                  isBusiness: false,
-                },
-              ],
-            }),
-          });
-
-          imported++;
-        } catch (error) {
-          console.error('Failed to import transaction:', error);
-          skipped++;
-        }
+      if (!response.ok) {
+        throw new Error('Import failed');
       }
 
-      showToast(`Imported ${imported} transactions, skipped ${skipped}`, 'success');
+      const result = await response.json();
+
+      showToast(
+        `Imported ${result.imported} transactions, skipped ${result.skipped} (${result.duplicates} duplicates)`,
+        'success'
+      );
+
       onImportComplete();
       handleClose();
     } catch (error) {
@@ -270,15 +289,23 @@ export function BankStatementImport({
   const handleClose = () => {
     setStep(1);
     setFile(null);
+    setCsvText('');
     setCsvData([]);
-    setColumnMapping({ dateColumn: null, amountColumn: null, descriptionColumn: null });
-    setTransactions([]);
+    setColumnMapping({});
+    setPreviews([]);
+    setCategoryOverrides({});
     onClose();
   };
 
-  const totalAmount = transactions.reduce((sum, txn) => sum + (txn.isDuplicate ? 0 : txn.amount), 0);
-  const categorizedCount = transactions.filter((txn) => !txn.isDuplicate && txn.categoryId).length;
-  const uncategorizedCount = transactions.filter((txn) => !txn.isDuplicate && !txn.categoryId).length;
+  // Calculate stats
+  const duplicateCount = previews.filter(p => p.isDuplicate).length;
+  const matchedCount = previews.filter(p => p.matchedRule).length;
+  const categorizedCount = previews.filter((p, idx) =>
+    !p.isDuplicate && getCategoryForPreview(p, idx)
+  ).length;
+  const uncategorizedCount = previews.filter((p, idx) =>
+    !p.isDuplicate && !getCategoryForPreview(p, idx)
+  ).length;
 
   return (
     <Dialog.Root open={isOpen} onOpenChange={handleClose}>
@@ -379,13 +406,13 @@ export function BankStatementImport({
                       Date Column
                     </label>
                     <select
-                      value={columnMapping.dateColumn ?? ''}
-                      onChange={(e) => setColumnMapping({ ...columnMapping, dateColumn: parseInt(e.target.value) })}
+                      value={columnMapping.date ?? ''}
+                      onChange={(e) => setColumnMapping({ ...columnMapping, date: e.target.value || undefined })}
                       className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white"
                     >
                       <option value="">Select column...</option>
                       {csvData[0]?.map((_, idx) => (
-                        <option key={idx} value={idx}>
+                        <option key={idx} value={idx.toString()}>
                           Column {idx + 1}
                         </option>
                       ))}
@@ -397,13 +424,13 @@ export function BankStatementImport({
                       Amount Column
                     </label>
                     <select
-                      value={columnMapping.amountColumn ?? ''}
-                      onChange={(e) => setColumnMapping({ ...columnMapping, amountColumn: parseInt(e.target.value) })}
+                      value={columnMapping.amount ?? ''}
+                      onChange={(e) => setColumnMapping({ ...columnMapping, amount: e.target.value || undefined })}
                       className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white"
                     >
                       <option value="">Select column...</option>
                       {csvData[0]?.map((_, idx) => (
-                        <option key={idx} value={idx}>
+                        <option key={idx} value={idx.toString()}>
                           Column {idx + 1}
                         </option>
                       ))}
@@ -415,15 +442,15 @@ export function BankStatementImport({
                       Description Column
                     </label>
                     <select
-                      value={columnMapping.descriptionColumn ?? ''}
+                      value={columnMapping.description ?? ''}
                       onChange={(e) =>
-                        setColumnMapping({ ...columnMapping, descriptionColumn: parseInt(e.target.value) })
+                        setColumnMapping({ ...columnMapping, description: e.target.value || undefined })
                       }
                       className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white"
                     >
                       <option value="">Select column...</option>
                       {csvData[0]?.map((_, idx) => (
-                        <option key={idx} value={idx}>
+                        <option key={idx} value={idx.toString()}>
                           Column {idx + 1}
                         </option>
                       ))}
@@ -455,9 +482,9 @@ export function BankStatementImport({
                             <td
                               key={cellIdx}
                               className={`px-3 py-2 text-slate-900 dark:text-slate-100 ${
-                                columnMapping.dateColumn === cellIdx ||
-                                columnMapping.amountColumn === cellIdx ||
-                                columnMapping.descriptionColumn === cellIdx
+                                columnMapping.date === cellIdx.toString() ||
+                                columnMapping.amount === cellIdx.toString() ||
+                                columnMapping.description === cellIdx.toString()
                                   ? 'bg-emerald-100 dark:bg-emerald-900/30 font-medium'
                                   : ''
                               }`}
@@ -481,31 +508,43 @@ export function BankStatementImport({
                   Back
                 </button>
                 <button
-                  onClick={handleParseTransactions}
-                  disabled={
-                    columnMapping.dateColumn === null ||
-                    columnMapping.amountColumn === null ||
-                    columnMapping.descriptionColumn === null
-                  }
-                  className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  onClick={handleFetchPreview}
+                  disabled={loading || !columnMapping.date || !columnMapping.amount}
+                  className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
-                  Parse Transactions
-                  <ChevronRight className="w-4 h-4 inline ml-1" />
+                  {loading ? (
+                    <>
+                      <span className="inline-block animate-spin">⏳</span>
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      Parse Transactions
+                      <ChevronRight className="w-4 h-4" />
+                    </>
+                  )}
                 </button>
               </div>
             </div>
           )}
 
-          {/* Step 3: Categorize */}
+          {/* Step 3: Categorize (WITH AUTO-MATCHED RULES!) */}
           {step === 3 && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="font-semibold text-slate-900 dark:text-white">
-                    Assign Categories ({categorizedCount}/{transactions.length})
+                    Assign Categories ({categorizedCount}/{previews.length - duplicateCount})
                   </h3>
                   <p className="text-sm text-slate-600 dark:text-slate-400">
-                    {uncategorizedCount} transactions need categories
+                    {matchedCount > 0 && (
+                      <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" />
+                        {matchedCount} auto-matched by rules •{' '}
+                      </span>
+                    )}
+                    {uncategorizedCount} need categories • {duplicateCount} duplicates
                   </p>
                 </div>
 
@@ -535,25 +574,57 @@ export function BankStatementImport({
                     </tr>
                   </thead>
                   <tbody>
-                    {transactions.map((txn, idx) => (
-                      <tr key={idx} className="border-t border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                        <td className="px-3 py-2 text-slate-900 dark:text-slate-100">{txn.date}</td>
-                        <td className="px-3 py-2 text-slate-900 dark:text-slate-100 max-w-xs truncate">{txn.description}</td>
-                        <td className={`px-3 py-2 text-right font-medium ${txn.amount < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-                          ${Math.abs(txn.amount).toFixed(2)}
-                        </td>
-                        <td className="px-3 py-2">
-                          <div className="w-64">
-                            <CategorySelector
-                              value={txn.categoryId}
-                              onChange={(categoryId) => handleCategoryChange(idx, categoryId)}
-                              type={txn.amount < 0 ? 'EXPENSE' : 'INCOME'}
-                              placeholder="Select category..."
-                            />
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {previews.map((preview, idx) => {
+                      const categoryId = getCategoryForPreview(preview, idx);
+                      const amount = preview.parsed.amount || 0;
+
+                      return (
+                        <tr
+                          key={idx}
+                          className={`border-t border-slate-200 dark:border-slate-700 ${
+                            preview.isDuplicate
+                              ? 'bg-yellow-50 dark:bg-yellow-900/10'
+                              : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                          }`}
+                        >
+                          <td className="px-3 py-2 text-slate-900 dark:text-slate-100">
+                            {preview.parsed.date ? new Date(preview.parsed.date).toLocaleDateString() : 'N/A'}
+                          </td>
+                          <td className="px-3 py-2 text-slate-900 dark:text-slate-100 max-w-xs truncate">
+                            {preview.parsed.payee || 'No description'}
+                            {preview.matchedRule && (
+                              <span className="ml-2 text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                <Sparkles className="w-3 h-3" />
+                                Matched: {preview.matchedRule.name}
+                              </span>
+                            )}
+                          </td>
+                          <td
+                            className={`px-3 py-2 text-right font-medium ${
+                              amount < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
+                            }`}
+                          >
+                            ${Math.abs(amount).toFixed(2)}
+                          </td>
+                          <td className="px-3 py-2">
+                            {preview.isDuplicate ? (
+                              <span className="text-xs text-yellow-700 dark:text-yellow-400 font-medium">
+                                DUPLICATE
+                              </span>
+                            ) : (
+                              <div className="w-64">
+                                <CategorySelector
+                                  value={categoryId}
+                                  onChange={(catId) => handleCategoryChange(idx, catId)}
+                                  type={amount < 0 ? 'EXPENSE' : 'INCOME'}
+                                  placeholder="Select category..."
+                                />
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -580,15 +651,20 @@ export function BankStatementImport({
           {/* Step 4: Review & Import */}
           {step === 4 && (
             <div className="space-y-6">
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-4 gap-4">
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                  <div className="text-sm text-blue-700 dark:text-blue-300 mb-1">Total Transactions</div>
-                  <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">{transactions.length}</div>
+                  <div className="text-sm text-blue-700 dark:text-blue-300 mb-1">Total</div>
+                  <div className="text-2xl font-bold text-blue-900 dark:text-blue-100">{previews.length}</div>
                 </div>
 
                 <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
                   <div className="text-sm text-green-700 dark:text-green-300 mb-1">Categorized</div>
                   <div className="text-2xl font-bold text-green-900 dark:text-green-100">{categorizedCount}</div>
+                </div>
+
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                  <div className="text-sm text-yellow-700 dark:text-yellow-300 mb-1">Duplicates</div>
+                  <div className="text-2xl font-bold text-yellow-900 dark:text-yellow-100">{duplicateCount}</div>
                 </div>
 
                 <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
@@ -600,10 +676,21 @@ export function BankStatementImport({
               <div className="bg-slate-50 dark:bg-slate-900/50 rounded-lg p-4">
                 <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Import Summary</h4>
                 <ul className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
-                  <li>• {transactions.length} transactions will be imported</li>
-                  <li>• Total amount: ${Math.abs(totalAmount).toFixed(2)}</li>
+                  <li>• {categorizedCount} transactions will be imported</li>
+                  <li>• {duplicateCount} duplicates will be skipped automatically</li>
                   <li>• Account: {accountName}</li>
-                  <li>• {uncategorizedCount > 0 ? `⚠️ ${uncategorizedCount} transactions will be skipped (no category)` : '✅ All transactions categorized'}</li>
+                  {matchedCount > 0 && (
+                    <li className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3" />• {matchedCount} auto-matched by memorized rules
+                    </li>
+                  )}
+                  {uncategorizedCount > 0 ? (
+                    <li className="text-red-600 dark:text-red-400">
+                      ⚠️ {uncategorizedCount} transactions will be skipped (no category)
+                    </li>
+                  ) : (
+                    <li className="text-green-600 dark:text-green-400">✅ All transactions categorized</li>
+                  )}
                 </ul>
               </div>
 
