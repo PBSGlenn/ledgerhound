@@ -245,8 +245,8 @@ export function TransactionFormModal({
         // Determine transfer direction based on the OTHER account's sign IN THE DATABASE (before negation)
         // If other account is positive, money went TO it (transfer out from current account)
         // If other account is negative, money came FROM it (transfer in to current account)
-        // IMPORTANT: Use otherPostings[0].amount (original DB value), NOT loadedSplits[0].amount (negated for display)
-        const transferAmount = otherPostings[0].amount;
+        // IMPORTANT: Use categoryPostings[0].amount (original DB value), NOT loadedSplits[0].amount (negated for display)
+        const transferAmount = categoryPostings[0].amount;
         setTransactionType(transferAmount > 0 ? 'transfer-out' : 'transfer-in');
       } else {
         setTransactionType('expense');
