@@ -139,20 +139,9 @@ export function TransactionFormModal({
 
       const categoryPostings = transaction.postings.filter(p => p.accountId !== accountId);
 
-      // For Stripe transactions, use the gross amount from metadata (what customer paid)
-      // Otherwise, use the amount from the account posting
+      // Use the actual amount from the account posting (net amount after fees)
       // Preserve sign: positive = money in (credit for income), negative = money out (debit for expense)
-      let total = transaction.postings.find(p => p.accountId === accountId)?.amount || 0;
-      if (transaction.metadata) {
-        try {
-          const metadata = JSON.parse(transaction.metadata);
-          if (metadata.stripeType && metadata.grossAmount) {
-            total = metadata.grossAmount;
-          }
-        } catch (e) {
-          // Ignore JSON parse errors, use standard total
-        }
-      }
+      const total = transaction.postings.find(p => p.accountId === accountId)?.amount || 0;
       setTotalAmount(total.toFixed(2));
 
       // Find GST accounts directly (in case state hasn't been set yet)

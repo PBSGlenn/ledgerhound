@@ -410,7 +410,7 @@ export class StripeImportService {
     // "Payment for Invoice PBS-XXXXX"
     const invoiceMatch = description.match(/Invoice\s+([A-Z0-9-]+)/i);
     if (invoiceMatch) {
-      return `Invoice ${invoiceMatch[1]}`;
+      return `Invoice Payment for Invoice ${invoiceMatch[1]}`;
     }
 
     // Extract customer name from Calendly charges:
