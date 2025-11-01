@@ -44,18 +44,26 @@ export function TransactionFormModal({
   const [remainingAmount, setRemainingAmount] = useState(0);
 
   useEffect(() => {
+    // For transfers, remaining is always 0 (auto-balanced)
+    if (transactionType !== 'expense') {
+      setRemainingAmount(0);
+      return;
+    }
+
     const total = parseFloat(totalAmount) || 0;
     const allocated = (splits || []).reduce((sum, split) => sum + (parseFloat(split.amount) || 0), 0);
     setRemainingAmount(total - allocated);
-  }, [totalAmount, splits]);
+  }, [totalAmount, splits, transactionType]);
 
   // Auto-sync split amount in transfer mode
   useEffect(() => {
     if (transactionType !== 'expense' && splits.length > 0) {
       const total = parseFloat(totalAmount) || 0;
-      // For Transfer Out: destination account receives positive (money in)
-      // For Transfer In: destination account receives negative (money out)
-      const amount = transactionType === 'transfer-out' ? Math.abs(total) : -Math.abs(total);
+      // Split amounts will be negated in handleSubmit (line 400: amount: -splitAmountNum)
+      // So we set split to the OPPOSITE of what we want the final posting to be
+      // For Transfer Out: we want destination account = +247.29, so split = -247.29
+      // For Transfer In: we want destination account = -247.29, so split = +247.29
+      const amount = transactionType === 'transfer-out' ? -Math.abs(total) : Math.abs(total);
 
       // Update the first split to match the total amount with correct sign
       const newSplits = [...splits];
@@ -234,9 +242,11 @@ export function TransactionFormModal({
       const isTransfer = loadedSplits.length === 1 && transferAccountsList.some(acc => acc.id === loadedSplits[0].accountId);
 
       if (isTransfer) {
-        // Determine transfer direction based on sign
+        // Determine transfer direction based on the OTHER account's sign
+        // If other account is positive, money went TO it (transfer out from current account)
+        // If other account is negative, money came FROM it (transfer in to current account)
         const transferAmount = parseFloat(loadedSplits[0].amount);
-        setTransactionType(transferAmount < 0 ? 'transfer-out' : 'transfer-in');
+        setTransactionType(transferAmount > 0 ? 'transfer-out' : 'transfer-in');
       } else {
         setTransactionType('expense');
       }
@@ -370,7 +380,14 @@ export function TransactionFormModal({
     setLoading(true);
 
     try {
-      const totalAmountNum = parseFloat(totalAmount);
+      let totalAmountNum = parseFloat(totalAmount);
+
+      // For transfers, apply the correct sign based on direction
+      if (transactionType === 'transfer-out') {
+        totalAmountNum = -Math.abs(totalAmountNum); // Money leaving = negative
+      } else if (transactionType === 'transfer-in') {
+        totalAmountNum = Math.abs(totalAmountNum); // Money arriving = positive
+      }
 
       // Safety check for splits
       if (!splits || splits.length === 0) {
