@@ -242,10 +242,11 @@ export function TransactionFormModal({
       const isTransfer = loadedSplits.length === 1 && transferAccountsList.some(acc => acc.id === loadedSplits[0].accountId);
 
       if (isTransfer) {
-        // Determine transfer direction based on the OTHER account's sign
+        // Determine transfer direction based on the OTHER account's sign IN THE DATABASE (before negation)
         // If other account is positive, money went TO it (transfer out from current account)
         // If other account is negative, money came FROM it (transfer in to current account)
-        const transferAmount = parseFloat(loadedSplits[0].amount);
+        // IMPORTANT: Use otherPostings[0].amount (original DB value), NOT loadedSplits[0].amount (negated for display)
+        const transferAmount = otherPostings[0].amount;
         setTransactionType(transferAmount > 0 ? 'transfer-out' : 'transfer-in');
       } else {
         setTransactionType('expense');
