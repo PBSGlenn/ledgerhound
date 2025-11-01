@@ -640,9 +640,13 @@ export function TransactionFormModal({
                   type="number"
                   step="0.01"
                   value={totalAmount}
-                  onChange={(e) => setTotalAmount(e.target.value)}
+                  onChange={(e) => {
+                    // Always store as positive - sign is applied by transaction type
+                    const val = Math.abs(parseFloat(e.target.value) || 0);
+                    setTotalAmount(val.toString());
+                  }}
                   onBlur={(e) => {
-                    const val = parseFloat(e.target.value) || 0;
+                    const val = Math.abs(parseFloat(e.target.value) || 0);
                     setTotalAmount(val.toFixed(2));
                   }}
                   required
