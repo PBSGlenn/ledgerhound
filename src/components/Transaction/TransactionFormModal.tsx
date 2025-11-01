@@ -53,7 +53,9 @@ export function TransactionFormModal({
   useEffect(() => {
     if (transactionType !== 'expense' && splits.length > 0) {
       const total = parseFloat(totalAmount) || 0;
-      const amount = transactionType === 'transfer-out' ? -Math.abs(total) : Math.abs(total);
+      // For Transfer Out: destination account receives positive (money in)
+      // For Transfer In: destination account receives negative (money out)
+      const amount = transactionType === 'transfer-out' ? Math.abs(total) : -Math.abs(total);
 
       // Update the first split to match the total amount with correct sign
       const newSplits = [...splits];
