@@ -1,6 +1,6 @@
 import { getPrismaClient } from '../db';
 import { parse } from 'date-fns';
-import type { ImportBatch, Transaction, Account, Settings } from '@prisma/client';
+import type { ImportBatch, Account, Settings } from '@prisma/client';
 import type { CSVColumnMapping, CSVRow, ImportPreview } from '../../types';
 import { memorizedRuleService } from './memorizedRuleService';
 
@@ -151,8 +151,6 @@ export class ImportService {
     rules: any[],
     uncategorizedAccount: Account | null
   ): Promise<ImportPreview> {
-    const columns = Object.keys(row);
-
     // Parse date
     let date: Date | undefined;
     if (mapping.date !== undefined) {
@@ -199,6 +197,7 @@ export class ImportService {
     // Match against rules
     let matchedRule = null;
     let suggestedCategory = uncategorizedAccount;
+    let suggestedPayee = undefined;
 
     if (payee) {
       matchedRule = memorizedRuleService.matchPayee(payee, rules, 'import');
@@ -207,13 +206,11 @@ export class ImportService {
           where: { id: matchedRule.defaultAccountId },
         });
       }
+      // Get suggested payee name from rule
+      if (matchedRule?.defaultPayee) {
+        suggestedPayee = matchedRule.defaultPayee;
+      }
     }
-
-    console.log('Previewing row:', row);
-    console.log('Parsed date:', date);
-    console.log('Parsed payee:', payee);
-    console.log('Parsed amount:', amount);
-    console.log('Parsed reference:', reference);
 
     const parsed = {
       date,
@@ -221,7 +218,6 @@ export class ImportService {
       amount,
       reference,
     };
-    console.log('Constructed parsed object:', parsed);
 
     return {
       row,
@@ -229,6 +225,7 @@ export class ImportService {
       isDuplicate,
       matchedRule: matchedRule ?? undefined,
       suggestedCategory: suggestedCategory ?? undefined,
+      suggestedPayee,
     };
   }
 
@@ -381,7 +378,7 @@ export class ImportService {
         categoryAccountId = preview.selectedCategoryId;
 
         // Look up category to get business/GST settings
-        const selectedCategory = await this.db.account.findUnique({
+        const selectedCategory = await this.prisma.account.findUnique({
           where: { id: preview.selectedCategoryId },
         });
 
@@ -484,7 +481,7 @@ export class ImportService {
       await this.prisma.transaction.create({
         data: {
           date: preview.parsed.date,
-          payee: preview.parsed.payee,
+          payee: preview.suggestedPayee || preview.parsed.payee,
           reference: preview.parsed.reference,
           importBatchId: batch.id,
           externalId: preview.parsed.reference,

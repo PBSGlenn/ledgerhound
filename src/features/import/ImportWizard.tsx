@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import Papa from 'papaparse';
-import { X, UploadCloud, FileText, Map, Eye, CheckCircle, ArrowLeft, ArrowRight, Save, Loader2, AlertCircle, } from 'lucide-react';
-import type { Account, AccountWithBalance, CSVColumnMapping, ImportPreview, RegisterEntry, MemorizedRule, } from '../../types';
-import { accountAPI, importAPI, memorizedRuleAPI } from '../../lib/api';
+import { X, UploadCloud, Map, Eye, CheckCircle, ArrowLeft, ArrowRight, Save, Loader2, AlertCircle, } from 'lucide-react';
+import type { Account, AccountWithBalance, CSVColumnMapping, ImportPreview, RegisterEntry } from '../../types';
+import { accountAPI, importAPI } from '../../lib/api';
 
 interface ImportWizardProps {
   isOpen: boolean;
@@ -15,13 +15,13 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
   const [step, setStep] = useState(1);
   const [accounts, setAccounts] = useState<AccountWithBalance[]>([]);
   const [categories, setCategories] = useState<Account[]>([]);
-  const [memorizedRules, setMemorizedRules] = useState<MemorizedRule[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvRows, setCsvRows] = useState<any[]>([]);
   const [columnMappings, setColumnMappings] = useState<CSVColumnMapping>({});
   const [previewTransactions, setPreviewTransactions] = useState<Array<RegisterEntry & { categoryId?: string; isDuplicate?: boolean }>>([]);
+  const [originalPreviews, setOriginalPreviews] = useState<ImportPreview[]>([]);
   const [importMappingTemplates, setImportMappingTemplates] = useState<Array<{ name: string; mapping: CSVColumnMapping; accountId?: string }>>([]);
   const [selectedTemplateName, setSelectedTemplateName] = useState('');
   const [newTemplateName, setNewTemplateName] = useState('');
@@ -56,10 +56,9 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
   const loadInitialData = async () => {
     setLoading(true);
     try {
-      const [allAccounts, allCategories, allRules, allTemplates] = await Promise.all([
+      const [allAccounts, allCategories, allTemplates] = await Promise.all([
         accountAPI.getAllAccountsWithBalances(),
         accountAPI.getCategories(),
-        memorizedRuleAPI.getAllRules(),
         importAPI.getImportMappingTemplates(),
       ]);
       // Filter to only show bank accounts (ASSET and LIABILITY), not income/expense categories
@@ -68,7 +67,6 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
       );
       setAccounts(bankAccounts);
       setCategories(allCategories);
-      setMemorizedRules(allRules);
       setImportMappingTemplates(allTemplates);
     } catch (err) {
       console.error('Failed to load initial data:', err);
@@ -128,18 +126,26 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
       const csvText = Papa.unparse(csvRows, { header: true });
       const previews = await importAPI.previewImport(csvText, columnMappings, selectedAccountId);
 
+      // Store original previews for later use during import
+      setOriginalPreviews(previews);
+
       const transformedPreviews: Array<RegisterEntry & { categoryId?: string; isDuplicate?: boolean }> = previews.map(p => ({
-        id: p.parsed.id || Math.random().toString(), // Use parsed ID or generate temp
-        date: p.parsed.date ? new Date(p.parsed.date).toISOString() : '',
+        id: Math.random().toString(), // Generate temp ID for UI
+        date: p.parsed.date || new Date(),
         payee: p.parsed.payee || '',
-        memo: p.parsed.memo || '',
+        memo: undefined,
         reference: p.parsed.reference || '',
+        tags: undefined,
         debit: p.parsed.amount && p.parsed.amount < 0 ? Math.abs(p.parsed.amount) : undefined,
         credit: p.parsed.amount && p.parsed.amount > 0 ? p.parsed.amount : undefined,
+        runningBalance: 0, // Not calculated for preview
+        postings: [], // Not needed for preview
+        status: 'NORMAL' as const,
+        cleared: false,
+        reconciled: false,
         // For now, use suggestedCategory.id, will be updated by user in UI
         categoryId: p.suggestedCategory?.id,
         isDuplicate: p.isDuplicate,
-        // Add other fields as needed for display
       }));
 
       setPreviewTransactions(transformedPreviews);
@@ -205,20 +211,25 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
     setError(null);
     try {
       // Re-transform previewTransactions back to ImportPreview format for import
-      const importPreviews: ImportPreview[] = previewTransactions.map((tx) => ({
-        row: csvRows.find((row) => row[columnMappings.payee || ''] === tx.payee) || {}, // Find original row
-        parsed: {
-          date: tx.date ? new Date(tx.date) : undefined,
-          payee: tx.payee,
-          amount: (tx.debit ? -tx.debit : tx.credit) || 0,
-          memo: tx.memo,
-          reference: tx.reference,
-          id: tx.id, // Pass ID for potential updates/matching
-        },
-        isDuplicate: tx.isDuplicate || false,
-        suggestedCategory: categories.find((cat) => cat.id === tx.categoryId),
-        // matchedRule: tx.matchedRule, // If we add this to previewTransactions
-      }));
+      const importPreviews: ImportPreview[] = previewTransactions.map((tx, index) => {
+        // Get the original preview to preserve suggestedPayee from matched rules
+        const originalPreview = originalPreviews[index];
+        return {
+          row: csvRows.find((row) => row[columnMappings.payee || ''] === tx.payee) || {}, // Find original row
+          parsed: {
+            date: tx.date ? new Date(tx.date) : undefined,
+            payee: tx.payee,
+            amount: (tx.debit ? -tx.debit : tx.credit) || 0,
+            memo: tx.memo,
+            reference: tx.reference,
+          },
+          isDuplicate: tx.isDuplicate || false,
+          selectedCategoryId: tx.categoryId, // Pass user-selected category to backend
+          matchedRule: undefined, // Rules already applied in preview
+          suggestedCategory: undefined,
+          suggestedPayee: originalPreview?.suggestedPayee, // Pass suggested payee from rule
+        };
+      });
 
       const result = await importAPI.importTransactions(
         importPreviews,
@@ -228,7 +239,7 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
         { skipDuplicates, applyRules } // Default options for now
       );
 
-      alert(`Import successful! Imported: ${result.imported}, Skipped: ${result.skipped}`);
+      alert(`Import successful! Imported: ${result.importedCount || 0}, Skipped: ${result.skippedCount || 0}`);
       onImportSuccess(); // Notify parent to refresh data
       onClose();
     } catch (err) {
@@ -455,9 +466,9 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
                       </label>
                       <select
                         id={`mapping-${header}`}
-                        value={Object.keys(columnMappings).find((key) => columnMappings[key] === header) || ''}
+                        value={Object.keys(columnMappings).find((key) => (columnMappings as any)[key] === header) || ''}
                         onChange={(e) => {
-                          const newMappings = { ...columnMappings };
+                          const newMappings: any = { ...columnMappings };
                           // Remove previous mapping for this header
                           Object.keys(newMappings).forEach((key) => {
                             if (newMappings[key] === header) {
@@ -546,7 +557,7 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
                             />
                           </td>
                           <td className="px-4 py-3 font-semibold text-sm text-right tabular-nums">
-                            {(tx.debit ? '-' : '') + parseFloat(tx.debit || tx.credit || '0').toFixed(2)}
+                            {(tx.debit ? '-' : '') + (typeof (tx.debit || tx.credit) === 'number' ? (tx.debit || tx.credit || 0).toFixed(2) : '0.00')}
                           </td>
                           <td className="px-4 py-3">
                             <select

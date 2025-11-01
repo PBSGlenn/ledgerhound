@@ -100,6 +100,7 @@ export interface ImportPreview {
   matchedRule?: MemorizedRule;
   suggestedCategory?: Account;
   selectedCategoryId?: string; // Category ID selected by user or from rule matching
+  suggestedPayee?: string; // Payee name from matched rule (for renaming)
 }
 
 // Report types

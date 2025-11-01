@@ -242,12 +242,69 @@ export class ReportService {
   /**
    * Generate BAS Draft (Australian Business Activity Statement)
    * Cash basis, rounded to whole dollars
+   * Uses GST Collected and GST Paid accounts for accurate 1A/1B reporting
    */
   async generateBASDraft(
     startDate: Date,
     endDate: Date
   ): Promise<BASDraft> {
-    // Get all business postings
+    // Find the GST Collected and GST Paid accounts
+    const gstCollectedAccount = await this.prisma.account.findFirst({
+      where: {
+        name: 'GST Collected',
+        type: AccountType.LIABILITY,
+        kind: 'CATEGORY',
+      },
+    });
+
+    const gstPaidAccount = await this.prisma.account.findFirst({
+      where: {
+        name: 'GST Paid',
+        type: AccountType.ASSET,
+        kind: 'CATEGORY',
+      },
+    });
+
+    if (!gstCollectedAccount || !gstPaidAccount) {
+      throw new Error('GST Collected and GST Paid accounts must exist for BAS reporting');
+    }
+
+    // Get all postings to GST Collected account (1A: GST on Sales)
+    const gstCollectedPostings = await this.prisma.posting.findMany({
+      where: {
+        accountId: gstCollectedAccount.id,
+        transaction: {
+          date: { gte: startDate, lte: endDate },
+          status: 'NORMAL',
+        },
+      },
+    });
+
+    // Get all postings to GST Paid account (1B: GST on Purchases)
+    const gstPaidPostings = await this.prisma.posting.findMany({
+      where: {
+        accountId: gstPaidAccount.id,
+        transaction: {
+          date: { gte: startDate, lte: endDate },
+          status: 'NORMAL',
+        },
+      },
+    });
+
+    // Calculate 1A and 1B from account postings
+    // GST Collected is a LIABILITY, so credits (negative amounts) increase the liability
+    // We want the absolute value of GST collected
+    const oneAGSTOnSales = Math.abs(
+      gstCollectedPostings.reduce((sum, p) => sum + p.amount, 0)
+    );
+
+    // GST Paid is an ASSET, so debits (positive amounts) increase the asset
+    // We want the absolute value of GST paid
+    const oneBGSTOnPurchases = Math.abs(
+      gstPaidPostings.reduce((sum, p) => sum + p.amount, 0)
+    );
+
+    // Get all business postings for sales and purchases calculations
     const businessPostings = await this.prisma.posting.findMany({
       where: {
         isBusiness: true,
@@ -266,8 +323,6 @@ export class ReportService {
     let g3OtherGSTFree = 0; // Other GST-free sales
     let g10CapitalPurchases = 0; // Capital purchases (GST-exclusive)
     let g11NonCapitalPurchases = 0; // Non-capital purchases (GST-exclusive)
-    let oneAGSTOnSales = 0; // 1A: GST on sales
-    let oneBGSTOnPurchases = 0; // 1B: GST on purchases
 
     for (const posting of businessPostings) {
       const isIncome = posting.account.type === AccountType.INCOME;
@@ -281,7 +336,6 @@ export class ReportService {
         // Sales
         if (gstCode === 'GST') {
           g1TotalSales += gstExclusive;
-          oneAGSTOnSales += gstAmount;
         } else if (gstCode === 'EXPORT') {
           g1TotalSales += amount;
           g2ExportSales += amount;
@@ -300,7 +354,6 @@ export class ReportService {
           } else {
             g11NonCapitalPurchases += gstExclusive;
           }
-          oneBGSTOnPurchases += gstAmount;
         } else if (gstCode === 'GST_FREE' || gstCode === 'INPUT_TAXED') {
           if (isCapital) {
             g10CapitalPurchases += amount;
