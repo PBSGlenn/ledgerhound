@@ -24,7 +24,7 @@ export function TransactionFormModal({
   const [originalPayee, setOriginalPayee] = useState(''); // Track original payee for rule suggestion
   const [showRuleSuggestion, setShowRuleSuggestion] = useState(false);
   const [suggestedRuleData, setSuggestedRuleData] = useState<{originalPayee: string; newPayee: string; matchValue: string} | null>(null);
-  // Removed transactionType - all transactions are split transactions
+  const [transactionType, setTransactionType] = useState<'expense' | 'transfer-out' | 'transfer-in'>('expense');
   const [totalAmount, setTotalAmount] = useState('');
   const [memo, setMemo] = useState('');
   
@@ -48,6 +48,23 @@ export function TransactionFormModal({
     const allocated = (splits || []).reduce((sum, split) => sum + (parseFloat(split.amount) || 0), 0);
     setRemainingAmount(total - allocated);
   }, [totalAmount, splits]);
+
+  // Auto-sync split amount in transfer mode
+  useEffect(() => {
+    if (transactionType !== 'expense' && splits.length > 0) {
+      const total = parseFloat(totalAmount) || 0;
+      const amount = transactionType === 'transfer-out' ? -Math.abs(total) : Math.abs(total);
+
+      // Update the first split to match the total amount with correct sign
+      const newSplits = [...splits];
+      newSplits[0] = {
+        ...newSplits[0],
+        amount: amount.toFixed(2),
+        isBusiness: false, // Transfers don't have GST
+      };
+      setSplits(newSplits);
+    }
+  }, [transactionType, totalAmount]);
   const [loading, setLoading] = useState(false);
   const [loadingTransaction, setLoadingTransaction] = useState(false);
   const [categories, setCategories] = useState<Account[]>([]);
@@ -83,6 +100,7 @@ export function TransactionFormModal({
       // Reset form for new transaction
       setDate(new Date().toISOString().split('T')[0]);
       setPayee('');
+      setTransactionType('expense');
       setTotalAmount('');
       setSplits([{
         id: `temp-${Date.now()}`,
@@ -208,6 +226,18 @@ export function TransactionFormModal({
       }
 
       setSplits(loadedSplits);
+
+      // Detect if this is a transfer (all non-account postings are to transfer accounts)
+      const allAccounts = await accountAPI.getAllAccountsWithBalances({ kind: 'TRANSFER' });
+      const isTransfer = loadedSplits.length === 1 && allAccounts.some(acc => acc.id === loadedSplits[0].accountId);
+
+      if (isTransfer) {
+        // Determine transfer direction based on sign
+        const transferAmount = parseFloat(loadedSplits[0].amount);
+        setTransactionType(transferAmount < 0 ? 'transfer-out' : 'transfer-in');
+      } else {
+        setTransactionType('expense');
+      }
     } catch (error) {
       console.error('Failed to load transaction:', error);
       alert('Failed to load transaction');
@@ -486,6 +516,7 @@ export function TransactionFormModal({
     if (!isOpen) {
       setDate(new Date().toISOString().split('T')[0]);
       setPayee('');
+      setTransactionType('expense');
       setTotalAmount('');
       setSplits([{
         id: `temp-${Date.now()}`,
@@ -533,6 +564,43 @@ export function TransactionFormModal({
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="p-4 space-y-3">
+              {/* Transaction Type Selector */}
+              <div className="flex gap-2 p-2 bg-slate-100 dark:bg-slate-900/50 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setTransactionType('expense')}
+                  className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                    transactionType === 'expense'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Expense/Income
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTransactionType('transfer-out')}
+                  className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                    transactionType === 'transfer-out'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Transfer Out
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTransactionType('transfer-in')}
+                  className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                    transactionType === 'transfer-in'
+                      ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Transfer In
+                </button>
+              </div>
+
               {/* Row 1: Date and Payee */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -583,26 +651,28 @@ export function TransactionFormModal({
                 />
               </div>
 
-              {/* Row 3: Split Categories Panel */}
+              {/* Row 3: Split Categories Panel or Transfer Account Selector */}
               <div className="border border-slate-300 dark:border-slate-600 rounded-lg p-3 bg-slate-50 dark:bg-slate-900/50">
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
-                    Items
+                    {transactionType === 'transfer-out' ? 'Transfer To' : transactionType === 'transfer-in' ? 'Transfer From' : 'Items'}
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSplits([...splits, {
-                        id: `temp-${Date.now()}`,
-                        accountId: '',
-                        amount: '',
-                        isBusiness: false,
-                      }]);
-                    }}
-                    className="px-2 py-0.5 text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
-                  >
-                    + Add Split
-                  </button>
+                  {transactionType === 'expense' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSplits([...splits, {
+                          id: `temp-${Date.now()}`,
+                          accountId: '',
+                          amount: '',
+                          isBusiness: false,
+                        }]);
+                      }}
+                      className="px-2 py-0.5 text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                    >
+                      + Add Split
+                    </button>
+                  )}
                 </div>
 
                 {/* Split lines */}
@@ -626,6 +696,23 @@ export function TransactionFormModal({
                               <span className="text-xs text-orange-600 dark:text-orange-400" title="Manually adjusted">⚠</span>
                             )}
                           </div>
+                        ) : transactionType !== 'expense' ? (
+                          // Transfer mode: show simple account dropdown
+                          <select
+                            value={split.accountId}
+                            onChange={(e) => {
+                              const newSplits = [...splits];
+                              newSplits[index] = { ...newSplits[index], accountId: e.target.value };
+                              setSplits(newSplits);
+                            }}
+                            required
+                            className="w-full px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+                          >
+                            <option value="">Select account...</option>
+                            {transferAccounts.map(acc => (
+                              <option key={acc.id} value={acc.id}>{acc.name}</option>
+                            ))}
+                          </select>
                         ) : (
                           <CategorySelector
                             value={split.accountId || null}
@@ -645,6 +732,8 @@ export function TransactionFormModal({
                           step="0.01"
                           value={split.amount}
                           onChange={(e) => {
+                            if (transactionType !== 'expense') return; // Read-only in transfer mode
+
                             const newSplits = [...splits];
                             const newAmount = e.target.value;
 
@@ -662,6 +751,8 @@ export function TransactionFormModal({
                             setSplits(newSplits);
                           }}
                           onBlur={(e) => {
+                            if (transactionType !== 'expense') return; // Read-only in transfer mode
+
                             const val = parseFloat(e.target.value) || 0;
                             const newSplits = [...splits];
                             newSplits[index] = { ...newSplits[index], amount: val.toFixed(2) };
@@ -669,14 +760,17 @@ export function TransactionFormModal({
                           }}
                           placeholder="0.00"
                           required
+                          readOnly={transactionType !== 'expense'}
                           className={`w-full px-2 py-1.5 border rounded-lg focus:ring-2 text-sm text-right font-mono ${
                             split.isGstSplit
                               ? 'border-purple-200 dark:border-purple-700 bg-white dark:bg-slate-700 focus:ring-purple-500 focus:border-purple-500'
+                              : transactionType !== 'expense'
+                              ? 'border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 cursor-not-allowed'
                               : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 focus:ring-blue-500 focus:border-blue-500'
                           } dark:text-white`}
                         />
                       </div>
-                      {!split.isGstSplit && (
+                      {!split.isGstSplit && transactionType === 'expense' && (
                         <div className="flex items-center gap-1">
                           <input
                             type="checkbox"
@@ -698,7 +792,10 @@ export function TransactionFormModal({
                       {split.isGstSplit && (
                         <div className="w-16" title="Spacer for GST splits"></div>
                       )}
-                      {splits.length > 1 && !split.isGstSplit && (
+                      {transactionType !== 'expense' && (
+                        <div className="w-16" title="Spacer for transfer mode"></div>
+                      )}
+                      {splits.length > 1 && !split.isGstSplit && transactionType === 'expense' && (
                         <button
                           type="button"
                           onClick={() => {
