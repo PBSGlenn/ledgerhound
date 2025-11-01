@@ -159,13 +159,29 @@ export function BankStatementImport({
 
     setLoading(true);
     try {
+      // CBA format has no headers, so we need to prepend synthetic headers
+      // Create header row with column names like "col0", "col1", "col2"
+      const numColumns = csvData[0]?.length || 0;
+      const syntheticHeaders = Array.from({ length: numColumns }, (_, i) => `col${i}`).join(',');
+      const csvWithHeaders = syntheticHeaders + '\n' + csvText;
+
+      // Convert column mapping from indices to column names
+      const mappingWithColNames: ColumnMapping = {};
+      if (columnMapping.date) mappingWithColNames.date = `col${columnMapping.date}`;
+      if (columnMapping.amount) mappingWithColNames.amount = `col${columnMapping.amount}`;
+      if (columnMapping.description) mappingWithColNames.description = `col${columnMapping.description}`;
+      if (columnMapping.payee) mappingWithColNames.payee = `col${columnMapping.payee}`;
+      if (columnMapping.debit) mappingWithColNames.debit = `col${columnMapping.debit}`;
+      if (columnMapping.credit) mappingWithColNames.credit = `col${columnMapping.credit}`;
+      if (columnMapping.reference) mappingWithColNames.reference = `col${columnMapping.reference}`;
+
       // Call backend API to get preview with rule matching
       const response = await fetch('http://localhost:3001/api/import/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          csvText,
-          mapping: columnMapping,
+          csvText: csvWithHeaders,
+          mapping: mappingWithColNames,
           sourceAccountId: accountId,
         }),
       });
