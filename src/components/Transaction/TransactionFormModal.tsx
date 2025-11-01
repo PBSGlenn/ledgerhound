@@ -228,8 +228,8 @@ export function TransactionFormModal({
       setSplits(loadedSplits);
 
       // Detect if this is a transfer (all non-account postings are to transfer accounts)
-      const allAccounts = await accountAPI.getAllAccountsWithBalances({ kind: 'TRANSFER' });
-      const isTransfer = loadedSplits.length === 1 && allAccounts.some(acc => acc.id === loadedSplits[0].accountId);
+      const transferAccountsList = await accountAPI.getAllAccountsWithBalances({ kind: 'TRANSFER' });
+      const isTransfer = loadedSplits.length === 1 && transferAccountsList.some(acc => acc.id === loadedSplits[0].accountId);
 
       if (isTransfer) {
         // Determine transfer direction based on sign
