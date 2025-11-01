@@ -376,7 +376,28 @@ export class ImportService {
       let gstRate = null;
       let gstAmount = null;
 
-      if (options.applyRules && preview.matchedRule) {
+      // Priority 1: Explicit category selection from frontend (user override or matched rule)
+      if (preview.selectedCategoryId) {
+        categoryAccountId = preview.selectedCategoryId;
+
+        // Look up category to get business/GST settings
+        const selectedCategory = await this.db.account.findUnique({
+          where: { id: preview.selectedCategoryId },
+        });
+
+        if (selectedCategory) {
+          isBusiness = selectedCategory.isBusinessDefault ?? false;
+
+          // Check if GST should be applied
+          if (isBusiness && selectedCategory.defaultHasGst !== false) {
+            gstCode = 'GST';
+            gstRate = 0.1; // 10% GST in Australia
+            gstAmount = preview.parsed.amount * gstRate / (1 + gstRate);
+          }
+        }
+      }
+      // Priority 2: Apply rules if enabled and matched
+      else if (options.applyRules && preview.matchedRule) {
         const splits = memorizedRuleService.getDefaultSplits(preview.matchedRule);
         if (splits.length > 0) {
           const firstSplit = splits[0];
@@ -390,7 +411,9 @@ export class ImportService {
             gstAmount = preview.parsed.amount * gstRate / (1 + gstRate);
           }
         }
-      } else if (preview.suggestedCategory) {
+      }
+      // Priority 3: Suggested category from preview
+      else if (preview.suggestedCategory) {
         categoryAccountId = preview.suggestedCategory.id;
       }
 

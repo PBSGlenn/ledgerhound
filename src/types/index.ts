@@ -99,6 +99,7 @@ export interface ImportPreview {
   isDuplicate: boolean;
   matchedRule?: MemorizedRule;
   suggestedCategory?: Account;
+  selectedCategoryId?: string; // Category ID selected by user or from rule matching
 }
 
 // Report types
