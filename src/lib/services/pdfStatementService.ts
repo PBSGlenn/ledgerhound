@@ -1,4 +1,11 @@
-import pdf from 'pdf-parse';
+// Dynamic import for CommonJS module
+let pdfParse: any;
+const loadPdfParse = async () => {
+  if (!pdfParse) {
+    pdfParse = (await import('pdf-parse')).default;
+  }
+  return pdfParse;
+};
 
 export interface StatementTransaction {
   date: Date;
@@ -30,6 +37,7 @@ export class PDFStatementService {
    */
   async parseStatement(pdfBuffer: Buffer): Promise<ParsedStatement> {
     // Extract text from PDF
+    const pdf = await loadPdfParse();
     const data = await pdf(pdfBuffer);
     const text = data.text;
 

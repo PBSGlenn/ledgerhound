@@ -576,6 +576,53 @@ export const reconciliationAPI = {
     }
     return response.json();
   },
+
+  async parsePDF(file: File): Promise<{
+    info: {
+      accountNumber?: string;
+      accountName?: string;
+      statementPeriod?: { start: Date; end: Date };
+      openingBalance?: number;
+      closingBalance?: number;
+    };
+    transactions: Array<{
+      date: Date;
+      description: string;
+      debit?: number;
+      credit?: number;
+      balance?: number;
+      rawText: string;
+    }>;
+    confidence: 'high' | 'medium' | 'low';
+  }> {
+    const formData = new FormData();
+    formData.append('pdf', file);
+
+    const response = await fetch(`${API_BASE}/reconciliation/parse-pdf`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to parse PDF');
+    }
+
+    const result = await response.json();
+
+    // Convert date strings back to Date objects
+    if (result.info.statementPeriod) {
+      result.info.statementPeriod.start = new Date(result.info.statementPeriod.start);
+      result.info.statementPeriod.end = new Date(result.info.statementPeriod.end);
+    }
+
+    result.transactions = result.transactions.map((tx: any) => ({
+      ...tx,
+      date: new Date(tx.date),
+    }));
+
+    return result;
+  },
 };
 
 // Backup API

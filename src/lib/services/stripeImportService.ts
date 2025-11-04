@@ -68,13 +68,17 @@ export interface ImportResult {
 }
 
 export class StripeImportService {
-  private prisma = getPrismaClient();
+  private prisma: any;
   private stripe: Stripe | null = null;
   private config: StripeConfig | null = null;
   private feeAccountId: string | null = null;
   private incomeAccountId: string | null = null;
   private gstCollectedAccountId: string | null = null;
   private gstPaidAccountId: string | null = null;
+
+  constructor(prisma?: any) {
+    this.prisma = prisma ?? getPrismaClient();
+  }
 
   /**
    * Initialize Stripe client with API key and ensure required accounts exist

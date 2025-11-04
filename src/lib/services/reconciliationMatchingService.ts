@@ -28,7 +28,11 @@ export interface ReconciliationPreview {
 }
 
 export class ReconciliationMatchingService {
-  private prisma = getPrismaClient();
+  private prisma: any;
+
+  constructor(prisma?: any) {
+    this.prisma = prisma ?? getPrismaClient();
+  }
 
   /**
    * Match statement transactions with ledger transactions

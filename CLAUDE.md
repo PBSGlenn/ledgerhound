@@ -1,7 +1,7 @@
 # Ledgerhound
 
 ## Project Overview
-Personal & Small-Business Ledger for Australia with GST support. Desktop app built with Tauri, React, TypeScript, and SQLite.
+Personal & Small-Business Ledger for Australia with GST support. Web-based application with Express API server, React frontend, TypeScript, and SQLite. Tauri desktop packaging planned for future.
 
 ## Project Structure
 ```
@@ -9,7 +9,7 @@ ledgerhound/
 ├── prisma/                    # Database schema and migrations
 │   ├── schema.prisma          # Prisma schema (double-entry model)
 │   ├── seed.ts                # Sample data (personal + business examples)
-│   └── migrations/            # 8+ migrations (latest: add_default_has_gst)
+│   └── migrations/            # 5 migrations (latest: add_default_has_gst)
 ├── src/
 │   ├── components/            # 30+ React UI components
 │   │   ├── Account/           # Account management UI
@@ -22,7 +22,7 @@ ledgerhound/
 │   │   └── Import/            # CSV import wizard
 │   ├── lib/
 │   │   ├── db.ts              # Prisma client singleton
-│   │   ├── api.ts             # API client (100+ endpoints)
+│   │   ├── api.ts             # API client (HTTP wrapper)
 │   │   └── services/          # Business logic layer (14 services)
 │   │       ├── accountService.ts        # CRUD + balance calculations
 │   │       ├── categoryService.ts       # Hierarchical category management
@@ -39,7 +39,7 @@ ledgerhound/
 │   ├── App.tsx                # Main app
 │   └── main.tsx
 ├── src-server/                # Express API server (port 3001)
-│   └── api.ts                 # 100+ REST endpoints
+│   └── api.ts                 # 60+ REST endpoints
 ├── scripts/                   # Utility scripts
 │   └── migrate-gst-postings.ts  # GST migration script
 └── package.json
@@ -149,7 +149,7 @@ All business logic is in TypeScript services (not Rust):
 
 ### ✅ Completed
 - Project setup (React + TypeScript + Vite + Prisma + Express API)
-- Database schema with all entities and 8+ migrations (latest: `add_default_has_gst`)
+- Database schema with all entities and 5 migrations (latest: `add_default_has_gst`)
 - **Services Layer** (14 services, all core functionality complete):
   - Account service (CRUD, balances, archiving, hierarchies)
   - Category service (hierarchical management, unlimited nesting, tree operations)
@@ -169,7 +169,7 @@ All business logic is in TypeScript services (not Rust):
   - Transaction endpoints (register, CRUD, bulk operations)
   - Report endpoints (P&L, GST, BAS)
   - Import endpoints (preview, execute, mappings)
-  - Reconciliation endpoints (start, status, lock/unlock)
+  - Reconciliation endpoints (start, status, lock/unlock, PDF parsing)
   - Memorized rule endpoints (CRUD, match, preview, apply)
   - Backup endpoints (create, restore, clean, export)
   - Stripe endpoints (settings, test, import, balance)
@@ -182,7 +182,7 @@ All business logic is in TypeScript services (not Rust):
   - **Reports**: P&L report, GST summary report, BAS draft report, date range picker
   - **Import**: CSV import wizard with column mapping and preview
   - **Settings**: Settings view with tabs (general, categories, rules, Stripe, backups)
-  - **Reconciliation**: Reconciliation wizard and session view (backend complete, UI needs polish)
+  - **Reconciliation**: Reconciliation wizard with PDF upload, session view with tick-off interface, PDF viewer component
   - **Common**: Toast notifications, onboarding wizard
 - **Category Hierarchy System**:
   - Unlimited nesting with parent/child relationships
@@ -210,16 +210,49 @@ All business logic is in TypeScript services (not Rust):
 - **CSV Import**: Bank statement import with column mapping, templates, preview, deduplication
 - **Backup System**: Auto-backup on API server startup, manual backups, restore, cleanup, JSON export
 - **Memorized Rules**: Pattern matching (exact, contains, regex), priority-based, auto-categorization on import
+- **PDF Reconciliation Integration**:
+  - PDF statement upload and parsing via multer
+  - Auto-populate dates and balances from PDF
+  - Inline PDF viewer component using pdfjs-dist
+  - Confidence scoring (high/medium/low) for parsed data
+  - Manual verification workflow with visual feedback
 - Desktop launcher (`start-ledgerhound.bat` + shortcut)
 
 ### 📋 TODO
-- Reconciliation UI polish (backend complete, needs PDF viewer integration and tick-off UI)
+- Smart transaction matching UI (backend complete, needs auto-match button and visual indicators)
 - Comprehensive tests (unit + E2E)
 - User documentation
 - Multi-book support (bookManager stub exists)
 - Tauri desktop packaging (currently web-based)
 
-### 🎉 Recent Additions (October 2025)
+### 🎉 Recent Additions (November 2025)
+- **PDF Reconciliation Integration** (NEW):
+  - PDF statement upload in reconciliation wizard
+  - Automatic parsing and extraction of statement metadata
+  - Auto-populate dates, balances, and account info from PDF
+  - Inline PDF viewer component with pdfjs-dist
+  - Confidence scoring (high/medium/low) with visual indicators
+  - File upload via multer middleware (10MB limit)
+  - CommonJS/ESM compatibility fix for pdf-parse
+  - Manual verification workflow with error handling
+- **Import Wizard Enhancements**:
+  - Quick date selection options (Today, Yesterday, Last 7/30/90 days)
+  - Original preview storage before rule application
+  - Improved category selection with proper handling of root-level categories
+- **Transfer Mode Improvements**:
+  - Enhanced transfer detection and sign logic
+  - Auto-balancing for transfer transactions
+  - Fixed sign preservation bug in transaction editing
+- **Stripe Integration Refinements**:
+  - Payout destination account configuration
+  - Improved net amount calculations
+  - Sync button in register for quick imports
+- **Code Quality**:
+  - Refactored for improved readability and maintainability
+  - Fixed headerless CSV file handling
+  - Automatic rule matching during import
+
+### 🎉 Additions from October 2025
 - **Category Hierarchy System**:
   - Unlimited nesting with parent/child relationships
   - Virtual parent nodes for better organization
@@ -258,11 +291,11 @@ All business logic is in TypeScript services (not Rust):
 ### Architecture
 - **Frontend**: React 19 + TypeScript + Vite + TailwindCSS + Radix UI
 - **Backend**: Express API server (port 3001) with TypeScript
-- **Database**: SQLite via Prisma ORM (8+ migrations)
+- **Database**: SQLite via Prisma ORM (5 migrations)
 - **Development**: Web-based (Tauri packaging planned for future)
 
 ### Maturity Level
-**~85% Complete** - Production-ready MVP with minor polish needed
+**~90% Complete** - Production-ready MVP with minor polish needed
 
 **What's Working:**
 - ✅ Complete double-entry accounting engine with validation
@@ -274,12 +307,13 @@ All business logic is in TypeScript services (not Rust):
 - ✅ Comprehensive reporting (P&L, GST Summary, BAS Draft)
 - ✅ Automatic backup/restore system
 - ✅ Memorized rules for auto-categorization
+- ✅ PDF reconciliation with upload, parsing, and auto-populate
 - ✅ Professional UI with 30+ components
 - ✅ 100+ REST API endpoints
 - ✅ 14 business logic services
 
 **What Needs Work:**
-- ⚠️ Reconciliation UI polish (backend complete)
+- ⚠️ Smart transaction matching UI (backend complete, needs auto-match button)
 - ⚠️ Comprehensive testing (unit + E2E)
 - ⚠️ User documentation
 - ⚠️ Tauri desktop packaging
@@ -294,7 +328,7 @@ All business logic is in TypeScript services (not Rust):
 7. **Mature Architecture**: Services layer, REST API, proper separation of concerns
 
 ### Next Steps (Priority Order)
-1. Polish reconciliation UI (add PDF viewer + tick-off interface)
+1. Add smart transaction matching UI (auto-match button, visual indicators for probable matches)
 2. Write comprehensive tests (unit tests for services + E2E for critical flows)
 3. Create user documentation (setup guide, workflow docs, screenshots)
 4. Package as Tauri desktop app (currently web-based)

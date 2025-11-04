@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import multer from 'multer';
 import { accountService } from '../src/lib/services/accountService.js';
 import { Prisma, AccountType, AccountKind } from '@prisma/client';
 import { transactionService } from '../src/lib/services/transactionService.js';
@@ -11,9 +12,28 @@ import { backupService } from '../src/lib/services/backupService.js';
 import { categoryService } from '../src/lib/services/categoryService.js';
 import { settingsService } from '../src/lib/services/settingsService.js';
 import { stripeImportService } from '../src/lib/services/stripeImportService.js';
+import { PDFStatementService } from '../src/lib/services/pdfStatementService.js';
 
 const app = express();
 const PORT = 3001;
+
+// Configure multer for file uploads (memory storage for PDFs)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF files are allowed'));
+    }
+  },
+});
+
+// Initialize PDF statement service
+const pdfStatementService = new PDFStatementService();
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -506,6 +526,20 @@ app.get('/api/reconciliation/:id', async (req, res) => {
     res.json(reconciliation);
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+// Parse PDF bank statement
+app.post('/api/reconciliation/parse-pdf', upload.single('pdf'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No PDF file uploaded' });
+    }
+
+    const result = await pdfStatementService.parseStatement(req.file.buffer);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
   }
 });
 
