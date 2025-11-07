@@ -44,8 +44,9 @@ test.describe('Transaction Entry Workflow', () => {
     // Select category - CategorySelector is a button-based dropdown
     await page.click('button:has-text("Select category...")');
 
-    // Wait for dropdown to open and click the category
-    await page.locator('text=Consulting').first().click();
+    // Wait for dropdown to load and click the category (exact name from seed data)
+    await page.waitForSelector('text=Consulting Fees', { timeout: 5000 });
+    await page.locator('text=Consulting Fees').first().click();
 
     // Save transaction
     await page.click('button:has-text("Save"), button:has-text("Create")');
@@ -74,7 +75,8 @@ test.describe('Transaction Entry Workflow', () => {
     // Select business expense category - CategorySelector is a button-based dropdown
     await page.click('button:has-text("Select category...")');
 
-    // Wait for dropdown to open and click the category
+    // Wait for dropdown to load and click the category
+    await page.waitForSelector('text=Office Supplies', { timeout: 5000 });
     await page.locator('text=Office Supplies').first().click();
 
     // Mark as business transaction if checkbox exists
