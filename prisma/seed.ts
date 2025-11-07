@@ -5,14 +5,24 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // Clear existing data
-  await prisma.posting.deleteMany();
-  await prisma.transaction.deleteMany();
-  await prisma.reconciliation.deleteMany();
-  await prisma.memorizedRule.deleteMany();
-  await prisma.importBatch.deleteMany();
-  await prisma.account.deleteMany();
-  await prisma.settings.deleteMany();
+  // Clear existing data (skip if database is already empty to avoid FK constraint issues)
+  const accountCount = await prisma.account.count();
+  if (accountCount > 0) {
+    console.log('🧹 Clearing existing data...');
+    await prisma.posting.deleteMany();
+    await prisma.transaction.deleteMany();
+    await prisma.reconciliation.deleteMany();
+    await prisma.memorizedRule.deleteMany();
+    await prisma.importBatch.deleteMany();
+    // For accounts with self-referential FK, delete children before parents
+    const accounts = await prisma.account.findMany({ orderBy: { level: 'desc' } });
+    for (const account of accounts) {
+      await prisma.account.delete({ where: { id: account.id } });
+    }
+    await prisma.settings.deleteMany();
+  } else {
+    console.log('✓ Database is empty, skipping cleanup');
+  }
 
   // ============================================================================
   // HIERARCHICAL CATEGORY STRUCTURE
