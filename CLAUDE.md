@@ -248,7 +248,7 @@ All business logic is in TypeScript services (not Rust):
 - Desktop launcher (`start-ledgerhound.bat` + shortcut)
 
 ### 📋 TODO
-- **E2E Tests**: Complete selector updates for transaction entry, CSV import, and reconciliation tests (infrastructure operational, account creation tests fixed)
+- **E2E Tests**: Refine remaining test issues (selectors updated, need to fix: networkidle timeout, context menu, account list refresh)
 - **User documentation**: Setup guide, workflow docs, screenshots
 - **Multi-book support**: bookManager stub exists, needs UI implementation
 - **Tauri desktop packaging**: Currently web-based, packaging planned
@@ -271,20 +271,25 @@ All business logic is in TypeScript services (not Rust):
     - Storage state persistence to skip onboarding
     - Fixed seed script foreign key constraint issue (accounts deleted in correct order)
   - 4 comprehensive test suites (16 tests total):
-    - Account creation workflow (3 tests) - ✅ Selectors fixed
-    - Transaction entry workflow (4 tests) - ⏳ In progress
-    - CSV import workflow (3 tests) - ⏳ In progress
-    - Reconciliation workflow (6 tests) - ⏳ In progress
+    - Account creation workflow (3 tests) - ✅ Selectors updated
+    - Transaction entry workflow (4 tests) - ✅ Selectors updated
+    - CSV import workflow (3 tests) - ✅ Selectors updated
+    - Reconciliation workflow (6 tests) - ✅ Selectors updated
   - Sequential execution (single worker) to avoid database conflicts
   - HTML reports with screenshots and videos on failure
   - Test fixtures for CSV data
-  - **Status**: Infrastructure operational, actively fixing test selectors
+  - **Status**: Major selector work completed, refinement needed for remaining issues
   - **Key Findings**:
     - AccountSetupWizard inputs don't have `name` attributes (use label-based selectors)
     - Button text is dynamic: "Create X Account(s)" based on selection count
     - Category hierarchy: "Personal Income" and "Personal Expenses" (not "Income"/"Expenses")
     - Seed data creates "Personal Checking" and "Business Checking" accounts
-  - **Next**: Complete selector updates for remaining test suites
+    - Consistent account selection pattern: wait for load → click Accounts tab → wait for list → select account
+  - **Known Issues**:
+    - Account creation verification: Accounts created but not appearing in sidebar (MainLayout refresh needed)
+    - Context menu not appearing on right-click (implementation may have changed)
+    - NetworkIdle timeout: Page has continuous polling/requests preventing idle state
+  - **Next**: Fix networkidle wait, investigate context menu implementation, improve account list refresh
 - **PDF Reconciliation Integration**:
   - PDF statement upload in reconciliation wizard
   - Automatic parsing and extraction of statement metadata
