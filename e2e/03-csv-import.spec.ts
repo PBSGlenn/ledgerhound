@@ -82,7 +82,7 @@ test.describe('CSV Import Workflow', () => {
 
     // Verify preview shows transactions
     await expect(page.locator('text=Salary Deposit')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('text=Woolworths')).toBeVisible();
+    await expect(page.locator('text=Woolworths').first()).toBeVisible();
 
     // Click "Import" to execute
     await page.click('button:has-text("Import"), button:has-text("Execute"), button:has-text("Finish")');
@@ -114,7 +114,7 @@ test.describe('CSV Import Workflow', () => {
   test('should apply memorized rules during import', async ({ page }) => {
     // First, navigate to Settings to create a memorized rule
     await page.click('button:has-text("Settings")');
-    await expect(page.locator('h1:has-text("Settings")')).toBeVisible();
+    await expect(page.locator('h1:has-text("Settings")').first()).toBeVisible();
 
     // Look for Rules tab or section
     const rulesTab = page.locator('text=Rules, button:has-text("Rules")');
