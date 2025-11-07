@@ -29,14 +29,17 @@ test.describe('Transaction Entry Workflow', () => {
     // Wait for transaction form modal to appear
     await expect(page.locator('role=dialog')).toBeVisible();
 
-    // Fill in date
-    await page.fill('input[name="date"]', '2025-01-15');
+    // Fill in date (using label-based selector since inputs don't have name attributes)
+    const dateInput = page.locator('label:has-text("Date")').locator('..').locator('input[type="date"]');
+    await dateInput.fill('2025-01-15');
 
     // Fill in payee
-    await page.fill('input[name="payee"]', 'Consulting Client');
+    const payeeInput = page.locator('label:has-text("Payee")').locator('..').locator('input[type="text"]');
+    await payeeInput.fill('Consulting Client');
 
     // Fill in amount (income is positive)
-    await page.fill('input[name="amount"]', '1500');
+    const amountInput = page.locator('label:has-text("Amount")').locator('..').locator('input[type="number"]');
+    await amountInput.fill('1500');
 
     // Select category - look for a category dropdown/combobox
     const categoryInput = page.locator('input[placeholder*="category"], [role="combobox"]').first();
@@ -59,10 +62,15 @@ test.describe('Transaction Entry Workflow', () => {
     // Wait for form
     await expect(page.locator('role=dialog')).toBeVisible();
 
-    // Fill in transaction details
-    await page.fill('input[name="date"]', '2025-01-16');
-    await page.fill('input[name="payee"]', 'Office Supplies Store');
-    await page.fill('input[name="amount"]', '-110'); // Expense is negative
+    // Fill in transaction details (using label-based selectors)
+    const dateInput = page.locator('label:has-text("Date")').locator('..').locator('input[type="date"]');
+    await dateInput.fill('2025-01-16');
+
+    const payeeInput = page.locator('label:has-text("Payee")').locator('..').locator('input[type="text"]');
+    await payeeInput.fill('Office Supplies Store');
+
+    const amountInput = page.locator('label:has-text("Amount")').locator('..').locator('input[type="number"]');
+    await amountInput.fill('110'); // Enter as positive, form handles sign
 
     // Select business expense category
     const categoryInput = page.locator('input[placeholder*="category"], [role="combobox"]').first();
@@ -89,14 +97,17 @@ test.describe('Transaction Entry Workflow', () => {
     // Wait for form
     await expect(page.locator('role=dialog')).toBeVisible();
 
-    // Fill in date
-    await page.fill('input[name="date"]', '2025-01-17');
+    // Fill in date (using label-based selectors)
+    const dateInput = page.locator('label:has-text("Date")').locator('..').locator('input[type="date"]');
+    await dateInput.fill('2025-01-17');
 
     // Fill in payee/description
-    await page.fill('input[name="payee"]', 'Transfer to Savings');
+    const payeeInput = page.locator('label:has-text("Payee")').locator('..').locator('input[type="text"]');
+    await payeeInput.fill('Transfer to Savings');
 
     // Fill in amount
-    await page.fill('input[name="amount"]', '-500');
+    const amountInput = page.locator('label:has-text("Amount")').locator('..').locator('input[type="number"]');
+    await amountInput.fill('500');
 
     // For a transfer, select another account instead of a category
     // Look for "Transfer to" or account selector
@@ -120,10 +131,15 @@ test.describe('Transaction Entry Workflow', () => {
     // Wait for form
     await expect(page.locator('role=dialog')).toBeVisible();
 
-    // Fill in basic details
-    await page.fill('input[name="date"]', '2025-01-18');
-    await page.fill('input[name="payee"]', 'Shopping Trip');
-    await page.fill('input[name="amount"]', '-150');
+    // Fill in basic details (using label-based selectors)
+    const dateInput = page.locator('label:has-text("Date")').locator('..').locator('input[type="date"]');
+    await dateInput.fill('2025-01-18');
+
+    const payeeInput = page.locator('label:has-text("Payee")').locator('..').locator('input[type="text"]');
+    await payeeInput.fill('Shopping Trip');
+
+    const amountInput = page.locator('label:has-text("Amount")').locator('..').locator('input[type="number"]');
+    await amountInput.fill('150');
 
     // Look for "Add Split" or "Split" button to enable split entry
     const splitButton = page.locator('button:has-text("Split"), button:has-text("Add Split")').first();
