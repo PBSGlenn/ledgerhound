@@ -3,8 +3,10 @@ import { test, expect } from '@playwright/test';
 test.describe('Account Creation Workflow', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    // Wait for app to load
-    await page.waitForLoadState('networkidle');
+    // Wait for app to load (using 'load' instead of 'networkidle' due to continuous polling)
+    await page.waitForLoadState('load');
+    // Give the app a moment to initialize
+    await page.waitForTimeout(1000);
   });
 
   test('should create a new bank account', async ({ page }) => {

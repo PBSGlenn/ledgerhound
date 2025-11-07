@@ -3,7 +3,8 @@ import { test, expect } from '@playwright/test';
 test.describe('Transaction Entry Workflow', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    // Wait for app to load (using 'load' instead of 'networkidle' due to continuous polling)
+    await page.waitForLoadState('load');
 
     // Wait for the app to load and accounts to be fetched
     await page.waitForTimeout(1000);
@@ -42,7 +43,7 @@ test.describe('Transaction Entry Workflow', () => {
     await categoryInput.click();
 
     // Select "Consulting" or another income category from the dropdown
-    await page.click('text=Consulting, text=Income').first();
+    await page.locator('text=Consulting, text=Income').first().click();
 
     // Save transaction
     await page.click('button:has-text("Save"), button:has-text("Create")');
@@ -66,7 +67,7 @@ test.describe('Transaction Entry Workflow', () => {
     // Select business expense category
     const categoryInput = page.locator('input[placeholder*="category"], [role="combobox"]').first();
     await categoryInput.click();
-    await page.click('text=Office Supplies, text=Expense').first();
+    await page.locator('text=Office Supplies, text=Expense').first().click();
 
     // Mark as business transaction if checkbox exists
     const businessCheckbox = page.locator('input[type="checkbox"][name="isBusiness"]');
@@ -102,7 +103,7 @@ test.describe('Transaction Entry Workflow', () => {
     const transferInput = page.locator('input[placeholder*="Transfer"], input[placeholder*="account"]').first();
     if (await transferInput.count() > 0) {
       await transferInput.click();
-      await page.click('text=Savings Account, text=SAVINGS_GOAL').first();
+      await page.locator('text=Savings Account, text=SAVINGS_GOAL').first().click();
     }
 
     // Save transaction
@@ -133,14 +134,14 @@ test.describe('Transaction Entry Workflow', () => {
       await page.fill('input[name="splits[0].amount"]', '-100');
       const category1 = page.locator('[placeholder*="category"]').first();
       await category1.click();
-      await page.click('text=Groceries').first();
+      await page.locator('text=Groceries').first().click();
 
       // Add second split - Household $50
       await page.click('button:has-text("Add Split")');
       await page.fill('input[name="splits[1].amount"]', '-50');
       const category2 = page.locator('[placeholder*="category"]').nth(1);
       await category2.click();
-      await page.click('text=Household').first();
+      await page.locator('text=Household').first().click();
     }
 
     // Save transaction

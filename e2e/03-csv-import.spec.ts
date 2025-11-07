@@ -29,7 +29,8 @@ test.describe('CSV Import Workflow', () => {
 
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    // Wait for app to load (using 'load' instead of 'networkidle' due to continuous polling)
+    await page.waitForLoadState('load');
 
     // Wait for the app to load and accounts to be fetched
     await page.waitForTimeout(1000);
@@ -131,7 +132,7 @@ test.describe('CSV Import Workflow', () => {
 
       const categorySelector = page.locator('[role="combobox"], input[placeholder*="category"]').first();
       await categorySelector.click();
-      await page.click('text=Groceries').first();
+      await page.locator('text=Groceries').first().click();
 
       await page.click('button:has-text("Save"), button:has-text("Create")');
     }

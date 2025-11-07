@@ -3,7 +3,8 @@ import { test, expect } from '@playwright/test';
 test.describe('Reconciliation Workflow', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    // Wait for app to load (using 'load' instead of 'networkidle' due to continuous polling)
+    await page.waitForLoadState('load');
 
     // Wait for the app to load and accounts to be fetched
     await page.waitForTimeout(1000);
