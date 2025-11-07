@@ -32,14 +32,21 @@ test.describe('Reconciliation Workflow', () => {
     if (await startButton.count() > 0) {
       await startButton.first().click();
 
-      // Fill in reconciliation details
-      await page.fill('input[name="statementStartDate"], input[type="date"]', '2025-01-01');
-      await page.fill('input[name="statementEndDate"]', '2025-01-31');
-      await page.fill('input[name="statementStartBalance"], input[placeholder*="starting balance"]', '10000.00');
-      await page.fill('input[name="statementEndBalance"], input[placeholder*="ending balance"]', '12500.00');
+      // Fill in reconciliation details (using label-based selectors)
+      const startDateInput = page.locator('label:has-text("Start Date")').locator('..').locator('input[type="date"]');
+      await startDateInput.fill('2025-01-01');
+
+      const endDateInput = page.locator('label:has-text("End Date")').locator('..').locator('input[type="date"]');
+      await endDateInput.fill('2025-01-31');
+
+      const openingBalanceInput = page.locator('label:has-text("Opening Balance")').locator('..').locator('input[type="number"]');
+      await openingBalanceInput.fill('10000.00');
+
+      const closingBalanceInput = page.locator('label:has-text("Closing Balance")').locator('..').locator('input[type="number"]');
+      await closingBalanceInput.fill('12500.00');
 
       // Optionally add notes if field exists
-      const notesField = page.locator('textarea[name="notes"], textarea[placeholder*="note"]');
+      const notesField = page.locator('label:has-text("Notes")').locator('..').locator('textarea');
       if (await notesField.count() > 0) {
         await notesField.fill('January 2025 reconciliation');
       }
@@ -60,10 +67,20 @@ test.describe('Reconciliation Workflow', () => {
     const startButton = page.locator('button:has-text("Start Reconciliation"), button:has-text("Start")');
     if (await startButton.count() > 0) {
       await startButton.first().click();
-      await page.fill('input[type="date"]', '2025-01-01');
-      await page.fill('input[name="statementEndDate"]', '2025-01-31');
-      await page.fill('input[name="statementStartBalance"]', '10000');
-      await page.fill('input[name="statementEndBalance"]', '12000');
+
+      // Fill in reconciliation details (using label-based selectors)
+      const startDateInput = page.locator('label:has-text("Start Date")').locator('..').locator('input[type="date"]');
+      await startDateInput.fill('2025-01-01');
+
+      const endDateInput = page.locator('label:has-text("End Date")').locator('..').locator('input[type="date"]');
+      await endDateInput.fill('2025-01-31');
+
+      const openingBalanceInput = page.locator('label:has-text("Opening Balance")').locator('..').locator('input[type="number"]');
+      await openingBalanceInput.fill('10000');
+
+      const closingBalanceInput = page.locator('label:has-text("Closing Balance")').locator('..').locator('input[type="number"]');
+      await closingBalanceInput.fill('12000');
+
       await page.click('button:has-text("Start"), button:has-text("Begin")');
     }
 

@@ -50,8 +50,8 @@ test.describe('CSV Import Workflow', () => {
     // Click "Import CSV" button in top bar
     await page.click('button:has-text("Import CSV")');
 
-    // Wait for import wizard to appear
-    await expect(page.locator('text=Import Transactions, text=CSV Import')).toBeVisible();
+    // Wait for import wizard to appear (title is "CSV Import Wizard")
+    await expect(page.locator('text=CSV Import Wizard')).toBeVisible({ timeout: 10000 });
 
     // Upload CSV file
     const fileInput = page.locator('input[type="file"]');
