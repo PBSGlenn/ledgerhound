@@ -41,12 +41,11 @@ test.describe('Transaction Entry Workflow', () => {
     const amountInput = page.locator('label:has-text("Amount")').locator('..').locator('input[type="number"]');
     await amountInput.fill('1500');
 
-    // Select category - look for a category dropdown/combobox
-    const categoryInput = page.locator('input[placeholder*="category"], [role="combobox"]').first();
-    await categoryInput.click();
+    // Select category - CategorySelector is a button-based dropdown
+    await page.click('button:has-text("Select category...")');
 
-    // Select "Consulting" or another income category from the dropdown
-    await page.locator('text=Consulting, text=Income').first().click();
+    // Wait for dropdown to open and click the category
+    await page.locator('text=Consulting').first().click();
 
     // Save transaction
     await page.click('button:has-text("Save"), button:has-text("Create")');
@@ -72,10 +71,11 @@ test.describe('Transaction Entry Workflow', () => {
     const amountInput = page.locator('label:has-text("Amount")').locator('..').locator('input[type="number"]');
     await amountInput.fill('110'); // Enter as positive, form handles sign
 
-    // Select business expense category
-    const categoryInput = page.locator('input[placeholder*="category"], [role="combobox"]').first();
-    await categoryInput.click();
-    await page.locator('text=Office Supplies, text=Expense').first().click();
+    // Select business expense category - CategorySelector is a button-based dropdown
+    await page.click('button:has-text("Select category...")');
+
+    // Wait for dropdown to open and click the category
+    await page.locator('text=Office Supplies').first().click();
 
     // Mark as business transaction if checkbox exists
     const businessCheckbox = page.locator('input[type="checkbox"][name="isBusiness"]');
