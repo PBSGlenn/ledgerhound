@@ -61,9 +61,9 @@ test.describe('Account Creation Workflow', () => {
     const personalIncomeButton = page.locator('button:has-text("Personal Income")').first();
     await personalIncomeButton.click({ button: 'right' });
 
-    // Wait for context menu to appear and click "Add Subcategory"
+    // Wait for context menu to appear and click "Add Category" (parent nodes show "Add Category")
     await page.waitForTimeout(200);
-    await page.click('text=Add Subcategory');
+    await page.click('text=Add Category');
 
     // Fill in category name (using label-based selector)
     const categoryNameInput = page.locator('label:has-text("Category Name"), label:has-text("Name")').locator('..').locator('input').first();
@@ -87,9 +87,9 @@ test.describe('Account Creation Workflow', () => {
     const personalExpensesButton = page.locator('button:has-text("Personal Expenses")').first();
     await personalExpensesButton.click({ button: 'right' });
 
-    // Wait for context menu to appear and click "Add Subcategory"
+    // Wait for context menu to appear and click "Add Category" (parent nodes show "Add Category")
     await page.waitForTimeout(200);
-    await page.click('text=Add Subcategory');
+    await page.click('text=Add Category');
 
     // Fill in category name (using label-based selector)
     const categoryNameInput = page.locator('label:has-text("Category Name"), label:has-text("Name")').locator('..').locator('input').first();
