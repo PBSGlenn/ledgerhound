@@ -248,7 +248,7 @@ All business logic is in TypeScript services (not Rust):
 - Desktop launcher (`start-ledgerhound.bat` + shortcut)
 
 ### 📋 TODO
-- **E2E Tests**: Update test selectors to match actual UI (infrastructure complete)
+- **E2E Tests**: Complete selector updates for transaction entry, CSV import, and reconciliation tests (infrastructure operational, account creation tests fixed)
 - **User documentation**: Setup guide, workflow docs, screenshots
 - **Multi-book support**: bookManager stub exists, needs UI implementation
 - **Tauri desktop packaging**: Currently web-based, packaging planned
@@ -269,16 +269,22 @@ All business logic is in TypeScript services (not Rust):
     - Automated database reset and seeding
     - localStorage state management (book creation)
     - Storage state persistence to skip onboarding
+    - Fixed seed script foreign key constraint issue (accounts deleted in correct order)
   - 4 comprehensive test suites (16 tests total):
-    - Account creation workflow (3 tests)
-    - Transaction entry workflow (4 tests)
-    - CSV import workflow (3 tests)
-    - Reconciliation workflow (6 tests)
+    - Account creation workflow (3 tests) - ✅ Selectors fixed
+    - Transaction entry workflow (4 tests) - ⏳ In progress
+    - CSV import workflow (3 tests) - ⏳ In progress
+    - Reconciliation workflow (6 tests) - ⏳ In progress
   - Sequential execution (single worker) to avoid database conflicts
   - HTML reports with screenshots and videos on failure
   - Test fixtures for CSV data
-  - **Status**: Infrastructure complete, tests need UI selector updates to match actual implementation
-  - **Next**: Manually inspect UI and update test selectors for actual element structure
+  - **Status**: Infrastructure operational, actively fixing test selectors
+  - **Key Findings**:
+    - AccountSetupWizard inputs don't have `name` attributes (use label-based selectors)
+    - Button text is dynamic: "Create X Account(s)" based on selection count
+    - Category hierarchy: "Personal Income" and "Personal Expenses" (not "Income"/"Expenses")
+    - Seed data creates "Personal Checking" and "Business Checking" accounts
+  - **Next**: Complete selector updates for remaining test suites
 - **PDF Reconciliation Integration**:
   - PDF statement upload in reconciliation wizard
   - Automatic parsing and extraction of statement metadata
