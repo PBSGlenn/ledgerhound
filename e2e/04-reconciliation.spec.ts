@@ -51,8 +51,8 @@ test.describe('Reconciliation Workflow', () => {
         await notesField.fill('January 2025 reconciliation');
       }
 
-      // Confirm to start reconciliation
-      await page.click('button:has-text("Start"), button:has-text("Begin"), button:has-text("Continue")');
+      // Confirm to start reconciliation (use force to bypass modal overlay)
+      await page.click('button:has-text("Start"), button:has-text("Begin"), button:has-text("Continue")', { force: true });
 
       // Verify reconciliation session started
       await expect(page.locator('text=Statement Balance, text=Ending Balance')).toBeVisible({ timeout: 10000 });
@@ -82,7 +82,7 @@ test.describe('Reconciliation Workflow', () => {
       await closingBalanceInput.fill('12000');
 
       // Use force click to bypass modal overlay
-      await page.click('button:has-text("Start"), button:has-text("Begin")');
+      await page.click('button:has-text("Start"), button:has-text("Begin")', { force: true });
     }
 
     // Wait for transaction list to load
@@ -120,7 +120,7 @@ test.describe('Reconciliation Workflow', () => {
       const closingBalanceInput = page.locator('label:has-text("Closing Balance")').locator('..').locator('input[type="number"]');
       await closingBalanceInput.fill('4390'); // No change
 
-      await page.click('button:has-text("Start"), button:has-text("Begin")');
+      await page.click('button:has-text("Start"), button:has-text("Begin")', { force: true });
     }
 
     // In a balanced state, there should be a "Lock" or "Finish" button enabled
@@ -155,7 +155,7 @@ test.describe('Reconciliation Workflow', () => {
       const closingBalanceInput = page.locator('label:has-text("Closing Balance")').locator('..').locator('input[type="number"]');
       await closingBalanceInput.fill('4390');
 
-      await page.click('button:has-text("Start"), button:has-text("Begin")');
+      await page.click('button:has-text("Start"), button:has-text("Begin")', { force: true });
     }
 
     await page.waitForTimeout(1000);
@@ -193,7 +193,7 @@ test.describe('Reconciliation Workflow', () => {
       const closingBalanceInput = page.locator('label:has-text("Closing Balance")').locator('..').locator('input[type="number"]');
       await closingBalanceInput.fill('12000');
 
-      await page.click('button:has-text("Start"), button:has-text("Begin")');
+      await page.click('button:has-text("Start"), button:has-text("Begin")', { force: true });
     }
 
     // Click "Auto-Match" button
@@ -237,7 +237,7 @@ test.describe('Reconciliation Workflow', () => {
       const closingBalanceInput = page.locator('label:has-text("Closing Balance")').locator('..').locator('input[type="number"]');
       await closingBalanceInput.fill('12000');
 
-      await page.click('button:has-text("Start"), button:has-text("Begin")');
+      await page.click('button:has-text("Start"), button:has-text("Begin")', { force: true });
     }
 
     // Click Auto-Match

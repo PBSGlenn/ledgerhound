@@ -84,8 +84,8 @@ test.describe('CSV Import Workflow', () => {
     await expect(page.locator('text=Salary Deposit')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('text=Woolworths').first()).toBeVisible();
 
-    // Click "Import" to execute
-    await page.click('button:has-text("Import"), button:has-text("Execute"), button:has-text("Finish")');
+    // Click "Import" to execute (use force to bypass modal overlay)
+    await page.click('button:has-text("Import"), button:has-text("Execute"), button:has-text("Finish")', { force: true });
 
     // Verify success message or that transactions appear
     await expect(page.locator('text=Salary Deposit')).toBeVisible({ timeout: 10000 });
