@@ -44,12 +44,19 @@ test.describe('Transaction Entry Workflow', () => {
     // Select category - CategorySelector is a button-based dropdown
     await page.click('button:has-text("Select category...")');
 
-    // Wait for dropdown Portal to render
+    // Wait for dropdown Portal to render and categories to load
     await page.waitForSelector('input[placeholder="Search categories..."]', { timeout: 2000 });
+
+    // Wait for categories to finish loading (loading text disappears)
+    await page.waitForSelector('text=Loading categories...', { state: 'hidden', timeout: 3000 }).catch(() => {});
+
+    // Wait for the specific category button to be visible in the dropdown
+    const consultingIncomeBtn = page.locator('[data-radix-portal] button:has-text("Consulting Income")').first();
+    await consultingIncomeBtn.waitFor({ state: 'visible', timeout: 3000 });
 
     // Consulting Income was created by account creation test - click it directly
     // It's under Personal Income parent, which should be auto-expanded
-    await page.locator('button:has-text("Consulting Income")').click();
+    await consultingIncomeBtn.click();
 
     // Wait for dropdown to close
     await page.waitForSelector('input[placeholder="Search categories..."]', { state: 'hidden', timeout: 2000 });
@@ -92,12 +99,19 @@ test.describe('Transaction Entry Workflow', () => {
     // Select business expense category - CategorySelector is a button-based dropdown
     await page.click('button:has-text("Select category...")');
 
-    // Wait for dropdown Portal to render
+    // Wait for dropdown Portal to render and categories to load
     await page.waitForSelector('input[placeholder="Search categories..."]', { timeout: 2000 });
+
+    // Wait for categories to finish loading (loading text disappears)
+    await page.waitForSelector('text=Loading categories...', { state: 'hidden', timeout: 3000 }).catch(() => {});
+
+    // Wait for the specific category button to be visible in the dropdown
+    const officeSuppliesBtn = page.locator('[data-radix-portal] button:has-text("Office Supplies")').first();
+    await officeSuppliesBtn.waitFor({ state: 'visible', timeout: 3000 });
 
     // Office Supplies was created by account creation test - click it directly
     // It's under Personal Expenses parent, which should be auto-expanded
-    await page.locator('button:has-text("Office Supplies")').click();
+    await officeSuppliesBtn.click();
 
     // Wait for dropdown to close
     await page.waitForSelector('input[placeholder="Search categories..."]', { state: 'hidden', timeout: 2000 });
@@ -190,11 +204,18 @@ test.describe('Transaction Entry Workflow', () => {
     // Click first category dropdown (in ITEMS section)
     await page.locator('button:has-text("Select category...")').first().click();
 
-    // Wait for dropdown Portal to render
+    // Wait for dropdown Portal to render and categories to load
     await page.waitForSelector('input[placeholder="Search categories..."]', { timeout: 2000 });
 
+    // Wait for categories to finish loading (loading text disappears)
+    await page.waitForSelector('text=Loading categories...', { state: 'hidden', timeout: 3000 }).catch(() => {});
+
+    // Wait for the specific category button to be visible in the dropdown
+    const consultingIncomeBtnSplit1 = page.locator('[data-radix-portal] button:has-text("Consulting Income")').first();
+    await consultingIncomeBtnSplit1.waitFor({ state: 'visible', timeout: 3000 });
+
     // Click Consulting Income directly (created by account creation test)
-    await page.locator('button:has-text("Consulting Income")').click();
+    await consultingIncomeBtnSplit1.click();
 
     // Wait for dropdown to close
     await page.waitForSelector('input[placeholder="Search categories..."]', { state: 'hidden', timeout: 2000 });
@@ -209,11 +230,18 @@ test.describe('Transaction Entry Workflow', () => {
     // Click second category dropdown
     await page.locator('button:has-text("Select category...")').nth(1).click();
 
-    // Wait for dropdown Portal to render
+    // Wait for dropdown Portal to render and categories to load
     await page.waitForSelector('input[placeholder="Search categories..."]', { timeout: 2000 });
 
+    // Wait for categories to finish loading (loading text disappears)
+    await page.waitForSelector('text=Loading categories...', { state: 'hidden', timeout: 3000 }).catch(() => {});
+
+    // Wait for the specific category button to be visible in the dropdown
+    const officeSuppliesBtnSplit2 = page.locator('[data-radix-portal] button:has-text("Office Supplies")').first();
+    await officeSuppliesBtnSplit2.waitFor({ state: 'visible', timeout: 3000 });
+
     // Click Office Supplies directly (created by account creation test)
-    await page.locator('button:has-text("Office Supplies")').click();
+    await officeSuppliesBtnSplit2.click();
 
     // Wait for dropdown to close
     await page.waitForSelector('input[placeholder="Search categories..."]', { state: 'hidden', timeout: 2000 });

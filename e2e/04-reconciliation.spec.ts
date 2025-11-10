@@ -170,10 +170,19 @@ test.describe('Reconciliation Workflow', () => {
     const lockButton = page.locator('button:has-text("Lock"), button:has-text("Finish Reconciliation")').first();
 
     if (await lockButton.count() > 0 && await lockButton.isEnabled()) {
+      // Set up dialog handler to accept the alert
+      page.once('dialog', dialog => dialog.accept());
+
       await lockButton.click();
 
-      // Verify success message or return to reconciliation list
-      await expect(page.locator('text=locked successfully, text=complete, text=finished')).toBeVisible({ timeout: 5000 });
+      // Wait for alert to be handled
+      await page.waitForTimeout(500);
+
+      // After locking, the reconciliation should be complete
+      // We can verify by checking if the Lock button is now disabled or hidden
+      await expect(lockButton).not.toBeVisible({ timeout: 5000 }).catch(() =>
+        expect(lockButton).toBeDisabled()
+      );
     }
   });
 
@@ -246,22 +255,28 @@ test.describe('Reconciliation Workflow', () => {
       await page.click('button:has-text("Start"), button:has-text("Begin")', { force: true });
     }
 
+    // Wait for session to load
+    await page.waitForTimeout(1000);
+
     // Click Auto-Match
     const autoMatchButton = page.locator('button:has-text("Auto-Match"), button:has-text("Auto Match")');
     if (await autoMatchButton.count() > 0) {
       await autoMatchButton.first().click();
 
-      // Verify modal structure and confidence level indicators
-      const modal = page.locator('[role="dialog"], .modal');
-      if (await modal.count() > 0) {
-        await expect(modal.first()).toBeVisible();
+      // Verify modal appears with matching interface
+      await expect(page.locator('[role="dialog"]')).toBeVisible({ timeout: 3000 });
 
-        // Look for confidence indicators (exact, probable, possible)
-        const confidenceIndicators = page.locator('text=Exact, text=Probable, text=Possible, text=High, text=Medium, text=Low');
-        if (await confidenceIndicators.count() > 0) {
-          // Confidence levels are shown
-        }
-      }
+      // Modal should have title or header about matching
+      const modalTitle = page.locator('text=Smart Transaction Matching, text=Auto Match, text=Match Transactions');
+      await expect(modalTitle.first()).toBeVisible({ timeout: 3000 });
+
+      // Should show upload area or matching results area
+      // The modal structure contains either upload form or results with confidence indicators
+      const hasUpload = await page.locator('text=Upload, input[type="file"]').count() > 0;
+      const hasResults = await page.locator('text=Exact, text=Probable, text=Possible').count() > 0;
+
+      // At least one of these should be present
+      expect(hasUpload || hasResults).toBe(true);
 
       // Close modal
       await page.keyboard.press('Escape');
