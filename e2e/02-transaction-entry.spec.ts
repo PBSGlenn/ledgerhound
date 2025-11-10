@@ -48,6 +48,11 @@ test.describe('Transaction Entry Workflow', () => {
     await page.waitForSelector('text=Consulting Fees', { timeout: 5000 });
     await page.locator('text=Consulting Fees').first().click();
 
+    // Fill in split amount (required for form validation)
+    // The split amount input is the number input in the "Items" section
+    const splitAmountInput = page.locator('input[type="number"][step="0.01"]').nth(1); // 2nd number input (1st is total amount)
+    await splitAmountInput.fill('1500');
+
     // Save transaction
     await page.click('button:has-text("Save"), button:has-text("Create")');
 
@@ -78,6 +83,10 @@ test.describe('Transaction Entry Workflow', () => {
     // Wait for dropdown to load and click the category
     await page.waitForSelector('text=Office Supplies', { timeout: 5000 });
     await page.locator('text=Office Supplies').first().click();
+
+    // Fill in split amount (required for form validation)
+    const splitAmountInput = page.locator('input[type="number"][step="0.01"]').nth(1);
+    await splitAmountInput.fill('110');
 
     // Mark as business transaction if checkbox exists
     const businessCheckbox = page.locator('input[type="checkbox"][name="isBusiness"]');
