@@ -248,7 +248,7 @@ All business logic is in TypeScript services (not Rust):
 - Desktop launcher (`start-ledgerhound.bat` + shortcut)
 
 ### 📋 TODO
-- **E2E Tests**: Major selector work complete (form selectors, CategorySelector, modal overlays). Remaining: transaction form validation, transfer/split selectors
+- **E2E Tests**: 10/16 passing (62.5%). Remaining: 4 transaction entry tests (timing/validation), 2 reconciliation tests (verification text)
 - **User documentation**: Setup guide, workflow docs, screenshots
 - **Multi-book support**: bookManager stub exists, needs UI implementation
 - **Tauri desktop packaging**: Currently web-based, packaging planned
@@ -278,14 +278,14 @@ All business logic is in TypeScript services (not Rust):
   - Sequential execution (single worker) to avoid database conflicts
   - HTML reports with screenshots and videos on failure
   - Test fixtures for CSV data
-  - **Status**: Major selector work completed, ~8/16 tests expected to pass (pending verification run)
-  - **Test Results** (After Selector Fixes):
-    - ✅ Account creation (1 test) - Wizard works, verifies dialog closure
-    - ✅ Category creation (2 tests) - Fixed context menu text ("Add Category" for parent nodes)
-    - ⚠️ Transaction entry (4 tests) - CategorySelector fixed, validation issues remain
-    - ⚠️ CSV import (1 test) - Modal overlay fixed, other tests pending
-    - ✅ Reconciliation (6 tests) - All form selectors and modal overlays fixed
-  - **Fixes Implemented** (2025-11-08):
+  - **Status**: 10/16 tests passing (62.5%) - 900% improvement from 1/16 baseline
+  - **Test Results** (Final - 2025-11-10):
+    - ✅ Account creation (3/3 tests passing) - All account creation workflows working
+    - ✅ CSV import (3/3 tests passing) - Import, deduplication, and rule application working
+    - ✅ Reconciliation (4/6 tests passing) - Most reconciliation workflows functional
+    - ❌ Transaction entry (0/4 tests failing) - Category dropdown timing, transfer/split validation issues
+    - ❌ Reconciliation (2/6 tests failing) - Session verification text, transaction list loading
+  - **Fixes Implemented** (2025-11-08 to 2025-11-10):
     - ✅ NetworkIdle timeout fixed (changed to `waitForLoadState('load')`)
     - ✅ TypeScript errors fixed (`.first()` on locators, not on promises)
     - ✅ Account selection pattern (wait → click tab → wait → select)
@@ -295,20 +295,28 @@ All business logic is in TypeScript services (not Rust):
     - ✅ Context menu text for parent nodes (changed "Add Subcategory" → "Add Category")
     - ✅ CategorySelector pattern (button-based dropdown, not input field)
     - ✅ Radix Dialog modal overlay clicks (added `{ force: true }` to bypass pointer interception)
+    - ✅ Split amount validation (transaction form requires manual split amount entry)
+    - ✅ Category name fix (use "Consulting Income" created by test, not "Consulting Fees" from seed)
   - **Key Findings**:
     - AccountSetupWizard inputs don't have `name` attributes (use label-based selectors)
     - ReconciliationWizard inputs don't have `name` attributes (use label-based selectors)
     - CategorySelector is a button-based dropdown using Radix Portal (not a traditional input)
+    - CategorySelector dropdown DOES render - categories are visible in screenshots
     - Radix Dialog overlays intercept pointer events (requires `{ force: true }` for clicks)
+    - Transaction form validation: splits must balance total amount (`remainingAmount < 0.01`)
+    - Split amounts are NOT auto-filled - must be entered manually even for single-category transactions
+    - Tests create categories that persist (e.g., "Consulting Income", "Office Supplies")
+    - Test-created categories appear in dropdowns for subsequent tests
     - Button text is dynamic: "Create X Account(s)" based on selection count
     - Category hierarchy: "Personal Income" and "Personal Expenses" (not "Income"/"Expenses")
-    - Seed data categories: "Consulting Fees" (not "Consulting"), "Office Supplies"
     - Seed data creates "Personal Checking" and "Business Checking" accounts
     - Parent nodes show "Add Category", child categories show "Add Subcategory"
   - **Remaining Issues**:
-    - Transaction form validation (Save button stays disabled, needs investigation)
-    - Transfer form selector/validation (account dropdown or category field)
+    - Office Supplies category timing (dropdown loads but category not clicked)
+    - Transfer form validation (Save button disabled - different validation rules)
     - Split transaction field selectors (amount inputs don't have `name` attributes)
+    - Reconciliation session verification text not found after starting session
+    - Transaction list not loading in tick-off test
 - **PDF Reconciliation Integration**:
   - PDF statement upload in reconciliation wizard
   - Automatic parsing and extraction of statement metadata
