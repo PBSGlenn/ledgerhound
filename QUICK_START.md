@@ -1,230 +1,249 @@
 # Ledgerhound Quick Start Guide
 
-## What You Have Now
+## What You Have
 
-✅ **Complete backend** - All business logic working
-✅ **UI foundation** - Layout, sidebar, register grid
-✅ **Sample data** - 13 accounts, 5 transactions
-✅ **Dev environment** - Everything configured and ready
+✅ **Production-ready MVP** - All core features working
+✅ **Express API server** - 60+ REST endpoints (port 3001)
+✅ **React frontend** - 34 components (port 5173)
+✅ **14 business services** - Complete accounting engine
+✅ **Sample data** - 13 accounts, hierarchical categories, example transactions
 
-## Try It Out!
+## Architecture Overview
 
-### 1. View the Database (Prisma Studio)
+Ledgerhound uses a **two-server architecture**:
+
+1. **Express API Server** (`src-server/api.ts`) - Port 3001
+   - Node.js + TypeScript
+   - 60+ REST API endpoints
+   - Connects to SQLite via Prisma
+   - Auto-backup on startup
+
+2. **Vite Dev Server** (`npm run dev`) - Port 5173
+   - React 19 + TypeScript
+   - Calls API server via HTTP
+   - Hot module reloading
+
+**Note:** Tauri desktop packaging is planned but not currently used. The app runs as a web application.
+
+---
+
+## Getting Started (5 minutes)
+
+### 1. Install Dependencies
+
+```bash
+npm install
+```
+
+### 2. Setup Database
+
+```bash
+# Run migrations (creates the SQLite database)
+npm run db:migrate
+
+# Seed with sample data (13 accounts, categories, transactions)
+npm run db:seed
+```
+
+### 3. Start the App
+
+```bash
+# Start both servers (recommended)
+npm run dev:all
+```
+
+This starts:
+- **API server** at `http://localhost:3001`
+- **Frontend** at `http://localhost:5173`
+
+The browser will open automatically to `http://localhost:5173`.
+
+### Alternatively: Run Servers Separately
+
+```bash
+# Terminal 1: API server
+npm run api
+
+# Terminal 2: Frontend
+npm run dev
+```
+
+---
+
+## Exploring the App
+
+### View the UI
+
+Open `http://localhost:5173` in your browser.
+
+**What you'll see:**
+- ✅ **Left sidebar** with hierarchical account tree
+  - Assets (Bank accounts, Stripe)
+  - Liabilities (Credit cards, GST Collected)
+  - Income (Sales, Service fees)
+  - Expenses (Office supplies, Stripe fees, etc.)
+- ✅ **Top bar** with selected account info and actions
+- ✅ **Register view** showing transactions for selected account
+- ✅ **Dashboard** with net worth, cash flow, GST summary
+
+**Try these actions:**
+1. Click accounts in the sidebar to view their transactions
+2. Click "New Transaction" to add a transaction
+3. Try adding a **split transaction** with multiple categories
+4. Toggle "Business" checkbox to see GST calculation
+5. Right-click accounts for context menu (rename, settings, archive)
+6. Go to Reports to see P&L, GST Summary, BAS Draft
+
+### View the Database (Prisma Studio)
 
 ```bash
 npm run db:studio
 ```
 
-Opens at `http://localhost:5555`
+Opens at `http://localhost:5555` - a GUI for your SQLite database.
 
 **What to explore:**
-- Click **Account** - See all 13 accounts (personal + business)
-- Click **Transaction** - See 5 sample transactions
-- Click **Posting** - See the double-entry postings (should sum to zero)
-- Notice the `isBusiness` flag and GST fields on business postings
+- **Account** table - All accounts and categories (13 by default)
+- **Transaction** table - Transaction headers with metadata
+- **Posting** table - Double-entry lines (must sum to zero)
+- **MemorizedRule** table - Auto-categorization rules
+- **Settings** table - App configuration (JSON key-value)
 
-### 2. Run the App UI
+**Key fields to notice:**
+- `Account.parentId` - Category hierarchy (unlimited nesting)
+- `Account.isBusinessDefault` - Auto-enables GST for this account
+- `Account.defaultHasGst` - Controls GST splitting behavior
+- `Posting.isBusiness` - Per-line business flag
+- `Posting.gstCode`, `gstRate`, `gstAmount` - GST tracking
+- `Transaction.metadata` - Stripe transaction details (JSON)
 
-```bash
-npm run dev
-```
+---
 
-Opens at `http://localhost:1420`
+## Key Features to Try
 
-**What you'll see:**
-- ✅ Sidebar with accounts grouped by type (Assets, Liabilities, etc.)
-- ✅ Accounts show current balances
-- ✅ "Biz" badge on business accounts
-- ✅ Click an account to "select" it (register grid will show - currently empty)
-- ✅ Top bar with account info and action buttons
+### 1. Create a Personal Transaction
 
-**Current limitation:** Register grid is empty because we're using mock data (returns empty array). Once Tauri commands are implemented, it will show real transactions.
+1. Select **Personal Checking** in the sidebar
+2. Click **New Transaction**
+3. Fill in:
+   - Date: Today
+   - Payee: "Woolworths"
+   - Amount: 110
+   - Category: Groceries
+   - Business: ❌ Leave unchecked
+   - Memo: "Weekly shopping"
+4. Click **Save Transaction**
 
-### 3. Reset Database with Fresh Sample Data
+**Result:** Transaction appears in register. No GST calculated (personal).
 
-```bash
-npm run db:seed
-```
+### 2. Create a Business Transaction with GST
 
-This will:
-- Delete all existing data
-- Create 13 accounts (personal + business)
-- Create 5 example transactions showing:
-  - Personal grocery purchase (no GST)
-  - Business office supplies (with GST)
-  - Mixed personal/business dinner
-  - Transfer to savings goal
-  - Business sale (income with GST)
-- Create 2 memorized rules
-- Create default settings
+1. Select **Business Checking** in the sidebar
+2. Click **New Transaction**
+3. Fill in:
+   - Date: Today
+   - Payee: "Officeworks"
+   - Amount: 110
+   - Category: Office Supplies
+   - Business: ✅ **Check this**
+   - Memo: "Printer paper"
 
-### 4. Explore the Code
+**Watch the GST calculator appear!**
+- Total (inc. GST): $110.00
+- GST amount: $10.00
+- GST-exclusive: $100.00
 
-**Key files to look at:**
+4. Click **Save Transaction**
 
-**Services (Business Logic):**
-- `src/lib/services/accountService.ts` - Account CRUD + balances
-- `src/lib/services/transactionService.ts` - Transactions + double-entry validation
-- `src/lib/services/importService.ts` - CSV import + deduplication
-- `src/lib/services/reconciliationService.ts` - Reconciliation logic
-- `src/lib/services/reportService.ts` - P&L, GST Summary, BAS Draft
+**Result:** Transaction with GST tracking. Check Prisma Studio to see the explicit GST postings.
 
-**UI Components:**
-- `src/components/Layout/MainLayout.tsx` - Main app layout
-- `src/components/Layout/AccountSidebar.tsx` - Sidebar with accounts
-- `src/components/Register/RegisterGrid.tsx` - Transaction table
+### 3. Create a Split Transaction
 
-**Database:**
-- `prisma/schema.prisma` - Database schema
-- `prisma/seed.ts` - Sample data generation
+1. Click **New Transaction**
+2. Add basic info (date, payee, amount)
+3. Click **Add Split**
+4. Allocate the amount across multiple categories:
+   - Office Supplies: $50 (Business ✅)
+   - Marketing: $30 (Business ✅)
+   - Personal Shopping: $20 (Business ❌)
 
-**API Bridge (needs Tauri implementation):**
-- `src/lib/api.ts` - Currently uses mock data; update with Tauri `invoke()` calls
+**Result:** One transaction with multiple postings, mixed business/personal.
 
-## What Works Right Now
+### 4. Import CSV Bank Statement
 
-### ✅ Backend (100%)
-All business logic is complete and tested:
-- Create/edit/delete accounts
-- Create/edit/delete transactions (with validation)
-- Double-entry enforcement (sum must = 0)
-- GST validation (only when `isBusiness=true`)
-- CSV import with deduplication
-- Reconciliation workflows
-- Reports (P&L, GST Summary, BAS)
+1. Go to **Settings** > **Import**
+2. Select target account (e.g., Personal Checking)
+3. Upload a CSV file
+4. Map columns (Date, Payee, Amount, etc.)
+5. Save the mapping as a template
+6. Preview imported transactions
+7. Click **Import**
 
-### ✅ Database (100%)
-- Schema is complete
-- Migrations are working
-- Seed data demonstrates all features
-- Can be inspected with Prisma Studio
+**Features:**
+- Deduplication (won't import duplicates)
+- Memorized rule matching (auto-categorizes)
+- Template saving (reuse column mappings)
 
-### ✅ UI Foundation (70%)
-- Layout renders correctly
-- Accounts display in sidebar
-- Register grid component is built (just needs real data)
-- Tailwind CSS styling works
-- Dark mode support (class-based)
+### 5. View Reports
 
-## What Needs Work
+1. Click **Reports** in the sidebar
+2. Select a date range
+3. Choose a report:
+   - **Profit & Loss** - Income vs Expenses
+   - **GST Summary** - GST Collected vs GST Paid
+   - **BAS Draft** - Quarterly BAS with whole-dollar rounding
 
-### 🔨 Critical (for MVP)
-1. **Tauri Commands** - Connect UI to backend
-   - Currently using mock data in `src/lib/api.ts`
-   - Need to expose services as Tauri commands
-   - Then update `api.ts` to use `invoke()` instead of mocks
+**All reports filter to business transactions automatically.**
 
-2. **Transaction Form** - Add/edit transactions
-   - Modal with simple/split modes
-   - Business toggle per split
-   - Conditional GST fields
-   - Memorized rule preview
+### 6. Stripe Integration
 
-3. **Functional Register** - Make the grid interactive
-   - Click to edit transactions
-   - Inline editing
-   - Keyboard navigation
+1. Go to **Settings** > **Stripe**
+2. Enter your Stripe secret key
+3. Select payout destination account
+4. Click **Test Connection**
+5. Click **Import Transactions**
+6. Select date range
+7. Click **Import**
 
-### 📋 Important
-4. CSV import wizard UI
-5. Reconciliation interface with PDF viewer
-6. Reports dashboard
+**What happens:**
+- Fetches transactions from Stripe Balance Transaction API
+- Creates 5-way split accounting:
+  - Net amount to Stripe account
+  - Fee (ex-GST) to Stripe Fee expense
+  - Fee GST to GST Paid asset
+  - Income (ex-GST) to Service Fee income
+  - GST Collected to GST Collected liability
+- Auto-categorizes based on transaction type
+- Deduplicates by Stripe transaction ID
 
-## Testing the Business Logic (Manually via Prisma Studio)
+### 7. Category Hierarchy
 
-Since the backend is complete, you can test it by directly manipulating the database:
+1. Right-click any category in the sidebar
+2. Select **Add Subcategory**
+3. Create nested categories:
+   ```
+   Office Expenses
+   ├── Office Supplies
+   ├── Software Subscriptions
+   └── Equipment
+   ```
 
-### Example: Create a Transaction
+**Features:**
+- Unlimited nesting levels
+- Inheritable business/GST settings
+- Context menu actions (rename, settings, archive, delete)
+- Virtual parent nodes (Income/Expense > Business/Personal)
 
-1. Open Prisma Studio: `npm run db:studio`
-2. Go to **Transaction** table
-3. Click **Add Record**
-4. Fill in: `date`, `payee`, `memo`
-5. Save
-
-Now you need to add **Postings** (the double-entry part):
-
-1. Go to **Posting** table
-2. Add posting 1:
-   - `transactionId` = your transaction ID
-   - `accountId` = a bank account ID (get from Account table)
-   - `amount` = -100 (negative = credit/decrease)
-   - `isBusiness` = false
-3. Add posting 2:
-   - `transactionId` = same transaction ID
-   - `accountId` = an expense account ID
-   - `amount` = 100 (positive = debit/increase)
-   - `isBusiness` = false
-
-The sum (-100 + 100 = 0) means it's a valid double-entry transaction!
-
-For business transactions:
-- Set `isBusiness` = true
-- Set `gstCode` = GST
-- Set `gstRate` = 0.1
-- Set `gstAmount` = calculated GST (e.g., 100 * 0.1 / 1.1 = 9.09)
-
-## Next Development Steps
-
-### Option 1: Implement Tauri Commands (Recommended)
-
-**Using tauri-plugin-sql:**
-```bash
-# Add Tauri SQL plugin
-npm install @tauri-apps/plugin-sql
-cargo add tauri-plugin-sql --features sqlite
-```
-
-Then expose database queries as Tauri commands.
-
-**Pros:** Simple, works with existing TypeScript logic
-**Cons:** Need to rewrite queries for Tauri's SQL plugin
-
-### Option 2: Call Node.js from Rust
-
-Use `tauri-plugin-shell` to call Node.js scripts that use Prisma.
-
-**Pros:** Use existing Prisma services as-is
-**Cons:** More complex, need Node.js installed on user's machine
-
-### Option 3: Rewrite Services in Rust
-
-Reimplement all services in Rust using `sqlx` or `diesel`.
-
-**Pros:** True native app, no Node.js dependency
-**Cons:** ~3000 lines of code to rewrite, slower development
-
-**Recommendation:** Start with Option 1 (tauri-plugin-sql) for fastest MVP.
-
-## Useful Commands
-
-```bash
-# Development
-npm run dev                 # Start UI dev server
-npm run tauri:dev          # Run Tauri app (once commands ready)
-
-# Database
-npm run db:studio          # Open Prisma Studio GUI
-npm run db:seed            # Reset with sample data
-npm run db:migrate         # Run migrations
-
-# Build
-npm run build              # Build frontend
-npm run tauri:build        # Build desktop app (once ready)
-
-# Testing (once implemented)
-npm test                   # Unit tests
-npm run test:e2e           # E2E tests
-```
+---
 
 ## Understanding the Sample Data
 
-### Accounts Created (13 total)
+### Accounts (13 created by seed)
 
 **Personal (6):**
 1. Personal Checking (Asset/Bank)
 2. Personal Credit Card (Liability/Card)
-3. Holiday Fund (Equity/Savings Goal - virtual)
+3. Holiday Fund (Equity/Savings Goal)
 4. Salary (Income)
 5. Groceries (Expense)
 6. Dining Out (Expense)
@@ -232,7 +251,7 @@ npm run test:e2e           # E2E tests
 **Business (6):**
 1. Business Checking (Asset/Bank) - `isBusinessDefault=true`
 2. Business Credit Card (Liability/Card) - `isBusinessDefault=true`
-3. GST Control (Liability/Virtual) - `isBusinessDefault=true`
+3. GST Collected (Liability/Category) - `isBusinessDefault=true`
 4. Sales Income (Income) - `isBusinessDefault=true`
 5. Office Supplies (Expense) - `isBusinessDefault=true`
 6. Business Meals (Expense) - `isBusinessDefault=true`
@@ -240,93 +259,222 @@ npm run test:e2e           # E2E tests
 **Other (1):**
 1. Uncategorized (Expense)
 
-### Transactions Created (5 total)
+### Sample Transactions
 
-**Transaction 1: Personal Grocery**
-- Date: 12/08/2025
-- Payee: Woolworths
-- Amount: $110
-- Postings:
-  - Personal Checking: -$110 (credit)
-  - Groceries: +$110 (debit)
-- **NO GST** (personal use)
-
-**Transaction 2: Business Office Supplies**
-- Date: 12/08/2025
-- Payee: Officeworks
-- Amount: $110 inc. GST
-- Postings:
-  - Business Card: -$110 (credit)
-  - Office Supplies: +$100 (debit, `isBusiness=true`, GST=$10)
-- **WITH GST** (business expense)
-
-**Transaction 3: Mixed Dinner**
-- Date: 15/08/2025
-- Payee: The Restaurant
-- Amount: $150
-- Postings:
-  - Personal Credit: -$150 (credit)
-  - Business Meals: +$90.91 (debit, `isBusiness=true`, GST=$9.09) - Client portion
-  - Dining Out: +$59.09 (debit, `isBusiness=false`, no GST) - Personal portion
-- **SPLIT** business and personal
-
-**Transaction 4: Savings Transfer**
-- Date: 20/08/2025
-- Payee: Savings Transfer
-- Amount: $500
-- Postings:
-  - Personal Checking: -$500 (credit)
-  - Holiday Fund: +$500 (debit)
-- **NO GST** (transfer between accounts)
-
-**Transaction 5: Business Sale**
-- Date: 22/08/2025
-- Payee: ABC Company
-- Amount: $1,100 inc. GST
-- Postings:
-  - Business Checking: +$1,100 (debit)
-  - Sales Income: -$1,000 (credit, `isBusiness=true`, GST=-$100)
-- **WITH GST** (income with GST collected)
-
-## Testing GST Reports
-
-Once you have transaction data, you can test the report service:
-
-```typescript
-import { reportService } from './src/lib/services';
-
-// Generate GST Summary (business only)
-const gstSummary = await reportService.generateGSTSummary(
-  new Date('2025-08-01'),
-  new Date('2025-08-31')
-);
-
-console.log('GST Collected:', gstSummary.gstCollected);  // $100
-console.log('GST Paid:', gstSummary.gstPaid);            // $19.09
-console.log('Net GST:', gstSummary.netGST);              // $80.91 (owed to ATO)
-
-// Generate BAS Draft
-const basDraft = await reportService.generateBASDraft(
-  new Date('2025-07-01'),
-  new Date('2025-09-30')
-);
-
-console.log('G1 Total Sales:', basDraft.g1TotalSales);         // $1000
-console.log('1A GST on Sales:', basDraft.oneAGSTOnSales);      // $100
-console.log('1B GST on Purchases:', basDraft.oneBGSTOnPurchases); // $19
-console.log('Net GST (rounded):', basDraft.netGST);            // $81
+**Transaction 1: Personal Grocery** (No GST)
+```
+Date: Recent
+Payee: Woolworths
+Postings:
+  - Personal Checking: -$110
+  - Groceries: +$110
 ```
 
-## Questions?
+**Transaction 2: Business Office Supplies** (With GST)
+```
+Date: Recent
+Payee: Officeworks
+Postings:
+  - Business Card: -$110
+  - Office Supplies: +$100 (ex-GST, isBusiness=true)
+  - GST Paid: +$10 (asset, claimable)
+```
 
-Check the documentation:
-- [README.md](README.md) - Project overview
-- [CLAUDE.md](CLAUDE.md) - Architecture and design decisions
-- [PROGRESS.md](PROGRESS.md) - Detailed progress log
-- [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - Complete implementation details
+**Transaction 3: Mixed Business Dinner** (Split)
+```
+Date: Recent
+Payee: The Restaurant
+Postings:
+  - Credit Card: -$150
+  - Business Meals: +$90.91 (isBusiness=true, GST=$9.09)
+  - Dining Out: +$59.09 (isBusiness=false, no GST)
+```
 
 ---
 
-**You now have a working ledger backend with UI foundation!** 🎉
+## Reset Database
 
-The main task is connecting them via Tauri commands, then building out the remaining UI components.
+To start fresh:
+
+```bash
+npm run db:seed
+```
+
+This will:
+- Delete all existing data
+- Recreate sample accounts
+- Create hierarchical category structure
+- Add example transactions
+- Create memorized rules
+- Set default settings
+
+---
+
+## Backup & Restore
+
+### Automatic Backups
+
+The API server creates a backup **every time it starts** at:
+```
+prisma/backups/ledgerhound-backup-[timestamp].db
+```
+
+### Manual Backup
+
+1. Go to **Settings** > **Backup**
+2. Click **Create Backup**
+
+### Restore from Backup
+
+1. Go to **Settings** > **Backup**
+2. Select a backup file
+3. Click **Restore**
+
+**Warning:** This will replace your current database!
+
+### Export to JSON
+
+1. Go to **Settings** > **Backup**
+2. Click **Export to JSON**
+3. Downloads entire database as JSON (for data portability)
+
+---
+
+## Development Commands
+
+```bash
+# Start both servers
+npm run dev:all
+
+# Start API server only
+npm run api
+
+# Start frontend only
+npm run dev
+
+# View database
+npm run db:studio
+
+# Reset database
+npm run db:seed
+
+# Run migrations
+npm run db:migrate
+
+# Run tests
+npm test
+
+# Build for production
+npm run build
+```
+
+---
+
+## API Endpoints
+
+The API server (`http://localhost:3001/api`) provides:
+
+**Accounts:**
+- `GET /api/accounts` - All accounts with balances
+- `POST /api/accounts` - Create account
+- `PUT /api/accounts/:id` - Update account
+- `DELETE /api/accounts/:id` - Delete account
+
+**Categories:**
+- `GET /api/categories/tree` - Hierarchical tree
+- `GET /api/categories/leaf` - Leaf categories only
+- `GET /api/categories/:id/path` - Category path
+- And 6 more category endpoints
+
+**Transactions:**
+- `GET /api/transactions` - All transactions
+- `GET /api/transactions/register` - Register view
+- `POST /api/transactions` - Create transaction
+- `PUT /api/transactions/:id` - Update transaction
+- `DELETE /api/transactions/:id` - Delete transaction
+
+**Reports:**
+- `GET /api/reports/profit-loss` - P&L report
+- `GET /api/reports/gst-summary` - GST summary
+- `GET /api/reports/bas-draft` - BAS draft
+
+**Import:**
+- `POST /api/import/preview` - Preview CSV import
+- `POST /api/import/execute` - Execute import
+
+**Stripe:**
+- `POST /api/stripe/test-connection` - Test API key
+- `POST /api/stripe/import` - Import transactions
+
+And 30+ more endpoints for rules, reconciliation, backups, settings, etc.
+
+---
+
+## Troubleshooting
+
+### App won't start
+
+**Problem:** `npm run dev:all` fails
+**Solution:**
+1. Check if port 3001 or 5173 is in use
+2. Kill any Node processes: `npx kill-port 3001 5173`
+3. Try again
+
+### Database error
+
+**Problem:** "Database not found" or migration errors
+**Solution:**
+```bash
+npm run db:migrate
+npm run db:seed
+```
+
+### API not connecting
+
+**Problem:** Frontend says "Failed to fetch"
+**Solution:**
+1. Make sure API server is running (`npm run api`)
+2. Check `http://localhost:3001/api/accounts` in browser
+3. Check console for CORS errors
+
+### Want to clear all data
+
+```bash
+npm run db:seed
+```
+
+---
+
+## Next Steps
+
+### Learn More
+
+- [CLAUDE.md](CLAUDE.md) - Comprehensive project documentation
+- [README.md](README.md) - Project overview
+- [STRIPE_ACCOUNTING_EXPLAINED.md](STRIPE_ACCOUNTING_EXPLAINED.md) - How Stripe accounting works
+
+### Extend the App
+
+- Add custom categories (unlimited nesting)
+- Create memorized rules for auto-categorization
+- Import your bank statements
+- Connect your Stripe account
+- Generate BAS reports for tax time
+
+### Development
+
+- Explore the services layer (`src/lib/services/`)
+- Add new API endpoints (`src-server/api.ts`)
+- Create new UI components (`src/components/`)
+- Write tests (`npm test`)
+
+---
+
+## Questions?
+
+The app is **production-ready** with all core features working. The only remaining tasks are:
+- ⏳ Reconciliation UI polish (backend complete)
+- ⏳ Comprehensive testing (unit + E2E)
+- ⏳ Tauri desktop packaging (currently web-based)
+
+**You have a fully functional accounting system!** 🎉

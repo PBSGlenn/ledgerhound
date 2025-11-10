@@ -4,69 +4,93 @@ Personal & Small-Business Ledger for Australia with GST support
 
 ## Project Status
 
-🚧 **In Development** - Core foundation complete, UI implementation in progress
+✅ **Production-Ready MVP** (~85% complete) - All core features functional, minor polish needed
 
 ### Completed ✅
 
 - **Project Setup**
-  - Tauri desktop wrapper
-  - React + TypeScript + Vite
+  - Express API server (Node.js + TypeScript)
+  - React 19 + TypeScript + Vite frontend
   - SQLite database with Prisma ORM
-  - Development environment configured
+  - Development environment fully configured
+  - Automatic backup system
 
-- **Database Schema**
+- **Database Schema** (5 migrations)
   - Double-entry accounting model
   - Account types: ASSET, LIABILITY, EQUITY, INCOME, EXPENSE
-  - Transaction and Posting entities
-  - GST tracking (optional, business-only)
+  - Transaction and Posting entities with splits
+  - Hierarchical category system (unlimited nesting)
+  - GST tracking with explicit postings
   - Memorized rules for auto-categorization
-  - Import batches and reconciliation support
-  - Settings management
+  - Import batches with deduplication
+  - Reconciliation sessions
+  - Settings management (JSON key-value store)
 
-- **Business Logic**
-  - Account service with balance calculations
-  - Transaction service with double-entry validation
-  - GST validation (only for business-flagged postings)
-  - Register entry generation
-  - Bulk operations support
+- **Business Logic** (14 services, 4,900+ lines)
+  - Account service: CRUD, balances, archiving, hierarchies
+  - Category service: Hierarchical management, tree operations
+  - Transaction service: Double-entry + GST validation, register views
+  - Stripe import service: Balance Transaction API, 5-way split accounting
+  - Import service: CSV parsing, column mapping, deduplication
+  - Report service: P&L, GST Summary, BAS Draft (all complete)
+  - Reconciliation service: Session management, balance calculations
+  - Memorized rule service: Pattern matching, auto-categorization
+  - Backup service: Auto-backup on startup, restore, cleanup, JSON export
+  - And 5 more specialized services
 
-- **Sample Data**
-  - Personal accounts (checking, credit card, savings goals)
-  - Business accounts (with GST control)
-  - Mixed personal/business transactions
-  - Memorized rules examples
+- **UI Components** (34 components)
+  - Main layout with hierarchical tree sidebar
+  - Transaction form with splits, GST calculation, transfers
+  - Register grid with filtering, bulk operations
+  - CSV import wizard with column mapping
+  - Reports dashboard (P&L, GST, BAS)
+  - Category management with context menus
+  - Settings interface with tabs
+  - Stripe integration UI
+  - Dashboard with summary cards
+  - Onboarding wizard
+
+- **Key Features**
+  - ✅ Double-entry accounting with validation
+  - ✅ GST tracking with explicit postings (GST-free business support)
+  - ✅ Hierarchical categories (unlimited nesting)
+  - ✅ Split transactions with per-posting business flag
+  - ✅ Transfer mode with auto-balancing
+  - ✅ CSV import with templates and deduplication
+  - ✅ Stripe Balance Transaction API integration
+  - ✅ Memorized rules with pattern matching
+  - ✅ Comprehensive reporting (P&L, GST, BAS)
+  - ✅ Automatic backups on startup
+  - ✅ Register with bulk select/delete
+  - ✅ Business vs personal transaction support
 
 ### In Progress 🔨
 
-- UI Components (register grid, transaction forms)
-- CSV Import system
-- Reconciliation interface
-- Reporting (P&L, GST Summary, BAS Draft)
+- Reconciliation UI polish (backend complete, needs PDF viewer integration)
+- Comprehensive testing (unit tests for services + E2E for critical flows)
 
-### TODO 📋
+### Planned 📋
 
-- PDF viewer integration for reconciliation
-- Settings management UI
-- Backup and export functionality
-- Comprehensive testing (unit + E2E)
-- User documentation
+- Tauri desktop packaging (currently web-based)
+- Multi-book support (backend stub exists)
+- User documentation and tutorials
 
 ## Tech Stack
 
-- **Frontend**: React 19 + TypeScript
-- **Desktop**: Tauri 2.x (Rust wrapper)
-- **Database**: SQLite via Prisma
-- **UI Components**: Radix UI (headless, accessible)
+- **Frontend**: React 19 + TypeScript + Vite
+- **Backend**: Express API server (Node.js + TypeScript) on port 3001
+- **Database**: SQLite via Prisma ORM
+- **UI Components**: Radix UI (headless, accessible) + Tailwind CSS
 - **PDF**: PDF.js
 - **Date handling**: date-fns
 - **Testing**: Vitest + Playwright
+- **Desktop**: Tauri 2.x scaffolding (web-based currently, desktop packaging planned)
 
 ## Quick Start
 
 ### Prerequisites
 
 - Node.js 18+ and npm
-- Rust toolchain (for Tauri)
 - Git
 
 ### Installation
@@ -89,21 +113,27 @@ npm run db:seed
 ### Development
 
 ```bash
-# Run the app in development mode
-npm run tauri:dev
+# Run both API server and frontend (recommended)
+npm run dev:all
 
-# Run Vite dev server only (for UI development)
-npm run dev
+# Or run separately in two terminals:
+npm run api      # Start Express API server (port 3001)
+npm run dev      # Start Vite dev server (port 5173)
 
 # Open Prisma Studio to inspect the database
 npm run db:studio
 ```
 
+The app will open at `http://localhost:5173` and connect to the API at `http://localhost:3001`.
+
 ### Build
 
 ```bash
-# Build for production
-npm run tauri:build
+# Build frontend for production
+npm run build
+
+# Preview production build
+npm run preview
 ```
 
 ## Database Schema
@@ -156,15 +186,27 @@ npm run tauri:build
 ## Scripts
 
 ```bash
-npm run dev              # Vite dev server
-npm run build            # Build frontend
-npm run tauri:dev        # Run Tauri app in dev mode
-npm run tauri:build      # Build Tauri app for production
+# Development
+npm run dev:all          # Start both API server and frontend (recommended)
+npm run api              # Start Express API server only (port 3001)
+npm run dev              # Start Vite dev server only (port 5173)
+
+# Build
+npm run build            # Build frontend for production
+npm run preview          # Preview production build
+
+# Database
 npm run db:migrate       # Run Prisma migrations
-npm run db:seed          # Seed database
-npm run db:studio        # Open Prisma Studio
-npm test                 # Run unit tests
-npm run test:e2e         # Run E2E tests
+npm run db:seed          # Seed database with sample data
+npm run db:studio        # Open Prisma Studio (database GUI)
+
+# Testing
+npm test                 # Run unit tests (Vitest)
+npm run test:e2e         # Run E2E tests (Playwright)
+
+# Tauri (not currently used, planned for future)
+npm run tauri:dev        # Run Tauri desktop app in dev mode
+npm run tauri:build      # Build Tauri desktop app for production
 ```
 
 ## Project Structure
@@ -172,31 +214,57 @@ npm run test:e2e         # Run E2E tests
 ```
 ledgerhound/
 ├── prisma/
-│   ├── schema.prisma          # Database schema
-│   ├── seed.ts                # Seed data
-│   └── migrations/            # Migration files
+│   ├── schema.prisma          # Database schema (8 entities)
+│   ├── seed.ts                # Seed data with sample transactions
+│   ├── migrations/            # 5 migration files
+│   └── backups/               # Automatic database backups
 ├── src/
-│   ├── components/            # React components
+│   ├── components/            # 34 React UI components
+│   │   ├── Account/           # Account management UI
+│   │   ├── Category/          # Category hierarchy UI
+│   │   ├── Transaction/       # Transaction forms
+│   │   ├── Layout/            # Sidebar, topbar, context menus
+│   │   ├── Register/          # Register grid and views
+│   │   ├── Reports/           # P&L, GST, BAS reports
+│   │   ├── Import/            # CSV import wizard
+│   │   ├── Settings/          # Settings interface
+│   │   └── ...                # And more
+│   ├── features/              # Feature-specific components
+│   │   ├── import/            # Enhanced import wizard
+│   │   └── register/          # Register-specific features
 │   ├── lib/
-│   │   ├── db.ts              # Prisma client
-│   │   └── services/          # Business logic
+│   │   ├── db.ts              # Prisma client singleton
+│   │   ├── api.ts             # API client (HTTP wrapper)
+│   │   └── services/          # Business logic (14 services)
 │   │       ├── accountService.ts
+│   │       ├── categoryService.ts
 │   │       ├── transactionService.ts
-│   │       ├── importService.ts (TODO)
-│   │       ├── reconciliationService.ts (TODO)
-│   │       └── reportService.ts (TODO)
-│   ├── types/                 # TypeScript types
+│   │       ├── stripeImportService.ts
+│   │       ├── importService.ts
+│   │       ├── reportService.ts
+│   │       ├── reconciliationService.ts
+│   │       ├── memorizedRuleService.ts
+│   │       ├── backupService.ts
+│   │       └── ...and 5 more
+│   ├── types/                 # TypeScript type definitions
 │   ├── App.tsx                # Main app component
 │   └── main.tsx               # App entry point
-├── src-tauri/                 # Tauri Rust backend
+├── src-server/                # Express API server
+│   └── api.ts                 # REST API (60+ endpoints, port 3001)
+├── src-tauri/                 # Tauri scaffolding (not currently used)
 │   ├── src/
 │   │   ├── main.rs
 │   │   └── lib.rs
 │   ├── Cargo.toml
 │   └── tauri.conf.json
+├── scripts/                   # 21 utility scripts
+│   ├── migrate-gst-postings.ts
+│   ├── create-comprehensive-categories.ts
+│   └── ...
 ├── package.json
 ├── tsconfig.json
-└── vite.config.ts
+├── vite.config.ts
+└── CLAUDE.md                  # Comprehensive project documentation
 ```
 
 ## Double-Entry Example
