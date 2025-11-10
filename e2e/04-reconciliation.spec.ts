@@ -57,10 +57,8 @@ test.describe('Reconciliation Workflow', () => {
       // Wait for page to process and session to start
       await page.waitForTimeout(2000);
 
-      // Verify reconciliation session started - look for session UI elements
-      // The session view should show transaction list or reconciliation status
-      const sessionStarted = page.locator('text=Unreconciled, text=Reconciled, text=Cleared, text=transactions');
-      await expect(sessionStarted.first()).toBeVisible({ timeout: 10000 });
+      // Verify reconciliation session started - look for session header
+      await expect(page.locator('text=Transactions to Reconcile')).toBeVisible({ timeout: 10000 });
     }
   });
 
@@ -93,8 +91,8 @@ test.describe('Reconciliation Workflow', () => {
       await page.waitForTimeout(2000);
     }
 
-    // Wait for transaction list to load - look for any transaction-related content
-    await page.waitForSelector('text=transactions, text=Unreconciled, [role="checkbox"]', { timeout: 10000 });
+    // Wait for transaction list to load - look for the transactions header
+    await expect(page.locator('text=Transactions to Reconcile')).toBeVisible({ timeout: 10000 });
 
     // Click on first transaction checkbox to mark as reconciled
     const firstCheckbox = page.locator('input[type="checkbox"], [role="checkbox"]').nth(1);
