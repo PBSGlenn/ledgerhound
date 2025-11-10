@@ -278,12 +278,12 @@ All business logic is in TypeScript services (not Rust):
   - Sequential execution (single worker) to avoid database conflicts
   - HTML reports with screenshots and videos on failure
   - Test fixtures for CSV data
-  - **Status**: 12/16 tests passing (75%) - 1100% improvement from 1/16 baseline
-  - **Test Results** (Final - 2025-11-10):
+  - **Status**: 10/16 tests passing (62.5%) - 900% improvement from 1/16 baseline
+  - **Test Results** (Final - 2025-11-11):
     - ✅ Account creation (3/3 tests passing) - All account creation workflows working
     - ✅ CSV import (3/3 tests passing) - Import, deduplication, and rule application working
-    - ✅ Reconciliation (6/6 tests passing) - All reconciliation workflows functional
-    - ❌ Transaction entry (0/4 tests failing) - Category dropdown timing, transfer/split validation issues
+    - ⚠️ Reconciliation (4/6 tests passing) - Most reconciliation workflows functional
+    - ❌ Transaction entry (0/4 tests failing) - CategorySelector interaction issues + backend validation
   - **Fixes Implemented** (2025-11-08 to 2025-11-10):
     - ✅ NetworkIdle timeout fixed (changed to `waitForLoadState('load')`)
     - ✅ TypeScript errors fixed (`.first()` on locators, not on promises)

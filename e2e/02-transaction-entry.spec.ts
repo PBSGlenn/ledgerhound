@@ -44,20 +44,29 @@ test.describe('Transaction Entry Workflow', () => {
     // Select category - CategorySelector is a button-based dropdown
     await page.click('button:has-text("Select category...")');
 
-    // Wait for dropdown to load
-    await page.waitForTimeout(800);
+    // Wait for dropdown Portal to render
+    await page.waitForSelector('input[placeholder="Search categories..."]', { timeout: 2000 });
 
-    // Use "Business Income" which is already expanded and visible in the tree
-    // It's the leaf node under Business Income > Business Income
-    await page.locator('text=Business Income').nth(1).click({ force: true });
+    // Consulting Income was created by account creation test - click it directly
+    // It's under Personal Income parent, which should be auto-expanded
+    await page.locator('button:has-text("Consulting Income")').click();
+
+    // Wait for dropdown to close
+    await page.waitForSelector('input[placeholder="Search categories..."]', { state: 'hidden', timeout: 2000 });
 
     // Fill in split amount (required for form validation)
     // The split amount input is the number input in the "Items" section
     const splitAmountInput = page.locator('input[type="number"][step="0.01"]').nth(1); // 2nd number input (1st is total amount)
     await splitAmountInput.fill('1500');
 
-    // Save transaction (use force to bypass CategorySelector dropdown overlay)
-    await page.click('button:has-text("Save"), button:has-text("Create")', { force: true });
+    // Save transaction
+    await page.click('button:has-text("Save"), button:has-text("Create")');
+
+    // Wait for modal to close
+    await expect(page.locator('role=dialog')).not.toBeVisible({ timeout: 5000 });
+
+    // Wait for register to reload/update (transactions are fetched after modal closes)
+    await page.waitForTimeout(1000);
 
     // Verify transaction appears in register
     await expect(page.locator('text=Consulting Client')).toBeVisible({ timeout: 10000 });
@@ -83,15 +92,15 @@ test.describe('Transaction Entry Workflow', () => {
     // Select business expense category - CategorySelector is a button-based dropdown
     await page.click('button:has-text("Select category...")');
 
-    // Wait for dropdown to load
-    await page.waitForTimeout(800);
+    // Wait for dropdown Portal to render
+    await page.waitForSelector('input[placeholder="Search categories..."]', { timeout: 2000 });
 
-    // Expand Business Expenses parent node first
-    await page.locator('text=Business Expenses').first().click();
-    await page.waitForTimeout(300);
+    // Office Supplies was created by account creation test - click it directly
+    // It's under Personal Expenses parent, which should be auto-expanded
+    await page.locator('button:has-text("Office Supplies")').click();
 
-    // Now click the leaf "Business Expenses" category
-    await page.locator('text=Business Expenses').nth(1).click({ force: true });
+    // Wait for dropdown to close
+    await page.waitForSelector('input[placeholder="Search categories..."]', { state: 'hidden', timeout: 2000 });
 
     // Fill in split amount (required for form validation)
     const splitAmountInput = page.locator('input[type="number"][step="0.01"]').nth(1);
@@ -103,8 +112,14 @@ test.describe('Transaction Entry Workflow', () => {
       await businessCheckbox.check();
     }
 
-    // Save transaction (use force to bypass CategorySelector dropdown overlay)
-    await page.click('button:has-text("Save"), button:has-text("Create")', { force: true });
+    // Save transaction
+    await page.click('button:has-text("Save"), button:has-text("Create")');
+
+    // Wait for modal to close
+    await expect(page.locator('role=dialog')).not.toBeVisible({ timeout: 5000 });
+
+    // Wait for register to reload/update
+    await page.waitForTimeout(1000);
 
     // Verify transaction appears
     await expect(page.locator('text=Office Supplies Store')).toBeVisible({ timeout: 10000 });
@@ -140,6 +155,12 @@ test.describe('Transaction Entry Workflow', () => {
     // Save transaction (form should be balanced automatically)
     await page.click('button:has-text("Save"), button:has-text("Create")');
 
+    // Wait for modal to close
+    await expect(page.locator('role=dialog')).not.toBeVisible({ timeout: 5000 });
+
+    // Wait for register to reload/update
+    await page.waitForTimeout(1000);
+
     // Verify transaction appears
     await expect(page.locator('text=Transfer to Savings')).toBeVisible({ timeout: 10000 });
   });
@@ -165,30 +186,49 @@ test.describe('Transaction Entry Workflow', () => {
     await page.click('button:has-text("+ Add Split")');
     await page.waitForTimeout(300);
 
-    // First split - Business Income $100 (already visible in tree)
+    // First split - Consulting Income $100
     // Click first category dropdown (in ITEMS section)
     await page.locator('button:has-text("Select category...")').first().click();
-    await page.waitForTimeout(800);
 
-    // Click Business Income leaf (nth(1) = second occurrence)
-    await page.locator('text=Business Income').nth(1).click({ force: true });
+    // Wait for dropdown Portal to render
+    await page.waitForSelector('input[placeholder="Search categories..."]', { timeout: 2000 });
+
+    // Click Consulting Income directly (created by account creation test)
+    await page.locator('button:has-text("Consulting Income")').click();
+
+    // Wait for dropdown to close
+    await page.waitForSelector('input[placeholder="Search categories..."]', { state: 'hidden', timeout: 2000 });
 
     // Fill first split amount - it's the 2nd number input (1st is total amount at top)
     await page.locator('input[type="number"][step="0.01"]').nth(1).fill('100');
 
-    // Second split - Business Expenses $50 (also already visible)
+    // Second split - Office Supplies $50
+    // Wait to ensure first dropdown is fully closed
+    await page.waitForTimeout(300);
+
     // Click second category dropdown
     await page.locator('button:has-text("Select category...")').nth(1).click();
-    await page.waitForTimeout(800);
 
-    // Click Business Expenses leaf (nth(1) = second occurrence)
-    await page.locator('text=Business Expenses').nth(1).click({ force: true });
+    // Wait for dropdown Portal to render
+    await page.waitForSelector('input[placeholder="Search categories..."]', { timeout: 2000 });
+
+    // Click Office Supplies directly (created by account creation test)
+    await page.locator('button:has-text("Office Supplies")').click();
+
+    // Wait for dropdown to close
+    await page.waitForSelector('input[placeholder="Search categories..."]', { state: 'hidden', timeout: 2000 });
 
     // Fill second split amount - it's the 3rd number input
     await page.locator('input[type="number"][step="0.01"]').nth(2).fill('50');
 
-    // Save transaction (use force to bypass dropdown overlay)
-    await page.click('button:has-text("Save"), button:has-text("Create")', { force: true });
+    // Save transaction
+    await page.click('button:has-text("Save"), button:has-text("Create")');
+
+    // Wait for modal to close
+    await expect(page.locator('role=dialog')).not.toBeVisible({ timeout: 5000 });
+
+    // Wait for register to reload/update
+    await page.waitForTimeout(1000);
 
     // Verify transaction appears
     await expect(page.locator('text=Shopping Trip')).toBeVisible({ timeout: 10000 });
