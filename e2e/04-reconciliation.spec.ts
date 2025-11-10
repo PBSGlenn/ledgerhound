@@ -51,8 +51,8 @@ test.describe('Reconciliation Workflow', () => {
         await notesField.fill('January 2025 reconciliation');
       }
 
-      // Confirm to start reconciliation (use force to bypass modal overlay)
-      await page.click('button:has-text("Start"), button:has-text("Begin"), button:has-text("Continue")', { force: true });
+      // Confirm to start reconciliation - target the submit button inside the dialog
+      await page.locator('button[type="submit"]:has-text("Start Reconciliation")').click({ force: true });
 
       // Wait for page to process and session to start
       await page.waitForTimeout(2000);
@@ -86,8 +86,8 @@ test.describe('Reconciliation Workflow', () => {
       const closingBalanceInput = page.locator('label:has-text("Closing Balance")').locator('..').locator('input[type="number"]');
       await closingBalanceInput.fill('12000');
 
-      // Use force click to bypass modal overlay
-      await page.click('button:has-text("Start"), button:has-text("Begin")', { force: true });
+      // Use force click to bypass modal overlay - target submit button inside dialog
+      await page.locator('button[type="submit"]:has-text("Start Reconciliation")').click({ force: true });
 
       // Wait for session to initialize
       await page.waitForTimeout(2000);
