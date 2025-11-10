@@ -44,9 +44,9 @@ test.describe('Transaction Entry Workflow', () => {
     // Select category - CategorySelector is a button-based dropdown
     await page.click('button:has-text("Select category...")');
 
-    // Wait for dropdown to load and click the category (exact name from seed data)
-    await page.waitForSelector('text=Consulting Fees', { timeout: 5000 });
-    await page.locator('text=Consulting Fees').first().click();
+    // Wait for dropdown to load and click the category (created by account creation test)
+    await page.waitForSelector('text=Consulting Income', { timeout: 5000 });
+    await page.locator('text=Consulting Income').first().click();
 
     // Fill in split amount (required for form validation)
     // The split amount input is the number input in the "Items" section
