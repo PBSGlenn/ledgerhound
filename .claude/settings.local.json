@@ -22,7 +22,8 @@
       "Bash(git commit:*)",
       "Bash(npx tsx:*)",
       "Read(//c/**)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(nul)"
     ],
     "deny": [],
     "ask": []
