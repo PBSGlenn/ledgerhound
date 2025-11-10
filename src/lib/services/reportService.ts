@@ -1,9 +1,13 @@
 import { getPrismaClient } from '../db';
 import type { GSTSummary, ProfitAndLoss, BASDraft } from '../../types';
-import { Prisma, AccountType } from '@prisma/client';
+import { Prisma, AccountType, type PrismaClient } from '@prisma/client';
 
 export class ReportService {
-  private prisma = getPrismaClient();
+  private prisma: PrismaClient;
+
+  constructor(prisma?: PrismaClient) {
+    this.prisma = prisma ?? getPrismaClient();
+  }
 
   /**
    * Generate Profit & Loss report

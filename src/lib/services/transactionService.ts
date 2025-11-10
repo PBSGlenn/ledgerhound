@@ -4,6 +4,7 @@ import type {
   Posting,
   Account,
   TransactionStatus,
+  PrismaClient,
 } from '@prisma/client';
 import type {
   CreateTransactionDTO,
@@ -14,7 +15,11 @@ import type {
 } from '../../types';
 
 export class TransactionService {
-  private prisma = getPrismaClient();
+  private prisma: PrismaClient;
+
+  constructor(prisma?: PrismaClient) {
+    this.prisma = prisma ?? getPrismaClient();
+  }
 
   /**
    * Validate that postings sum to zero (double-entry requirement)
@@ -88,6 +93,8 @@ export class TransactionService {
         memo: data.memo,
         reference: data.reference,
         tags: data.tags ? JSON.stringify(data.tags) : null,
+        externalId: data.externalId,
+        metadata: data.metadata ? JSON.stringify(data.metadata) : null,
         postings: {
           create: data.postings.map((p) => ({
             accountId: p.accountId,
@@ -117,40 +124,46 @@ export class TransactionService {
    * Update an existing transaction
    */
   async updateTransaction(data: UpdateTransactionDTO): Promise<TransactionWithPostings> {
-    // Validate double-entry
-    this.validateDoubleEntry(data.postings);
-
-    // Validate each posting's GST
-    data.postings.forEach((posting) => this.validateGST(posting));
+    // If postings are provided, validate them
+    if (data.postings) {
+      this.validateDoubleEntry(data.postings);
+      data.postings.forEach((posting) => this.validateGST(posting));
+    }
 
     // Delete existing postings and create new ones (simpler than trying to update)
     const transaction = await this.prisma.$transaction(async (tx) => {
-      // Delete old postings
-      await tx.posting.deleteMany({
-        where: { transactionId: data.id },
-      });
+      // If postings are provided, delete old ones
+      if (data.postings) {
+        await tx.posting.deleteMany({
+          where: { transactionId: data.id },
+        });
+      }
 
-      // Update transaction and create new postings
+      // Update transaction and create new postings if provided
       return tx.transaction.update({
         where: { id: data.id },
         data: {
-          date: data.date,
-          payee: data.payee,
-          memo: data.memo,
-          reference: data.reference,
-          tags: data.tags ? JSON.stringify(data.tags) : null,
-          postings: {
-            create: data.postings.map((p) => ({
-              accountId: p.accountId,
-              amount: p.amount,
-              isBusiness: p.isBusiness ?? false,
-              gstCode: p.gstCode,
-              gstRate: p.gstRate,
-              gstAmount: p.gstAmount,
-              categorySplitLabel: p.categorySplitLabel,
-              cleared: p.cleared ?? false,
-            })),
-          },
+          ...(data.date !== undefined && { date: data.date }),
+          ...(data.payee !== undefined && { payee: data.payee }),
+          ...(data.memo !== undefined && { memo: data.memo }),
+          ...(data.reference !== undefined && { reference: data.reference }),
+          ...(data.tags !== undefined && { tags: data.tags ? JSON.stringify(data.tags) : null }),
+          ...(data.externalId !== undefined && { externalId: data.externalId }),
+          ...(data.metadata !== undefined && { metadata: data.metadata ? JSON.stringify(data.metadata) : null }),
+          ...(data.postings && {
+            postings: {
+              create: data.postings.map((p) => ({
+                accountId: p.accountId,
+                amount: p.amount,
+                isBusiness: p.isBusiness ?? false,
+                gstCode: p.gstCode,
+                gstRate: p.gstRate,
+                gstAmount: p.gstAmount,
+                categorySplitLabel: p.categorySplitLabel,
+                cleared: p.cleared ?? false,
+              })),
+            },
+          }),
         },
         include: {
           postings: {

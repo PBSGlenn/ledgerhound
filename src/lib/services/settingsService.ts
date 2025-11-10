@@ -4,6 +4,7 @@
  */
 
 import { getPrismaClient } from '../db';
+import type { PrismaClient } from '@prisma/client';
 
 export interface StripeSettings {
   apiKey: string;
@@ -21,7 +22,11 @@ export interface StripeSettingsPublic {
 }
 
 export class SettingsService {
-  private prisma = getPrismaClient();
+  private prisma: PrismaClient;
+
+  constructor(prisma?: PrismaClient) {
+    this.prisma = prisma ?? getPrismaClient();
+  }
 
   /**
    * Get a setting value

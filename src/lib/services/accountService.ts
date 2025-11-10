@@ -1,9 +1,13 @@
 import { getPrismaClient } from '../db';
-import { AccountKind, AccountSubtype, AccountType } from '@prisma/client';
+import { AccountKind, AccountSubtype, AccountType, PrismaClient } from '@prisma/client';
 import type { AccountWithBalance } from '../../types';
 
 export class AccountService {
-  private prisma = getPrismaClient();
+  private prisma: PrismaClient;
+
+  constructor(prisma?: PrismaClient) {
+    this.prisma = prisma ?? getPrismaClient();
+  }
 
   /**
    * Get all accounts with optional filtering

@@ -185,6 +185,8 @@ export interface CreateTransactionDTO {
   memo?: string;
   reference?: string;
   tags?: string[];
+  externalId?: string;
+  metadata?: Record<string, any>;
   postings: CreatePostingDTO[];
 }
 
@@ -199,6 +201,14 @@ export interface CreatePostingDTO {
   cleared?: boolean;
 }
 
-export interface UpdateTransactionDTO extends CreateTransactionDTO {
+export interface UpdateTransactionDTO {
   id: string;
+  date?: Date;
+  payee?: string;
+  memo?: string;
+  reference?: string;
+  tags?: string[];
+  externalId?: string;
+  metadata?: Record<string, any>;
+  postings?: CreatePostingDTO[];
 }

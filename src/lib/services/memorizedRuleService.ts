@@ -1,9 +1,13 @@
 import { getPrismaClient } from '../db';
-import type { MemorizedRule, MatchType, Account, GSTCode } from '@prisma/client';
+import type { MemorizedRule, MatchType, Account, GSTCode, PrismaClient } from '@prisma/client';
 import type { SplitTemplate } from '../../types';
 
 export class MemorizedRuleService {
-  private prisma = getPrismaClient();
+  private prisma: PrismaClient;
+
+  constructor(prisma?: PrismaClient) {
+    this.prisma = prisma ?? getPrismaClient();
+  }
 
   /**
    * Get all memorized rules ordered by priority

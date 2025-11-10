@@ -1,9 +1,15 @@
 import { getPrismaClient } from '../db';
-import type { Reconciliation, Posting } from '@prisma/client';
-import { accountService } from './accountService';
+import type { Reconciliation, Posting, PrismaClient } from '@prisma/client';
+import { accountService, AccountService } from './accountService';
 
 export class ReconciliationService {
-  private prisma = getPrismaClient();
+  private prisma: PrismaClient;
+  private accountService: AccountService;
+
+  constructor(prisma?: PrismaClient, accService?: AccountService) {
+    this.prisma = prisma ?? getPrismaClient();
+    this.accountService = accService ?? accountService;
+  }
 
   /**
    * Create a new reconciliation session
@@ -109,7 +115,7 @@ export class ReconciliationService {
     }
 
     // Get account's opening balance
-    const account = await accountService.getAccountById(reconciliation.accountId);
+    const account = await this.accountService.getAccountById(reconciliation.accountId);
     if (!account) {
       throw new Error(`Account ${reconciliation.accountId} not found`);
     }
@@ -333,7 +339,7 @@ export class ReconciliationService {
     });
 
     // Get account opening balance
-    const account = await accountService.getAccountById(accountId);
+    const account = await this.accountService.getAccountById(accountId);
     if (!account) {
       throw new Error(`Account ${accountId} not found`);
     }

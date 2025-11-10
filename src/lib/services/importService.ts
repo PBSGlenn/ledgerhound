@@ -1,11 +1,15 @@
 import { getPrismaClient } from '../db';
 import { parse } from 'date-fns';
-import type { ImportBatch, Account, Settings } from '@prisma/client';
+import type { ImportBatch, Account, Settings, PrismaClient } from '@prisma/client';
 import type { CSVColumnMapping, CSVRow, ImportPreview } from '../../types';
 import { memorizedRuleService } from './memorizedRuleService';
 
 export class ImportService {
-  private prisma = getPrismaClient();
+  private prisma: PrismaClient;
+
+  constructor(prisma?: PrismaClient) {
+    this.prisma = prisma ?? getPrismaClient();
+  }
 
   /**
    * Parse CSV content into rows
@@ -270,8 +274,10 @@ export class ImportService {
           some: {
             accountId,
             amount: {
-              gte: amount - 0.01,
-              lte: amount + 0.01,
+              // For source account, amount is negative (money leaving)
+              // So we check for -amount ± 0.01
+              gte: -amount - 0.01,
+              lte: -amount + 0.01,
             },
           },
         },

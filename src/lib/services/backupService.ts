@@ -4,6 +4,7 @@
  */
 
 import { getPrismaClient } from '../db';
+import type { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 
@@ -15,11 +16,14 @@ export interface BackupInfo {
 }
 
 export class BackupService {
-  private prisma = getPrismaClient();
-  private dbPath = 'prisma/dev.db';
-  private backupDir = 'prisma/backups';
+  private prisma: PrismaClient;
+  private dbPath: string;
+  private backupDir: string;
 
-  constructor() {
+  constructor(prisma?: PrismaClient, dbPath?: string, backupDir?: string) {
+    this.prisma = prisma ?? getPrismaClient();
+    this.dbPath = dbPath ?? 'prisma/dev.db';
+    this.backupDir = backupDir ?? 'prisma/backups';
     this.ensureBackupDirectory();
   }
 
