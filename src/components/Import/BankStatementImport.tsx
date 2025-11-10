@@ -102,10 +102,13 @@ export function BankStatementImport({
       const text = e.target?.result as string;
       setCsvText(text);
 
+      // Handle both Unix (\n) and Windows (\r\n) line endings
       const rows = text
+        .replace(/\r\n/g, '\n')  // Normalize Windows line endings
+        .replace(/\r/g, '\n')     // Normalize old Mac line endings
         .split('\n')
-        .map((line) => parseCSVLine(line))
-        .filter((row) => row.length > 0);
+        .map((line) => parseCSVLine(line.trim()))  // Trim whitespace from each line
+        .filter((row) => row.length > 0 && row.some(cell => cell !== ''));  // Filter out completely empty rows
 
       setCsvData(rows);
 
@@ -143,9 +146,8 @@ export function BankStatementImport({
       }
     }
 
-    if (current.trim()) {
-      result.push(current.trim());
-    }
+    // Always push the last cell, even if empty
+    result.push(current.trim());
 
     return result;
   };
@@ -163,7 +165,26 @@ export function BankStatementImport({
       // Create header row with column names like "col0", "col1", "col2"
       const numColumns = csvData[0]?.length || 0;
       const syntheticHeaders = Array.from({ length: numColumns }, (_, i) => `col${i}`).join(',');
-      const csvWithHeaders = syntheticHeaders + '\n' + csvText;
+
+      // Normalize all rows to have the same number of columns (pad with empty strings if needed)
+      const normalizedRows = csvData.map(row => {
+        const normalized = [...row];
+        while (normalized.length < numColumns) {
+          normalized.push('');
+        }
+        // Trim to exact column count
+        return normalized.slice(0, numColumns).map(cell => {
+          // Escape quotes and wrap in quotes if contains comma
+          if (cell.includes(',') || cell.includes('"') || cell.includes('\n')) {
+            return '"' + cell.replace(/"/g, '""') + '"';
+          }
+          return cell;
+        }).join(',');
+      });
+
+      const csvWithHeaders = syntheticHeaders + '\n' + normalizedRows.join('\n');
+
+      console.log('Sending CSV with', normalizedRows.length, 'data rows (after normalization)');
 
       // Convert column mapping from indices to column names
       const mappingWithColNames: ColumnMapping = {};
@@ -191,6 +212,7 @@ export function BankStatementImport({
       }
 
       const previewData: ImportPreview[] = await response.json();
+      console.log('Received preview with', previewData.length, 'transactions');
       setPreviews(previewData);
 
       // Count how many were matched

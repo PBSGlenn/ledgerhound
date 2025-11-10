@@ -135,6 +135,7 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: Ma
           isOpen={isImporting}
           onClose={() => setIsImporting(false)}
           onImportSuccess={loadAccounts}
+          accountId={selectedAccountId || undefined}
         />
       )}
 

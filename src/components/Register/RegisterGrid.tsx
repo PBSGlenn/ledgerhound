@@ -750,7 +750,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
         isOpen={showImportModal}
         onClose={() => setShowImportModal(false)}
         accountId={accountId}
-        accountName="Account"
+        accountName={account?.name || "Account"}
         onImportComplete={() => {
           loadEntries();
           setShowImportModal(false);

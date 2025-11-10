@@ -623,6 +623,81 @@ export const reconciliationAPI = {
 
     return result;
   },
+
+  async matchTransactions(
+    reconciliationId: string,
+    statementTransactions: Array<{
+      date: Date;
+      description: string;
+      debit?: number;
+      credit?: number;
+      balance?: number;
+      rawText?: string;
+    }>
+  ): Promise<{
+    exactMatches: Array<any>;
+    probableMatches: Array<any>;
+    possibleMatches: Array<any>;
+    unmatchedStatement: Array<any>;
+    unmatchedLedger: Array<any>;
+    summary: {
+      totalStatement: number;
+      totalMatched: number;
+      totalUnmatched: number;
+      statementBalance?: number;
+      ledgerBalance: number;
+      difference?: number;
+    };
+  }> {
+    const response = await fetch(`${API_BASE}/reconciliation/${reconciliationId}/match-transactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        statementTransactions: statementTransactions.map(tx => ({
+          ...tx,
+          date: tx.date.toISOString(),
+        })),
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to match transactions');
+    }
+
+    const result = await response.json();
+
+    // Convert date strings back to Date objects
+    const convertDates = (matches: any[]) =>
+      matches.map(match => ({
+        ...match,
+        statementTx: {
+          ...match.statementTx,
+          date: new Date(match.statementTx.date),
+        },
+        ledgerTx: match.ledgerTx
+          ? {
+              ...match.ledgerTx,
+              date: new Date(match.ledgerTx.date),
+            }
+          : undefined,
+      }));
+
+    return {
+      ...result,
+      exactMatches: convertDates(result.exactMatches),
+      probableMatches: convertDates(result.probableMatches),
+      possibleMatches: convertDates(result.possibleMatches),
+      unmatchedStatement: result.unmatchedStatement.map((tx: any) => ({
+        ...tx,
+        date: new Date(tx.date),
+      })),
+      unmatchedLedger: result.unmatchedLedger.map((tx: any) => ({
+        ...tx,
+        date: new Date(tx.date),
+      })),
+    };
+  },
 };
 
 // Backup API

@@ -9,9 +9,10 @@ interface ImportWizardProps {
   isOpen: boolean;
   onClose: () => void;
   onImportSuccess: () => void;
+  accountId?: string; // Optional: pre-select account when opening from account screen
 }
 
-export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardProps) {
+export function ImportWizard({ isOpen, onClose, onImportSuccess, accountId }: ImportWizardProps) {
   const [step, setStep] = useState(1);
   const [accounts, setAccounts] = useState<AccountWithBalance[]>([]);
   const [categories, setCategories] = useState<Account[]>([]);
@@ -37,7 +38,7 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
       loadInitialData();
       // Reset state when wizard opens
       setStep(1);
-      setSelectedAccountId('');
+      setSelectedAccountId(accountId || ''); // Pre-select account if provided
       setCsvFile(null);
       setCsvHeaders([]);
       setCsvRows([]);
@@ -51,7 +52,7 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
       setLoading(false);
       setError(null);
     }
-  }, [isOpen]);
+  }, [isOpen, accountId]);
 
   const loadInitialData = async () => {
     setLoading(true);
@@ -338,23 +339,29 @@ export function ImportWizard({ isOpen, onClose, onImportSuccess }: ImportWizardP
 
             {!loading && step === 1 && (
               <div className="space-y-6">
-                <div>
-                  <label htmlFor="account-select" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                {/* Account Selector - Always visible on step 1 */}
+                <div className="bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                  <label htmlFor="account-select" className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">
                     Select Account to Import Into
                   </label>
                   <select
                     id="account-select"
                     value={selectedAccountId}
                     onChange={(e) => setSelectedAccountId(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors"
+                    className="w-full px-4 py-3 text-base border-2 border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:text-white transition-colors font-medium"
                   >
-                    <option value="">Select an account...</option>
+                    <option value="">-- Select an account --</option>
                     {accounts.map((account) => (
                       <option key={account.id} value={account.id}>
-                        {account.name}
+                        {account.name} ({account.type})
                       </option>
                     ))}
                   </select>
+                  {selectedAccountId && (
+                    <p className="mt-2 text-sm text-blue-700 dark:text-blue-300">
+                      ✓ Importing into: {accounts.find(a => a.id === selectedAccountId)?.name}
+                    </p>
+                  )}
                 </div>
                 <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-6 text-center hover:border-blue-500 transition-colors cursor-pointer">
                   <label htmlFor="csv-file" className="block cursor-pointer">

@@ -13,6 +13,7 @@ import { categoryService } from '../src/lib/services/categoryService.js';
 import { settingsService } from '../src/lib/services/settingsService.js';
 import { stripeImportService } from '../src/lib/services/stripeImportService.js';
 import { PDFStatementService } from '../src/lib/services/pdfStatementService.js';
+import { ReconciliationMatchingService } from '../src/lib/services/reconciliationMatchingService.js';
 
 const app = express();
 const PORT = 3001;
@@ -34,6 +35,9 @@ const upload = multer({
 
 // Initialize PDF statement service
 const pdfStatementService = new PDFStatementService();
+
+// Initialize reconciliation matching service
+const reconciliationMatchingService = new ReconciliationMatchingService();
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -538,6 +542,35 @@ app.post('/api/reconciliation/parse-pdf', upload.single('pdf'), async (req, res)
 
     const result = await pdfStatementService.parseStatement(req.file.buffer);
     res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+// Match statement transactions with ledger transactions
+app.post('/api/reconciliation/:id/match-transactions', async (req, res) => {
+  try {
+    const { statementTransactions } = req.body;
+
+    if (!statementTransactions || !Array.isArray(statementTransactions)) {
+      return res.status(400).json({ error: 'statementTransactions array is required' });
+    }
+
+    // Get reconciliation to find account and date range
+    const reconciliation = await reconciliationService.getReconciliationById(req.params.id);
+    if (!reconciliation) {
+      return res.status(404).json({ error: 'Reconciliation not found' });
+    }
+
+    // Match transactions
+    const preview = await reconciliationMatchingService.matchTransactions(
+      reconciliation.accountId,
+      statementTransactions,
+      reconciliation.statementStartDate,
+      reconciliation.statementEndDate
+    );
+
+    res.json(preview);
   } catch (error) {
     res.status(400).json({ error: (error as Error).message });
   }
