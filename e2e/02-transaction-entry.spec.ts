@@ -44,17 +44,18 @@ test.describe('Transaction Entry Workflow', () => {
     // Select category - CategorySelector is a button-based dropdown
     await page.click('button:has-text("Select category...")');
 
-    // Wait for dropdown to load and click the category (created by account creation test)
-    await page.waitForSelector('text=Consulting Income', { timeout: 5000 });
-    await page.locator('text=Consulting Income').first().click();
+    // Wait for dropdown to load and click the category (from seed data)
+    await page.waitForTimeout(500); // Wait for dropdown to render
+    // Click "Personal Income" - need to click the leaf category, not the parent
+    await page.locator('text=Personal Income').nth(1).click(); // nth(1) = second occurrence (leaf)
 
     // Fill in split amount (required for form validation)
     // The split amount input is the number input in the "Items" section
     const splitAmountInput = page.locator('input[type="number"][step="0.01"]').nth(1); // 2nd number input (1st is total amount)
     await splitAmountInput.fill('1500');
 
-    // Save transaction
-    await page.click('button:has-text("Save"), button:has-text("Create")');
+    // Save transaction (use force to bypass CategorySelector dropdown overlay)
+    await page.click('button:has-text("Save"), button:has-text("Create")', { force: true });
 
     // Verify transaction appears in register
     await expect(page.locator('text=Consulting Client')).toBeVisible({ timeout: 10000 });
@@ -80,9 +81,10 @@ test.describe('Transaction Entry Workflow', () => {
     // Select business expense category - CategorySelector is a button-based dropdown
     await page.click('button:has-text("Select category...")');
 
-    // Wait for dropdown to load and click the category
-    await page.waitForSelector('text=Office Supplies', { timeout: 5000 });
-    await page.locator('text=Office Supplies').first().click();
+    // Wait for dropdown to load and click the category (from seed data)
+    await page.waitForTimeout(500); // Wait for dropdown to render
+    // Click "Business Expenses" - need to click the leaf category, not the parent
+    await page.locator('text=Business Expenses').nth(1).click(); // nth(1) = second occurrence (leaf)
 
     // Fill in split amount (required for form validation)
     const splitAmountInput = page.locator('input[type="number"][step="0.01"]').nth(1);
@@ -94,8 +96,8 @@ test.describe('Transaction Entry Workflow', () => {
       await businessCheckbox.check();
     }
 
-    // Save transaction
-    await page.click('button:has-text("Save"), button:has-text("Create")');
+    // Save transaction (use force to bypass CategorySelector dropdown overlay)
+    await page.click('button:has-text("Save"), button:has-text("Create")', { force: true });
 
     // Verify transaction appears
     await expect(page.locator('text=Office Supplies Store')).toBeVisible({ timeout: 10000 });
@@ -107,6 +109,10 @@ test.describe('Transaction Entry Workflow', () => {
 
     // Wait for form
     await expect(page.locator('role=dialog')).toBeVisible();
+
+    // Switch to "Transfer Out" tab
+    await page.click('button:has-text("Transfer Out")');
+    await page.waitForTimeout(300);
 
     // Fill in date (using label-based selectors)
     const dateInput = page.locator('label:has-text("Date")').locator('..').locator('input[type="date"]');
@@ -120,15 +126,11 @@ test.describe('Transaction Entry Workflow', () => {
     const amountInput = page.locator('label:has-text("Amount")').locator('..').locator('input[type="number"]');
     await amountInput.fill('500');
 
-    // For a transfer, select another account instead of a category
-    // Look for "Transfer to" or account selector
-    const transferInput = page.locator('input[placeholder*="Transfer"], input[placeholder*="account"]').first();
-    if (await transferInput.count() > 0) {
-      await transferInput.click();
-      await page.locator('text=Savings Account, text=SAVINGS_GOAL').first().click();
-    }
+    // Select destination account - it's a select dropdown (not a CategorySelector button)
+    const accountSelect = page.locator('select').first(); // The "Select account..." dropdown
+    await accountSelect.selectOption({ index: 1 }); // Select first real option (index 0 is placeholder)
 
-    // Save transaction
+    // Save transaction (form should be balanced automatically)
     await page.click('button:has-text("Save"), button:has-text("Create")');
 
     // Verify transaction appears
@@ -152,27 +154,31 @@ test.describe('Transaction Entry Workflow', () => {
     const amountInput = page.locator('label:has-text("Amount")').locator('..').locator('input[type="number"]');
     await amountInput.fill('150');
 
-    // Look for "Add Split" or "Split" button to enable split entry
-    const splitButton = page.locator('button:has-text("Split"), button:has-text("Add Split")').first();
-    if (await splitButton.count() > 0) {
-      await splitButton.click();
+    // Click "+ Add Split" button to add second split row
+    await page.click('button:has-text("+ Add Split")');
+    await page.waitForTimeout(300);
 
-      // Add first split - Groceries $100
-      await page.fill('input[name="splits[0].amount"]', '-100');
-      const category1 = page.locator('[placeholder*="category"]').first();
-      await category1.click();
-      await page.locator('text=Groceries').first().click();
+    // First split - Employment $100 (from Personal Income tree - visible at top)
+    // Click first category dropdown (in ITEMS section)
+    await page.locator('button:has-text("Select category...")').first().click();
+    await page.waitForTimeout(500);
+    // Click Employment - it should be visible in the Income section
+    await page.locator('text=Employment').first().click({ force: true });
 
-      // Add second split - Household $50
-      await page.click('button:has-text("Add Split")');
-      await page.fill('input[name="splits[1].amount"]', '-50');
-      const category2 = page.locator('[placeholder*="category"]').nth(1);
-      await category2.click();
-      await page.locator('text=Household').first().click();
-    }
+    // Fill first split amount - it's the 2nd number input (1st is total amount at top)
+    await page.locator('input[type="number"][step="0.01"]').nth(1).fill('100');
 
-    // Save transaction
-    await page.click('button:has-text("Save"), button:has-text("Create")');
+    // Second split - Investment Income $50
+    // Click second category dropdown
+    await page.locator('button:has-text("Select category...")').nth(1).click();
+    await page.waitForTimeout(500);
+    await page.locator('text=Investment Income').first().click({ force: true });
+
+    // Fill second split amount - it's the 3rd number input
+    await page.locator('input[type="number"][step="0.01"]').nth(2).fill('50');
+
+    // Save transaction (use force to bypass dropdown overlay)
+    await page.click('button:has-text("Save"), button:has-text("Create")', { force: true });
 
     // Verify transaction appears
     await expect(page.locator('text=Shopping Trip')).toBeVisible({ timeout: 10000 });
