@@ -278,13 +278,12 @@ All business logic is in TypeScript services (not Rust):
   - Sequential execution (single worker) to avoid database conflicts
   - HTML reports with screenshots and videos on failure
   - Test fixtures for CSV data
-  - **Status**: 10/16 tests passing (62.5%) - 900% improvement from 1/16 baseline
+  - **Status**: 12/16 tests passing (75%) - 1100% improvement from 1/16 baseline
   - **Test Results** (Final - 2025-11-10):
     - ✅ Account creation (3/3 tests passing) - All account creation workflows working
     - ✅ CSV import (3/3 tests passing) - Import, deduplication, and rule application working
-    - ✅ Reconciliation (4/6 tests passing) - Most reconciliation workflows functional
+    - ✅ Reconciliation (6/6 tests passing) - All reconciliation workflows functional
     - ❌ Transaction entry (0/4 tests failing) - Category dropdown timing, transfer/split validation issues
-    - ❌ Reconciliation (2/6 tests failing) - Session verification text, transaction list loading
   - **Fixes Implemented** (2025-11-08 to 2025-11-10):
     - ✅ NetworkIdle timeout fixed (changed to `waitForLoadState('load')`)
     - ✅ TypeScript errors fixed (`.first()` on locators, not on promises)
@@ -297,6 +296,8 @@ All business logic is in TypeScript services (not Rust):
     - ✅ Radix Dialog modal overlay clicks (added `{ force: true }` to bypass pointer interception)
     - ✅ Split amount validation (transaction form requires manual split amount entry)
     - ✅ Category name fix (use "Consulting Income" created by test, not "Consulting Fees" from seed)
+    - ✅ Reconciliation submit button targeting (use `button[type="submit"]` to distinguish from modal trigger)
+    - ✅ Reconciliation verification selector (changed to actual visible text "Transactions to Reconcile")
   - **Key Findings**:
     - AccountSetupWizard inputs don't have `name` attributes (use label-based selectors)
     - ReconciliationWizard inputs don't have `name` attributes (use label-based selectors)
@@ -312,11 +313,10 @@ All business logic is in TypeScript services (not Rust):
     - Seed data creates "Personal Checking" and "Business Checking" accounts
     - Parent nodes show "Add Category", child categories show "Add Subcategory"
   - **Remaining Issues**:
+    - Transaction entry tests (0/4 passing) - all transaction entry workflows have validation/timing issues
     - Office Supplies category timing (dropdown loads but category not clicked)
     - Transfer form validation (Save button disabled - different validation rules)
     - Split transaction field selectors (amount inputs don't have `name` attributes)
-    - Reconciliation session verification text not found after starting session
-    - Transaction list not loading in tick-off test
 - **PDF Reconciliation Integration**:
   - PDF statement upload in reconciliation wizard
   - Automatic parsing and extraction of statement metadata
