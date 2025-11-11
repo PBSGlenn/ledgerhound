@@ -253,6 +253,45 @@ All business logic is in TypeScript services (not Rust):
 - **Multi-book support**: bookManager stub exists, needs UI implementation
 - **Tauri desktop packaging**: Currently web-based, packaging planned
 
+### 🐛 Known UX Issues (Manual Testing - 2025-11-12)
+- **Issue #1**: Collapsed sidebar expand button hidden by book label (Medium severity)
+- **Issue #2**: No way to cancel/exit onboarding wizard - ESC key and X button not working (Medium severity)
+- **Issue #3**: No dashboard return button when viewing account register (Medium severity)
+- **Issue #4**: App should open most recent book automatically on startup instead of showing onboarding (Low severity, enhancement)
+- **Issue #5**: Register doesn't auto-open after creating account via Account Setup Wizard (Low severity, UX enhancement)
+- ~~**Issue #6**: Transaction form modal closes on outside click, losing all unsaved data (HIGH severity, data loss risk)~~ - **FIXED** - Added `onInteractOutside` prevention to TransactionFormModal.tsx
+
+### 📊 Manual Testing Progress (2025-11-12)
+**Current Status**: In progress - paused E2E testing to conduct comprehensive manual smoke testing
+
+**Completed Tests**:
+- ✅ Account Creation Workflow - All features working correctly:
+  - Multi-select account templates (tested with Checking, Savings, Square)
+  - All 5 tabs functional (Banking, Assets, Liabilities, Income, Expenses)
+  - Account customization (name, opening balance, GST tracking)
+  - Successfully created "Glenn's Checking Account" with $1,000 opening balance
+  - Opening balance transaction auto-created and marked CLEARED/RECONCILED
+  - Account appears in sidebar automatically under correct hierarchy
+
+**In Progress**:
+- ⏸️ Transaction Creation Workflow - Started, paused to fix critical Issue #6
+  - Transaction modal opens correctly with proper tabs (Expense/Income, Transfer Out, Transfer In)
+  - Issue #6 discovered and fixed (modal closing on outside click)
+  - Ready to continue testing: income transaction, expense transaction, transfer, split transactions
+
+**Next Testing Steps**:
+1. Complete transaction creation workflow (income, expense, transfer, split)
+2. Test transaction editing and deletion
+3. Test category management (create, edit, delete, hierarchy)
+4. Test CSV import workflow
+5. Test reconciliation workflow
+6. Test reporting features
+
+**Testing Notes**:
+- Real-world manual testing proving valuable for discovering UX issues
+- E2E tests remain at 12/16 passing (75%) - will revisit after manual testing complete
+- All critical data loss issues addressed immediately
+
 ### 🎉 Recent Additions (November 2025)
 - **Smart Transaction Matching** (NEW):
   - Auto-Match button in reconciliation session

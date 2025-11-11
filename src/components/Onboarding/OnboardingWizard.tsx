@@ -3,14 +3,15 @@
  * First-run setup wizard for creating a new book
  */
 
-import { useState } from 'react';
-import { Book, CheckCircle, Settings, Calendar, DollarSign, Building2, ArrowRight, ArrowLeft } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Book, CheckCircle, Settings, Calendar, DollarSign, Building2, ArrowRight, ArrowLeft, X } from 'lucide-react';
 import { bookManager } from '../../lib/services/bookManager';
 import { useToast } from '../../hooks/useToast';
 import type { CreateBookData } from '../../types/book';
 
 interface OnboardingWizardProps {
   onComplete: (bookId: string) => void;
+  onCancel?: () => void;
 }
 
 type Step = 'welcome' | 'book-details' | 'regional-settings' | 'first-account' | 'review';
@@ -23,9 +24,21 @@ interface FirstAccountData {
   openingDate: string;
 }
 
-export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
+export function OnboardingWizard({ onComplete, onCancel }: OnboardingWizardProps) {
   const { showSuccess, showError } = useToast();
   const [currentStep, setCurrentStep] = useState<Step>('welcome');
+
+  // ESC key to cancel
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && onCancel) {
+        onCancel();
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [onCancel]);
 
   // Form data
   const [bookData, setBookData] = useState<Partial<CreateBookData>>({
@@ -98,7 +111,16 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-blue-50 to-purple-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center p-6">
       <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden">
         {/* Header */}
-        <div className="bg-gradient-to-r from-emerald-600 to-blue-600 p-8 text-white">
+        <div className="bg-gradient-to-r from-emerald-600 to-blue-600 p-8 text-white relative">
+          {onCancel && (
+            <button
+              onClick={onCancel}
+              className="absolute top-4 right-4 p-2 hover:bg-white/20 rounded-lg transition-colors"
+              title="Exit to existing book (ESC)"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          )}
           <div className="flex items-center gap-3 mb-3">
             <Book className="w-10 h-10" />
             <h1 className="text-3xl font-bold">Welcome to Ledgerhound</h1>

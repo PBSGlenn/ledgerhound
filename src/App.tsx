@@ -63,6 +63,22 @@ export default function App() {
     window.location.reload();
   };
 
+  const handleOnboardingCancel = () => {
+    // Try to load the last active book
+    const books = bookManager.getAllBooks();
+    if (books.length > 0) {
+      // Get the most recently accessed book
+      const sortedBooks = books.sort((a, b) =>
+        new Date(b.lastAccessedAt).getTime() - new Date(a.lastAccessedAt).getTime()
+      );
+      const book = bookManager.setActiveBook(sortedBooks[0].id);
+      setCurrentBook(book);
+      setIsFirstRun(false);
+      // Reload to initialize with the database
+      window.location.reload();
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
@@ -78,7 +94,10 @@ export default function App() {
     <ToastProvider>
       <ToastContextProvider>
         {isFirstRun ? (
-          <OnboardingWizard onComplete={handleOnboardingComplete} />
+          <OnboardingWizard
+            onComplete={handleOnboardingComplete}
+            onCancel={bookManager.getAllBooks().length > 0 ? handleOnboardingCancel : undefined}
+          />
         ) : currentBook ? (
           <>
             <MainLayout
