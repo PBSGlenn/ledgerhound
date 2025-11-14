@@ -140,9 +140,9 @@ export function TransactionFormModal({
       const categoryPostings = transaction.postings.filter(p => p.accountId !== accountId);
 
       // Use the actual amount from the account posting (net amount after fees)
-      // Preserve sign: positive = money in (credit for income), negative = money out (debit for expense)
+      // Store as absolute value - sign will be re-applied based on category type on submit
       const total = transaction.postings.find(p => p.accountId === accountId)?.amount || 0;
-      setTotalAmount(total.toFixed(2));
+      setTotalAmount(Math.abs(total).toFixed(2));
 
       // Find GST accounts directly (in case state hasn't been set yet)
       const allAccounts = await accountAPI.getAllAccountsWithBalances({ kind: 'CATEGORY' });
@@ -372,11 +372,24 @@ export function TransactionFormModal({
     try {
       let totalAmountNum = parseFloat(totalAmount);
 
-      // For transfers, apply the correct sign based on direction
+      // Apply the correct sign based on transaction type
       if (transactionType === 'transfer-out') {
         totalAmountNum = -Math.abs(totalAmountNum); // Money leaving = negative
       } else if (transactionType === 'transfer-in') {
         totalAmountNum = Math.abs(totalAmountNum); // Money arriving = positive
+      } else if (transactionType === 'expense') {
+        // For expense transactions, check if the categories are EXPENSE or INCOME
+        // Expense categories mean money leaving the account (negative)
+        // Income categories mean money entering the account (positive)
+        const firstCategoryId = splits[0]?.accountId;
+        if (firstCategoryId) {
+          const category = categories.find(c => c.id === firstCategoryId);
+          if (category?.type === 'EXPENSE') {
+            totalAmountNum = -Math.abs(totalAmountNum); // Money leaving = negative
+          } else if (category?.type === 'INCOME') {
+            totalAmountNum = Math.abs(totalAmountNum); // Money arriving = positive
+          }
+        }
       }
 
       // Safety check for splits
@@ -402,9 +415,14 @@ export function TransactionFormModal({
         const shouldCalculateGst = !isTransfer && split.isBusiness && !split.isGstSplit;
         const gst = shouldCalculateGst ? { gstAmount: parseFloat(split.originalAmount || '0') - splitAmountNum } : null;
 
+        // For double-entry: splits must be opposite sign of the main account posting
+        // If bank is -100 (expense), category should be +100
+        // If bank is +100 (income), category should be -100
+        const splitAmount = totalAmountNum < 0 ? splitAmountNum : -splitAmountNum;
+
         return {
           accountId: split.accountId!, // Validated above
-          amount: -splitAmountNum, // Negate: splits are opposite direction from account
+          amount: splitAmount, // Opposite sign from main account posting
           isBusiness: !isTransfer && split.isBusiness,
           gstCode: shouldCalculateGst ? ('GST' as GSTCode) : undefined,
           gstRate: shouldCalculateGst ? 0.1 : undefined,

@@ -48,6 +48,7 @@ export function CategorySelector({
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
 
   // Update dropdown position when opened
@@ -59,6 +60,10 @@ export function CategorySelector({
         left: rect.left + window.scrollX,
         width: rect.width,
       });
+      // Focus the search input when dropdown opens
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 50);
     }
   }, [isOpen]);
 
@@ -340,17 +345,15 @@ export function CategorySelector({
           >
             {/* Search */}
             <div className="p-2 border-b border-slate-200 dark:border-slate-700">
-              <div className="relative">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search categories..."
-                  className="w-full pl-8 pr-3 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-500 focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                  autoFocus
-                />
-              </div>
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="🔍 Search categories..."
+                className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500 focus:border-transparent focus:outline-none"
+                disabled
+              />
             </div>
 
             {/* Category Tree */}

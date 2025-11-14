@@ -531,19 +531,19 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
           <thead className="bg-slate-50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-700">
             <tr>
               <th className="w-12 px-4 py-3"></th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+              <th className="text-left px-3 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
                 Date
               </th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+              <th className="text-left px-3 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
                 Payee
               </th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+              <th className="text-right px-3 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
                 Debit
               </th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+              <th className="text-right px-3 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
                 Credit
               </th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+              <th className="text-right px-3 py-1 text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
                 Balance
               </th>
             </tr>
@@ -561,7 +561,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
                 data-loading={operationLoading}
               >
                 {/* Row 1: Main transaction info */}
-                <td className="px-4 py-3.5">
+                <td className="px-3 py-1">
                   <input
                     type="checkbox"
                     checked={selectedIds.has(entry.id)}
@@ -569,7 +569,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
                     className="rounded border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500"
                   />
                 </td>
-                <td className="px-4 py-3.5">
+                <td className="px-3 py-1">
                   <div className="flex flex-col">
                     <span className="text-sm font-medium text-slate-900 dark:text-white">
                       {formatDate(entry.date)}
@@ -597,7 +597,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-3.5">
+                <td className="px-3 py-1">
                   <div className="flex flex-col">
                     <span className="text-sm font-medium text-slate-900 dark:text-white">
                       {entry.payee}
@@ -618,17 +618,17 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
                     )}
                   </div>
                 </td>
-                <td className="px-4 py-3.5 text-right">
+                <td className="px-3 py-1 text-right">
                   <span className="text-sm text-red-600 dark:text-red-400 font-semibold tabular-nums">
                     {entry.debit ? formatCurrency(entry.debit) : ''}
                   </span>
                 </td>
-                <td className="px-4 py-3.5 text-right">
+                <td className="px-3 py-1 text-right">
                   <span className="text-sm text-emerald-600 dark:text-emerald-400 font-semibold tabular-nums">
                     {entry.credit ? formatCurrency(entry.credit) : ''}
                   </span>
                 </td>
-                <td className="px-4 py-3.5 text-right">
+                <td className="px-3 py-1 text-right">
                   <div className="flex flex-col items-end gap-1">
                     <span className={`text-sm font-bold tabular-nums ${
                       entry.runningBalance >= 0

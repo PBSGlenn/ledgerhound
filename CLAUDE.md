@@ -253,15 +253,18 @@ All business logic is in TypeScript services (not Rust):
 - **Multi-book support**: bookManager stub exists, needs UI implementation
 - **Tauri desktop packaging**: Currently web-based, packaging planned
 
-### 🐛 Known UX Issues (Manual Testing - 2025-11-12)
+### 🐛 Known UX Issues (Manual Testing - 2025-11-14)
 - **Issue #1**: Collapsed sidebar expand button hidden by book label (Medium severity)
 - **Issue #2**: No way to cancel/exit onboarding wizard - ESC key and X button not working (Medium severity)
 - **Issue #3**: No dashboard return button when viewing account register (Medium severity)
 - **Issue #4**: App should open most recent book automatically on startup instead of showing onboarding (Low severity, enhancement)
 - **Issue #5**: Register doesn't auto-open after creating account via Account Setup Wizard (Low severity, UX enhancement)
 - ~~**Issue #6**: Transaction form modal closes on outside click, losing all unsaved data (HIGH severity, data loss risk)~~ - **FIXED** - Added `onInteractOutside` prevention to TransactionFormModal.tsx
+- **Issue #7**: CategorySelector search input cannot receive focus in dropdown (HIGH severity) - Portal/z-index issue preventing text input. Workaround: click categories directly
+- **Issue #8**: Register doesn't auto-refresh after saving transaction (HIGH severity, CRITICAL UX) - Transaction saves successfully (balance updates) but doesn't appear in register until manual refresh. Must click another account and back, or refresh page. Affects EVERY transaction save
+- ~~**Issue #9**: Expense transactions incorrectly recorded as credits (CRITICAL SEVERITY - ACCOUNTING BUG)~~ - **FIXED 2025-11-15** - Fixed in TransactionFormModal.tsx by applying correct signs: expenses are negative (debit), income is positive (credit). Double-entry validation ensures all postings sum to zero
 
-### 📊 Manual Testing Progress (2025-11-12)
+### 📊 Manual Testing Progress (2025-11-15)
 **Current Status**: In progress - paused E2E testing to conduct comprehensive manual smoke testing
 
 **Completed Tests**:
@@ -273,11 +276,12 @@ All business logic is in TypeScript services (not Rust):
   - Opening balance transaction auto-created and marked CLEARED/RECONCILED
   - Account appears in sidebar automatically under correct hierarchy
 
-**In Progress**:
-- ⏸️ Transaction Creation Workflow - Started, paused to fix critical Issue #6
-  - Transaction modal opens correctly with proper tabs (Expense/Income, Transfer Out, Transfer In)
-  - Issue #6 discovered and fixed (modal closing on outside click)
-  - Ready to continue testing: income transaction, expense transaction, transfer, split transactions
+- ✅ Transaction Creation Testing - Critical issues found and fixed:
+  - Income transaction: Works correctly (credit increases balance)
+  - Expense transaction: ✅ **FIXED** - Now correctly recorded as debit (negative)
+  - Register doesn't auto-refresh after saving (must manually refresh) - Still pending
+  - CategorySelector search input non-functional (can't type in search) - Workaround: disabled search
+  - Modal protection working (doesn't close on outside click after fix)
 
 **Next Testing Steps**:
 1. Complete transaction creation workflow (income, expense, transfer, split)
@@ -414,11 +418,16 @@ All business logic is in TypeScript services (not Rust):
   - Better GST split visualization
   - Enhanced transfer detection
   - Stripe metadata display
-- **Bug Fixes (2025-10-31)**:
-  - Fixed duplicate React key warnings in AccountSidebarTree by filtering child accounts from main tree structure
-  - Fixed Radix UI accessibility warnings by adding Dialog.Description to CategoryFormModal and AccountSettingsModal
-  - Fixed CategorySelector not showing root-level income categories by adding includeRoot=true parameter
-  - Fixed sign preservation bug in TransactionFormModal where negative amounts were converted to positive during edit, causing balance errors in Stripe transactions
+- **Bug Fixes**:
+  - **2025-10-31**:
+    - Fixed duplicate React key warnings in AccountSidebarTree by filtering child accounts from main tree structure
+    - Fixed Radix UI accessibility warnings by adding Dialog.Description to CategoryFormModal and AccountSettingsModal
+    - Fixed CategorySelector not showing root-level income categories by adding includeRoot=true parameter
+    - Fixed sign preservation bug in TransactionFormModal where negative amounts were converted to positive during edit, causing balance errors in Stripe transactions
+  - **2025-11-15**:
+    - Fixed critical accounting bug where expense transactions were recorded as credits instead of debits
+    - Added proper sign logic: expenses are negative (debit), income is positive (credit)
+    - Ensured double-entry validation with all postings summing to zero
 
 ---
 

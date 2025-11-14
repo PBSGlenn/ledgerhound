@@ -112,19 +112,19 @@ export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _
     <div className="max-w-7xl mx-auto space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">Dashboard</h1>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">Dashboard</h1>
         <p className="text-slate-600 dark:text-slate-400">Your financial overview at a glance</p>
       </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Net Worth */}
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+        <div className="bg-white dark:bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-200 dark:border-slate-700">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Net Worth</span>
             <Wallet className="w-5 h-5 text-blue-500" />
           </div>
-          <div className="text-2xl font-bold text-slate-900 dark:text-white">
+          <div className="text-xl font-bold text-slate-900 dark:text-white">
             {formatCurrency(summary.netWorth)}
           </div>
           <div className="mt-2 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
@@ -134,7 +134,7 @@ export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _
         </div>
 
         {/* Cash Flow */}
-        <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+        <div className="bg-white dark:bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-200 dark:border-slate-700">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Cash Flow</span>
             {summary.totalIncome >= summary.totalExpenses ? (
@@ -143,7 +143,7 @@ export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _
               <TrendingDown className="w-5 h-5 text-red-500" />
             )}
           </div>
-          <div className="text-2xl font-bold text-slate-900 dark:text-white">
+          <div className="text-xl font-bold text-slate-900 dark:text-white">
             {formatCurrency(summary.totalIncome - summary.totalExpenses)}
           </div>
           <div className="mt-2 flex items-center gap-4 text-xs">
@@ -158,12 +158,12 @@ export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _
 
         {/* Personal */}
         {hasBusinessAccounts && (
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-200 dark:border-slate-700">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Personal</span>
               <User className="w-5 h-5 text-indigo-500" />
             </div>
-            <div className="text-2xl font-bold text-slate-900 dark:text-white">
+            <div className="text-xl font-bold text-slate-900 dark:text-white">
               {formatCurrency(summary.personalNetWorth)}
             </div>
             <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
@@ -174,12 +174,12 @@ export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _
 
         {/* Business / GST */}
         {hasBusinessAccounts ? (
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-200 dark:border-slate-700">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Business</span>
               <Briefcase className="w-5 h-5 text-purple-500" />
             </div>
-            <div className="text-2xl font-bold text-slate-900 dark:text-white">
+            <div className="text-xl font-bold text-slate-900 dark:text-white">
               {formatCurrency(summary.businessNetWorth)}
             </div>
             <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
@@ -187,12 +187,12 @@ export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _
             </div>
           </div>
         ) : (
-          <div className="bg-white dark:bg-slate-800 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-700">
+          <div className="bg-white dark:bg-slate-800 rounded-xl p-3 shadow-sm border border-slate-200 dark:border-slate-700">
             <div className="flex items-center justify-between mb-2">
               <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Liabilities</span>
               <AlertCircle className="w-5 h-5 text-orange-500" />
             </div>
-            <div className="text-2xl font-bold text-slate-900 dark:text-white">
+            <div className="text-xl font-bold text-slate-900 dark:text-white">
               {formatCurrency(summary.totalLiabilities)}
             </div>
             <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
@@ -204,7 +204,7 @@ export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _
 
       {/* Recent Transactions */}
       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
-        <div className="p-6 border-b border-slate-200 dark:border-slate-700">
+        <div className="p-3 border-b border-slate-200 dark:border-slate-700">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Clock className="w-5 h-5 text-slate-400" />
@@ -216,18 +216,18 @@ export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _
 
         <div className="divide-y divide-slate-200 dark:divide-slate-700">
           {loading ? (
-            <div className="p-8 text-center text-slate-500 dark:text-slate-400">
+            <div className="p-4 text-center text-slate-500 dark:text-slate-400">
               Loading transactions...
             </div>
           ) : recentTransactions.length === 0 ? (
-            <div className="p-8 text-center text-slate-500 dark:text-slate-400">
+            <div className="p-4 text-center text-slate-500 dark:text-slate-400">
               No transactions yet. Create your first transaction to get started!
             </div>
           ) : (
             recentTransactions.map((entry) => (
               <div
                 key={entry.id}
-                className="p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors"
+                className="p-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors"
                 onClick={() => onSelectAccount(entry.accountId)}
               >
                 <div className="flex items-center justify-between">
@@ -270,7 +270,7 @@ export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _
 
       {/* Quick Actions (if no transactions) */}
       {!loading && recentTransactions.length === 0 && (
-        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-8 border border-blue-200 dark:border-blue-800">
+        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Get Started</h3>
           <div className="space-y-3">
             <div className="flex items-start gap-3">
