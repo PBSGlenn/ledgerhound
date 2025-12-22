@@ -261,14 +261,15 @@ All business logic is in TypeScript services (not Rust):
 - **Issue #5**: Register doesn't auto-open after creating account via Account Setup Wizard (Low severity, UX enhancement)
 - ~~**Issue #6**: Transaction form modal closes on outside click, losing all unsaved data (HIGH severity, data loss risk)~~ - **FIXED** - Added `onInteractOutside` prevention to TransactionFormModal.tsx
 - **Issue #7**: CategorySelector search input cannot receive focus in dropdown (HIGH severity) - Portal/z-index issue preventing text input. Workaround: click categories directly
-- **Issue #8**: Register doesn't auto-refresh after saving transaction (HIGH severity, CRITICAL UX) - Transaction saves successfully (balance updates) but doesn't appear in register until manual refresh. Must click another account and back, or refresh page. Affects EVERY transaction save
+- ~~**Issue #8**: Register doesn't auto-refresh after saving transaction (HIGH severity, CRITICAL UX)~~ - **FIXED 2025-11-25** - Fixed by making onSuccess callbacks async/await and adding refresh key pattern to force RegisterView remount. Changes in: TransactionFormModal.tsx, TopBar.tsx, MainLayout.tsx, RegisterGrid.tsx, BankStatementImport.tsx, StripeImportModal.tsx
 - ~~**Issue #9**: Expense transactions incorrectly recorded as credits (CRITICAL SEVERITY - ACCOUNTING BUG)~~ - **FIXED 2025-11-15** - Fixed in TransactionFormModal.tsx by applying correct signs: expenses are negative (debit), income is positive (credit). Double-entry validation ensures all postings sum to zero
+- ~~**Issue #11**: CSV import inverts all debit/credit signs (CRITICAL SEVERITY - ACCOUNTING BUG)~~ - **FIXED 2025-11-25** - Fixed in importService.ts. Bank statement amounts now use correct signs: positive = credit (money in), negative = debit (money out). Category postings are negated to balance.
 
-### 📊 Manual Testing Progress (2025-11-15)
-**Current Status**: In progress - paused E2E testing to conduct comprehensive manual smoke testing
+### 📊 Manual Testing Progress (2025-11-25)
+**Current Status**: In progress - comprehensive manual smoke testing continues
 
 **Completed Tests**:
-- ✅ Account Creation Workflow - All features working correctly:
+- ✅ **Account Creation Workflow** - All features working correctly:
   - Multi-select account templates (tested with Checking, Savings, Square)
   - All 5 tabs functional (Banking, Assets, Liabilities, Income, Expenses)
   - Account customization (name, opening balance, GST tracking)
@@ -276,28 +277,69 @@ All business logic is in TypeScript services (not Rust):
   - Opening balance transaction auto-created and marked CLEARED/RECONCILED
   - Account appears in sidebar automatically under correct hierarchy
 
-- ✅ Transaction Creation Testing - Critical issues found and fixed:
-  - Income transaction: Works correctly (credit increases balance)
-  - Expense transaction: ✅ **FIXED** - Now correctly recorded as debit (negative)
-  - Register doesn't auto-refresh after saving (must manually refresh) - Still pending
+- ✅ **Transaction Creation Testing** - All transaction types working:
+  - Income transaction: Works correctly (credit increases balance) ✓
+  - Expense transaction: ✅ **FIXED** - Now correctly recorded as debit (negative) ✓
+  - Transfer transaction: ✅ **FIXED** - Transfer sign bug fixed, both accounts update correctly ✓
+  - Split transaction: Works correctly (multiple categories, proper balancing) ✓
   - CategorySelector search input non-functional (can't type in search) - Workaround: disabled search
-  - Modal protection working (doesn't close on outside click after fix)
+  - Modal protection working (doesn't close on outside click after fix) ✓
+
+- ✅ **Transaction Editing Testing** - Edit functionality working:
+  - ✅ **FIXED** - Split amounts now show as positive values when editing
+  - All transaction types can be edited correctly ✓
+  - Balance validation works during edit ✓
+  - Changes save and persist correctly ✓
+
+- ✅ **Transaction Deletion Testing** - Delete functionality working:
+  - Single transactions delete correctly ✓
+  - Transfer transactions delete from both account registers (cascade delete) ✓
+  - Balances update correctly after deletion ✓
+  - Cannot delete reconciled transactions (validation working) ✓
+  - Note: Using browser confirm() dialog - enhancement pending for nicer modal
+
+- ✅ **Category Management Testing** - Basic functionality working:
+  - Category creation works (created Entertainment & Recreation with 2 subcategories) ✓
+  - Deletion validation improved (checks for children, transactions, memorized rules) ✓
+  - Clear error messages instead of raw database errors ✓
+  - Deferred to Round 2: Rename/edit testing, full deletion testing
+
+- ✅ **CSV Import Testing** - All features working correctly (2025-11-25):
+  - Column mapping works (Date, Amount, Description) ✓
+  - Template save/load functionality works ✓
+  - Auto-rule matching works (Woolworths → Groceries) ✓
+  - Import execution creates transactions correctly ✓
+  - ~~Issue #11 (sign inversion)~~ **FIXED** - Credits and debits now correct ✓
+  - Register auto-refresh after import works ✓
 
 **Next Testing Steps**:
-1. Complete transaction creation workflow (income, expense, transfer, split)
-2. Test transaction editing and deletion
-3. Test category management (create, edit, delete, hierarchy)
-4. Test CSV import workflow
-5. Test reconciliation workflow
-6. Test reporting features
+1. ~~Test CSV import workflow~~ ✅ DONE
+2. Test reconciliation workflow
+3. Test reporting features
+4. **Round 2**: Test category rename/edit, test deletion scenarios
 
 **Testing Notes**:
 - Real-world manual testing proving valuable for discovering UX issues
 - E2E tests remain at 12/16 passing (75%) - will revisit after manual testing complete
-- All critical data loss issues addressed immediately
+- All critical accounting bugs fixed (expense/credit bug, transfer sign bug, edit loading bug, CSV import sign bug)
+- ~~Auto-refresh issues (Issue #8)~~ **FIXED 2025-11-25** - Register now refreshes after transaction save/import
+
+### 🎉 Recent Additions (December 2025)
+- **Reconciliation Context Menu** (NEW - 2025-12-23):
+  - Right-click context menu on reconciliation matching table
+  - Shows original bank description (from CSV import before memorized rules)
+  - Edit transaction directly from matching view
+  - Delete transaction with confirmation
+  - Add unmatched PDF transactions to ledger
+  - Uses React Portal for proper z-index handling in nested dialogs
+  - Auto-Match modal stays open during edit/delete operations
+- **Hungarian Algorithm Matching** (NEW - 2025-12-22):
+  - Optimal bipartite matching using munkres-js library
+  - Correctly handles multiple transactions with same payee but different amounts
+  - Fixes issue where similar transactions (e.g., multiple Officeworks) were mismatched
 
 ### 🎉 Recent Additions (November 2025)
-- **Smart Transaction Matching** (NEW):
+- **Smart Transaction Matching**:
   - Auto-Match button in reconciliation session
   - PDF upload to extract statement transactions
   - Intelligent matching with confidence scoring (exact/probable/possible)
@@ -428,6 +470,11 @@ All business logic is in TypeScript services (not Rust):
     - Fixed critical accounting bug where expense transactions were recorded as credits instead of debits
     - Added proper sign logic: expenses are negative (debit), income is positive (credit)
     - Ensured double-entry validation with all postings summing to zero
+  - **2025-11-16**:
+    - Fixed transfer transaction sign bug where both postings had same sign instead of opposite signs
+    - Fixed transaction edit bug where split amounts displayed as negative values
+    - Updated transfer split amount logic to use absolute values (sign applied automatically)
+    - Updated transaction loading logic to use Math.abs() for consistent positive display in forms
 
 ---
 

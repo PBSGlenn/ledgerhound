@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Check, X, Lock, AlertCircle, Loader2, CheckCircle, Sparkles, Upload, FileText } from 'lucide-react';
+import { Check, X, Lock, AlertCircle, Loader2, CheckCircle, Sparkles, Upload, FileText, RotateCcw } from 'lucide-react';
 import { format } from 'date-fns';
 import { reconciliationAPI, transactionAPI } from '../../lib/api';
 import type { RegisterEntry } from '../../types';
 import * as Dialog from '@radix-ui/react-dialog';
 import { PDFViewer } from './PDFViewer';
+import { TransactionContextMenu } from './TransactionContextMenu';
+import { TransactionFormModal } from '../Transaction/TransactionFormModal';
 
 interface ReconciliationSessionProps {
   reconciliationId: string;
@@ -28,8 +30,23 @@ export function ReconciliationSession({
   const [showMatchModal, setShowMatchModal] = useState(false);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [parsingPdf, setParsingPdf] = useState(false);
+  const [parsedTransactions, setParsedTransactions] = useState<any[] | null>(null);
   const [matchPreview, setMatchPreview] = useState<any>(null);
   const [matchingLoading, setMatchingLoading] = useState(false);
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    type: 'pdf' | 'ledger';
+    transaction?: any;
+    pdfTx?: any;
+  } | null>(null);
+
+  // Transaction edit modal state
+  const [editingTransaction, setEditingTransaction] = useState<any>(null);
+  const [showTransactionForm, setShowTransactionForm] = useState(false);
+  const [transactionToCreate, setTransactionToCreate] = useState<any>(null);
 
   useEffect(() => {
     loadData();
@@ -134,14 +151,18 @@ export function ReconciliationSession({
     setParsingPdf(true);
     try {
       const result = await reconciliationAPI.parsePDF(file);
-
-      // Now match the parsed transactions
-      await handleMatchTransactions(result.transactions);
+      // Store parsed transactions for review before matching
+      setParsedTransactions(result.transactions);
     } catch (err) {
       alert('Failed to parse PDF: ' + (err as Error).message);
     } finally {
       setParsingPdf(false);
     }
+  };
+
+  const handleRunMatching = async () => {
+    if (!parsedTransactions) return;
+    await handleMatchTransactions(parsedTransactions);
   };
 
   const handleMatchTransactions = async (statementTransactions: any[]) => {
@@ -222,6 +243,104 @@ export function ReconciliationSession({
       });
     } catch (err) {
       alert('Failed to accept matches: ' + (err as Error).message);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (reconciledIds.size === 0) {
+      alert('No transactions are currently reconciled.');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to clear all ${reconciledIds.size} reconciled transactions? This will unmark them all.`)) {
+      return;
+    }
+
+    // Get all posting IDs for reconciled transactions
+    const postingIds: string[] = [];
+    for (const txId of reconciledIds) {
+      const transaction = transactions.find((t) => t.id === txId);
+      if (transaction) {
+        const posting = transaction.postings.find((p) => p.accountId === accountId);
+        if (posting) {
+          postingIds.push(posting.id);
+        }
+      }
+    }
+
+    try {
+      await reconciliationAPI.unreconcilePostings(reconciliationId, postingIds);
+      setReconciledIds(new Set());
+
+      // Reload status
+      const statusData = await reconciliationAPI.getReconciliationStatus(reconciliationId);
+      setStatus(statusData);
+    } catch (err) {
+      alert('Failed to clear reconciliation: ' + (err as Error).message);
+    }
+  };
+
+  // Context menu handlers
+  const handleContextMenu = (
+    e: React.MouseEvent,
+    type: 'pdf' | 'ledger',
+    transaction?: any,
+    pdfTx?: any
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      type,
+      transaction,
+      pdfTx,
+    });
+  };
+
+  const handleEditTransaction = (txId: string) => {
+    setEditingTransaction({ id: txId });
+    setShowTransactionForm(true);
+  };
+
+  const handleDeleteTransaction = async (txId: string) => {
+    if (!confirm('Are you sure you want to delete this transaction?')) return;
+
+    try {
+      await transactionAPI.deleteTransaction(txId);
+      // Refresh data
+      await loadData();
+      // Re-run matching if we have parsed transactions
+      if (parsedTransactions) {
+        await handleMatchTransactions(parsedTransactions);
+      }
+    } catch (err) {
+      alert('Failed to delete transaction: ' + (err as Error).message);
+    }
+  };
+
+  const handleAddPdfToLedger = (pdfTx: any) => {
+    // Pre-populate transaction form with PDF data
+    const amount = (pdfTx.debit || 0) - (pdfTx.credit || 0);
+    setTransactionToCreate({
+      date: new Date(pdfTx.date),
+      payee: pdfTx.description,
+      amount: Math.abs(amount),
+      isExpense: amount > 0, // debit = expense
+      memo: `Imported from PDF statement`,
+    });
+    setShowTransactionForm(true);
+  };
+
+  const handleTransactionSaved = async () => {
+    setShowTransactionForm(false);
+    setEditingTransaction(null);
+    setTransactionToCreate(null);
+    // Refresh data
+    await loadData();
+    // Re-run matching if we have parsed transactions
+    if (parsedTransactions) {
+      await handleMatchTransactions(parsedTransactions);
     }
   };
 
@@ -344,13 +463,24 @@ export function ReconciliationSession({
 
       {/* Transactions List */}
       <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-        <div className="p-4 border-b border-slate-200 dark:border-slate-700">
-          <h3 className="font-semibold text-slate-900 dark:text-slate-100">
-            Transactions to Reconcile
-          </h3>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            Click on transactions to mark them as reconciled
-          </p>
+        <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100">
+              Transactions to Reconcile
+            </h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+              Click on transactions to mark them as reconciled
+            </p>
+          </div>
+          {reconciledIds.size > 0 && (
+            <button
+              onClick={handleClearAll}
+              className="px-3 py-1.5 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md flex items-center gap-1.5"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Clear All ({reconciledIds.size})
+            </button>
+          )}
         </div>
 
         <div className="overflow-x-auto">
@@ -417,10 +547,23 @@ export function ReconciliationSession({
       </div>
 
       {/* Auto-Match Modal */}
-      <Dialog.Root open={showMatchModal} onOpenChange={setShowMatchModal}>
+      <Dialog.Root
+        open={showMatchModal}
+        onOpenChange={(open) => {
+          // Only allow closing via explicit close button, not from external interactions
+          // This prevents the modal from closing when edit/delete dialogs are shown
+          if (!open && !showTransactionForm) {
+            setShowMatchModal(false);
+          }
+        }}
+      >
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-lg shadow-xl z-50 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+          <Dialog.Content
+            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-lg shadow-xl z-50 w-full max-w-5xl max-h-[95vh] overflow-y-auto"
+            onInteractOutside={(e) => e.preventDefault()}
+            onEscapeKeyDown={(e) => e.preventDefault()}
+          >
             {/* Header */}
             <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
               <div className="flex items-center gap-3">
@@ -440,8 +583,8 @@ export function ReconciliationSession({
             </div>
 
             <div className="p-6 space-y-6">
-              {/* PDF Upload */}
-              {!matchPreview && (
+              {/* Step 1: PDF Upload */}
+              {!parsedTransactions && !matchPreview && (
                 <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-8">
                   <div className="flex flex-col items-center gap-4">
                     <Upload className="w-12 h-12 text-slate-400" />
@@ -470,203 +613,406 @@ export function ReconciliationSession({
                     {parsingPdf && (
                       <div className="flex items-center gap-2 text-blue-600">
                         <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>Parsing PDF and matching transactions...</span>
-                      </div>
-                    )}
-
-                    {matchingLoading && (
-                      <div className="flex items-center gap-2 text-blue-600">
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>Finding matches...</span>
+                        <span>Parsing PDF...</span>
                       </div>
                     )}
                   </div>
                 </div>
               )}
 
-              {/* Match Results */}
-              {matchPreview && (
-                <div className="space-y-6">
-                  {/* Summary */}
-                  <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
-                    <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
-                      Matching Summary
+              {/* Step 2: Side-by-Side Comparison (before and after matching) */}
+              {parsedTransactions && (
+                <div className="space-y-4">
+                  <div className={`p-4 rounded-lg ${matchPreview ? 'bg-green-50 dark:bg-green-900/20' : 'bg-blue-50 dark:bg-blue-900/20'}`}>
+                    <h3 className={`font-semibold mb-1 ${matchPreview ? 'text-green-900 dark:text-green-100' : 'text-blue-900 dark:text-blue-100'}`}>
+                      {matchPreview ? 'Matching Complete' : 'Compare Statement with Ledger'}
                     </h3>
-                    <div className="grid grid-cols-3 gap-4 text-sm">
-                      <div>
-                        <p className="text-blue-700 dark:text-blue-300">Total Statement Transactions</p>
-                        <p className="text-lg font-bold text-blue-900 dark:text-blue-100">
-                          {matchPreview.summary.totalStatement}
-                        </p>
+                    <p className={`text-sm ${matchPreview ? 'text-green-700 dark:text-green-300' : 'text-blue-700 dark:text-blue-300'}`}>
+                      {matchPreview
+                        ? `Found ${matchPreview.exactMatches.length} exact and ${matchPreview.probableMatches.length} probable matches. Click rows to accept matches.`
+                        : 'Review the transactions side by side, then click "Run Matching" to auto-match.'}
+                    </p>
+                  </div>
+
+                  {/* Aligned side-by-side table */}
+                  <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                    <div className="grid grid-cols-2">
+                      {/* PDF Statement Header */}
+                      <div className="bg-blue-50 dark:bg-blue-900/30 px-3 py-2 border-b border-r border-slate-200 dark:border-slate-700">
+                        <h4 className="font-semibold text-blue-900 dark:text-blue-100 text-sm">
+                          PDF Statement ({parsedTransactions.length})
+                        </h4>
                       </div>
-                      <div>
-                        <p className="text-blue-700 dark:text-blue-300">Matched</p>
-                        <p className="text-lg font-bold text-green-600">
-                          {matchPreview.summary.totalMatched}
-                        </p>
+                      {/* Ledger Header */}
+                      <div className="bg-green-50 dark:bg-green-900/30 px-3 py-2 border-b border-slate-200 dark:border-slate-700">
+                        <h4 className="font-semibold text-green-900 dark:text-green-100 text-sm">
+                          Ledger ({transactions.filter(t => !reconciledIds.has(t.id)).length} unreconciled)
+                        </h4>
                       </div>
-                      <div>
-                        <p className="text-blue-700 dark:text-blue-300">Unmatched</p>
-                        <p className="text-lg font-bold text-orange-600">
-                          {matchPreview.summary.totalUnmatched}
-                        </p>
-                      </div>
+                    </div>
+
+                    <div className="max-h-[60vh] overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-50 dark:bg-slate-800 sticky top-0">
+                          <tr>
+                            {/* PDF columns */}
+                            <th className="text-left py-1.5 px-2 font-medium text-slate-600 dark:text-slate-400 w-20">Date</th>
+                            <th className="text-left py-1.5 px-2 font-medium text-slate-600 dark:text-slate-400">Description</th>
+                            <th className="text-right py-1.5 px-2 font-medium text-slate-600 dark:text-slate-400 w-24">Amount</th>
+                            {/* Match indicator */}
+                            <th className="w-10 border-l border-slate-200 dark:border-slate-700"></th>
+                            {/* Ledger columns */}
+                            <th className="text-left py-1.5 px-2 font-medium text-slate-600 dark:text-slate-400 w-20">Date</th>
+                            <th className="text-left py-1.5 px-2 font-medium text-slate-600 dark:text-slate-400">Payee</th>
+                            <th className="text-right py-1.5 px-2 font-medium text-slate-600 dark:text-slate-400 w-24">Amount</th>
+                            {matchPreview && <th className="w-16"></th>}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                          {(() => {
+                            // Build aligned rows
+                            const rows: Array<{
+                              pdfTx: any | null;
+                              ledgerTx: any | null;
+                              matchType: 'exact' | 'probable' | 'possible' | 'none';
+                              matchScore: number;
+                              reasons: string[];
+                            }> = [];
+
+                            if (matchPreview) {
+                              // After matching: show matched pairs aligned
+                              const matchedPdfIndices = new Set<number>();
+                              const matchedLedgerIds = new Set<string>();
+
+                              // Add exact matches
+                              matchPreview.exactMatches.forEach((match: any) => {
+                                const pdfIdx = parsedTransactions.findIndex((tx: any) =>
+                                  tx.description === match.statementTx.description &&
+                                  tx.date.toString() === match.statementTx.date.toString()
+                                );
+                                if (pdfIdx >= 0) matchedPdfIndices.add(pdfIdx);
+                                if (match.ledgerTx) matchedLedgerIds.add(match.ledgerTx.id);
+                                rows.push({
+                                  pdfTx: match.statementTx,
+                                  ledgerTx: match.ledgerTx,
+                                  matchType: 'exact',
+                                  matchScore: match.matchScore,
+                                  reasons: match.reasons,
+                                });
+                              });
+
+                              // Add probable matches
+                              matchPreview.probableMatches.forEach((match: any) => {
+                                const pdfIdx = parsedTransactions.findIndex((tx: any) =>
+                                  tx.description === match.statementTx.description &&
+                                  tx.date.toString() === match.statementTx.date.toString()
+                                );
+                                if (pdfIdx >= 0) matchedPdfIndices.add(pdfIdx);
+                                if (match.ledgerTx) matchedLedgerIds.add(match.ledgerTx.id);
+                                rows.push({
+                                  pdfTx: match.statementTx,
+                                  ledgerTx: match.ledgerTx,
+                                  matchType: 'probable',
+                                  matchScore: match.matchScore,
+                                  reasons: match.reasons,
+                                });
+                              });
+
+                              // Add possible matches
+                              matchPreview.possibleMatches.forEach((match: any) => {
+                                const pdfIdx = parsedTransactions.findIndex((tx: any) =>
+                                  tx.description === match.statementTx.description &&
+                                  tx.date.toString() === match.statementTx.date.toString()
+                                );
+                                if (pdfIdx >= 0) matchedPdfIndices.add(pdfIdx);
+                                if (match.ledgerTx) matchedLedgerIds.add(match.ledgerTx.id);
+                                rows.push({
+                                  pdfTx: match.statementTx,
+                                  ledgerTx: match.ledgerTx,
+                                  matchType: 'possible',
+                                  matchScore: match.matchScore,
+                                  reasons: match.reasons,
+                                });
+                              });
+
+                              // Add unmatched PDF transactions
+                              matchPreview.unmatchedStatement.forEach((tx: any) => {
+                                rows.push({
+                                  pdfTx: tx,
+                                  ledgerTx: null,
+                                  matchType: 'none',
+                                  matchScore: 0,
+                                  reasons: [],
+                                });
+                              });
+
+                              // Add unmatched ledger transactions
+                              matchPreview.unmatchedLedger.forEach((tx: any) => {
+                                rows.push({
+                                  pdfTx: null,
+                                  ledgerTx: tx,
+                                  matchType: 'none',
+                                  matchScore: 0,
+                                  reasons: [],
+                                });
+                              });
+                            } else {
+                              // Before matching: show side by side without alignment
+                              const unreconciledLedger = transactions.filter(t => !reconciledIds.has(t.id));
+                              const maxLen = Math.max(parsedTransactions.length, unreconciledLedger.length);
+
+                              for (let i = 0; i < maxLen; i++) {
+                                rows.push({
+                                  pdfTx: parsedTransactions[i] || null,
+                                  ledgerTx: unreconciledLedger[i] || null,
+                                  matchType: 'none',
+                                  matchScore: 0,
+                                  reasons: [],
+                                });
+                              }
+                            }
+
+                            return rows.map((row, idx) => {
+                              const matchColors = {
+                                exact: 'bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30',
+                                probable: 'bg-yellow-50 dark:bg-yellow-900/20 hover:bg-yellow-100 dark:hover:bg-yellow-900/30',
+                                possible: 'bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/30',
+                                none: 'hover:bg-slate-50 dark:hover:bg-slate-700/50',
+                              };
+
+                              return (
+                                <tr
+                                  key={idx}
+                                  className={`${matchColors[row.matchType]} ${row.matchType !== 'none' && matchPreview ? 'cursor-pointer' : ''}`}
+                                  onClick={() => {
+                                    if (row.matchType !== 'none' && row.ledgerTx && matchPreview) {
+                                      const match = [...matchPreview.exactMatches, ...matchPreview.probableMatches, ...matchPreview.possibleMatches]
+                                        .find((m: any) => m.ledgerTx?.id === row.ledgerTx.id);
+                                      if (match) handleAcceptMatch(match);
+                                    }
+                                  }}
+                                  title={row.reasons.length > 0 ? row.reasons.join(', ') : undefined}
+                                >
+                                  {/* PDF Transaction - right-click for context menu */}
+                                  <td
+                                    className="py-1.5 px-2 text-slate-700 dark:text-slate-300 whitespace-nowrap"
+                                    onContextMenu={(e) => row.pdfTx && handleContextMenu(e, 'pdf', undefined, row.pdfTx)}
+                                  >
+                                    {row.pdfTx ? formatDate(row.pdfTx.date) : ''}
+                                  </td>
+                                  <td
+                                    className="py-1.5 px-2 text-slate-900 dark:text-slate-100 truncate max-w-[180px]"
+                                    title={row.pdfTx?.description}
+                                    onContextMenu={(e) => row.pdfTx && handleContextMenu(e, 'pdf', undefined, row.pdfTx)}
+                                  >
+                                    {row.pdfTx?.description || ''}
+                                  </td>
+                                  <td
+                                    className={`py-1.5 px-2 text-right font-mono whitespace-nowrap ${row.pdfTx?.credit ? 'text-green-600' : 'text-slate-700 dark:text-slate-300'}`}
+                                    onContextMenu={(e) => row.pdfTx && handleContextMenu(e, 'pdf', undefined, row.pdfTx)}
+                                  >
+                                    {row.pdfTx ? (row.pdfTx.credit ? `-${formatCurrency(row.pdfTx.credit)}` : formatCurrency(row.pdfTx.debit || 0)) : ''}
+                                  </td>
+
+                                  {/* Match indicator */}
+                                  <td className="border-l border-slate-200 dark:border-slate-700 text-center">
+                                    {row.matchType === 'exact' && <CheckCircle className="w-4 h-4 text-green-600 mx-auto" />}
+                                    {row.matchType === 'probable' && <AlertCircle className="w-4 h-4 text-yellow-600 mx-auto" />}
+                                    {row.matchType === 'possible' && <AlertCircle className="w-4 h-4 text-orange-600 mx-auto" />}
+                                  </td>
+
+                                  {/* Ledger Transaction - right-click for context menu */}
+                                  <td
+                                    className="py-1.5 px-2 text-slate-700 dark:text-slate-300 whitespace-nowrap"
+                                    onContextMenu={(e) => row.ledgerTx && handleContextMenu(e, 'ledger', row.ledgerTx)}
+                                  >
+                                    {row.ledgerTx ? formatDate(row.ledgerTx.date) : ''}
+                                  </td>
+                                  <td
+                                    className="py-1.5 px-2 text-slate-900 dark:text-slate-100 truncate max-w-[180px]"
+                                    title={row.ledgerTx?.payee}
+                                    onContextMenu={(e) => row.ledgerTx && handleContextMenu(e, 'ledger', row.ledgerTx)}
+                                  >
+                                    {row.ledgerTx?.payee || ''}
+                                  </td>
+                                  <td
+                                    className={`py-1.5 px-2 text-right font-mono whitespace-nowrap text-slate-700 dark:text-slate-300`}
+                                    onContextMenu={(e) => row.ledgerTx && handleContextMenu(e, 'ledger', row.ledgerTx)}
+                                  >
+                                    {(() => {
+                                      if (!row.ledgerTx) return '';
+                                      // For matched ledger transactions, get amount from postings for this account
+                                      const posting = row.ledgerTx.postings?.find((p: any) => p.accountId === accountId);
+                                      if (posting) {
+                                        const amount = Math.abs(posting.amount);
+                                        return posting.amount < 0 ? `-${formatCurrency(amount)}` : formatCurrency(amount);
+                                      }
+                                      // Fallback: check if it has debit/credit (RegisterEntry format)
+                                      if ('debit' in row.ledgerTx || 'credit' in row.ledgerTx) {
+                                        return row.ledgerTx.credit
+                                          ? `-${formatCurrency(row.ledgerTx.credit)}`
+                                          : formatCurrency(row.ledgerTx.debit || 0);
+                                      }
+                                      return '';
+                                    })()}
+                                  </td>
+
+                                  {/* Accept button for matches */}
+                                  {matchPreview && (
+                                    <td className="py-1.5 px-2">
+                                      {row.matchType !== 'none' && row.ledgerTx && (
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const match = [...matchPreview.exactMatches, ...matchPreview.probableMatches, ...matchPreview.possibleMatches]
+                                              .find((m: any) => m.ledgerTx?.id === row.ledgerTx.id);
+                                            if (match) handleAcceptMatch(match);
+                                          }}
+                                          className={`px-2 py-0.5 text-white rounded text-xs ${
+                                            row.matchType === 'exact' ? 'bg-green-600 hover:bg-green-700' :
+                                            row.matchType === 'probable' ? 'bg-yellow-600 hover:bg-yellow-700' :
+                                            'bg-orange-600 hover:bg-orange-700'
+                                          }`}
+                                        >
+                                          Accept
+                                        </button>
+                                      )}
+                                    </td>
+                                  )}
+                                </tr>
+                              );
+                            });
+                          })()}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
 
-                  {/* Exact Matches */}
-                  {matchPreview.exactMatches?.length > 0 && (
-                    <div className="border border-green-200 dark:border-green-800 rounded-lg">
-                      <div className="bg-green-50 dark:bg-green-900/20 p-4 border-b border-green-200 dark:border-green-800 flex items-center justify-between">
-                        <div>
-                          <h3 className="font-semibold text-green-900 dark:text-green-100 flex items-center gap-2">
-                            <CheckCircle className="w-5 h-5" />
-                            Exact Matches ({matchPreview.exactMatches.length})
-                          </h3>
-                          <p className="text-sm text-green-700 dark:text-green-300 mt-1">
-                            High confidence - these transactions match perfectly
-                          </p>
-                        </div>
-                        <button
-                          onClick={handleAcceptAllExact}
-                          className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium"
-                        >
-                          Accept All
-                        </button>
-                      </div>
-                      <div className="divide-y divide-slate-100 dark:divide-slate-700">
-                        {matchPreview.exactMatches.map((match: any, idx: number) => (
-                          <div key={idx} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-2">
-                                  <span className="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200 text-xs font-medium rounded">
-                                    {match.matchScore}% match
-                                  </span>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Statement</p>
-                                    <p className="font-medium text-slate-900 dark:text-slate-100">
-                                      {match.statementTx.description}
-                                    </p>
-                                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                                      {formatDate(match.statementTx.date)} • {formatCurrency(match.statementTx.debit || match.statementTx.credit || 0)}
-                                    </p>
-                                  </div>
-                                  <div>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Ledger</p>
-                                    <p className="font-medium text-slate-900 dark:text-slate-100">
-                                      {match.ledgerTx?.payee}
-                                    </p>
-                                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                                      {match.ledgerTx && formatDate(match.ledgerTx.date)}
-                                    </p>
-                                  </div>
-                                </div>
-                                {match.reasons?.length > 0 && (
-                                  <div className="mt-2">
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                                      {match.reasons.join(', ')}
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                              <button
-                                onClick={() => handleAcceptMatch(match)}
-                                className="ml-4 px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-sm"
-                              >
-                                Accept
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Probable Matches */}
-                  {matchPreview.probableMatches?.length > 0 && (
-                    <div className="border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                      <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 border-b border-yellow-200 dark:border-yellow-800">
-                        <h3 className="font-semibold text-yellow-900 dark:text-yellow-100 flex items-center gap-2">
-                          <AlertCircle className="w-5 h-5" />
-                          Probable Matches ({matchPreview.probableMatches.length})
-                        </h3>
-                        <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                          Medium confidence - please review before accepting
-                        </p>
-                      </div>
-                      <div className="divide-y divide-slate-100 dark:divide-slate-700">
-                        {matchPreview.probableMatches.map((match: any, idx: number) => (
-                          <div key={idx} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-700/50">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-2">
-                                  <span className="px-2 py-1 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 text-xs font-medium rounded">
-                                    {match.matchScore}% match
-                                  </span>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Statement</p>
-                                    <p className="font-medium text-slate-900 dark:text-slate-100">
-                                      {match.statementTx.description}
-                                    </p>
-                                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                                      {formatDate(match.statementTx.date)} • {formatCurrency(match.statementTx.debit || match.statementTx.credit || 0)}
-                                    </p>
-                                  </div>
-                                  <div>
-                                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Ledger</p>
-                                    <p className="font-medium text-slate-900 dark:text-slate-100">
-                                      {match.ledgerTx?.payee}
-                                    </p>
-                                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                                      {match.ledgerTx && formatDate(match.ledgerTx.date)}
-                                    </p>
-                                  </div>
-                                </div>
-                                {match.reasons?.length > 0 && (
-                                  <div className="mt-2">
-                                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                                      {match.reasons.join(', ')}
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                              <button
-                                onClick={() => handleAcceptMatch(match)}
-                                className="ml-4 px-3 py-1 bg-yellow-600 hover:bg-yellow-700 text-white rounded text-sm"
-                              >
-                                Accept
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Action Buttons */}
-                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
+                  <div className="flex justify-between items-center pt-4 border-t border-slate-200 dark:border-slate-700">
                     <button
                       onClick={() => {
-                        setMatchPreview(null);
+                        setParsedTransactions(null);
                         setPdfFile(null);
-                        setShowMatchModal(false);
+                        setMatchPreview(null);
                       }}
-                      className="px-4 py-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md"
+                      className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
                     >
-                      Done
+                      Upload Different PDF
                     </button>
+                    <div className="flex gap-2">
+                      {matchPreview && matchPreview.exactMatches.length > 0 && (
+                        <button
+                          onClick={handleAcceptAllExact}
+                          className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md font-medium text-sm"
+                        >
+                          Accept All Exact ({matchPreview.exactMatches.length})
+                        </button>
+                      )}
+                      {!matchPreview && (
+                        <button
+                          onClick={handleRunMatching}
+                          disabled={matchingLoading}
+                          className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-md font-medium flex items-center gap-2"
+                        >
+                          {matchingLoading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Finding Matches...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-4 h-4" />
+                              Run Matching
+                            </>
+                          )}
+                        </button>
+                      )}
+                      {matchPreview && (
+                        <button
+                          onClick={() => {
+                            setShowMatchModal(false);
+                          }}
+                          className="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-md font-medium text-sm"
+                        >
+                          Done
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
+
             </div>
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <TransactionContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          isPdfTransaction={contextMenu.type === 'pdf'}
+          pdfDescription={contextMenu.pdfTx?.description}
+          transaction={contextMenu.transaction ? {
+            id: contextMenu.transaction.id,
+            payee: contextMenu.transaction.payee,
+            date: contextMenu.transaction.date,
+            amount: contextMenu.transaction.postings?.find((p: any) => p.accountId === accountId)?.amount || 0,
+            metadata: contextMenu.transaction.metadata,
+            originalDescription: contextMenu.transaction.metadata?.originalDescription,
+          } : undefined}
+          onEdit={() => {
+            if (contextMenu?.transaction) {
+              const txId = contextMenu.transaction.id;
+              setContextMenu(null);
+              handleEditTransaction(txId);
+            }
+          }}
+          onDelete={() => {
+            if (contextMenu?.transaction) {
+              const txId = contextMenu.transaction.id;
+              setContextMenu(null);
+              handleDeleteTransaction(txId);
+            }
+          }}
+          onAddToLedger={() => {
+            if (contextMenu?.pdfTx) {
+              const pdfTx = contextMenu.pdfTx;
+              setContextMenu(null);
+              handleAddPdfToLedger(pdfTx);
+            }
+          }}
+        />
+      )}
+
+      {/* Transaction Edit Modal */}
+      {showTransactionForm && editingTransaction && (
+        <TransactionFormModal
+          isOpen={showTransactionForm}
+          onClose={() => {
+            setShowTransactionForm(false);
+            setEditingTransaction(null);
+          }}
+          transactionId={editingTransaction.id}
+          accountId={accountId}
+          onSuccess={handleTransactionSaved}
+        />
+      )}
+
+      {/* Transaction Create Modal (for adding PDF transactions) */}
+      {showTransactionForm && transactionToCreate && !editingTransaction && (
+        <TransactionFormModal
+          isOpen={showTransactionForm}
+          onClose={() => {
+            setShowTransactionForm(false);
+            setTransactionToCreate(null);
+          }}
+          accountId={accountId}
+          onSuccess={handleTransactionSaved}
+        />
+      )}
     </div>
   );
 }
