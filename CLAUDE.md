@@ -257,8 +257,8 @@ All business logic is in TypeScript services (not Rust):
 - ~~**Issue #1**: Collapsed sidebar expand button hidden by book label (Medium severity)~~ - **FIXED 2025-01-26** - BookSwitcher positioning now dynamically adjusts based on sidebar collapsed state in MainLayout.tsx
 - ~~**Issue #2**: No way to cancel/exit onboarding wizard - ESC key and X button not working (Medium severity)~~ - **FIXED 2025-01-26** - Added onCancel prop to OnboardingWizard when showing new book wizard in MainLayout.tsx
 - ~~**Issue #3**: No dashboard return button when viewing account register (Medium severity)~~ - **FIXED 2025-01-26** - Added Dashboard button to TopBar.tsx that appears when viewing account register or other views
-- **Issue #4**: App should open most recent book automatically on startup instead of showing onboarding (Low severity, enhancement)
-- **Issue #5**: Register doesn't auto-open after creating account via Account Setup Wizard (Low severity, UX enhancement)
+- ~~**Issue #4**: App should open most recent book automatically on startup instead of showing onboarding (Low severity, enhancement)~~ - **FIXED 2026-01-26** - App.tsx now auto-selects most recently accessed book when no active book is set
+- ~~**Issue #5**: Register doesn't auto-open after creating account via Account Setup Wizard (Low severity, UX enhancement)~~ - **FIXED 2026-01-26** - AccountSetupWizard now returns first created account ID, stored in localStorage, MainLayout navigates to it on load
 - ~~**Issue #6**: Transaction form modal closes on outside click, losing all unsaved data (HIGH severity, data loss risk)~~ - **FIXED** - Added `onInteractOutside` prevention to TransactionFormModal.tsx
 - ~~**Issue #7**: CategorySelector search input cannot receive focus in dropdown (HIGH severity)~~ - **FIXED 2025-01-26** - Fixed Portal z-index and pointer-events handling in CategorySelector.tsx, search input now receives focus correctly
 - ~~**Issue #8**: Register doesn't auto-refresh after saving transaction (HIGH severity, CRITICAL UX)~~ - **FIXED 2025-11-25** - Fixed by making onSuccess callbacks async/await and adding refresh key pattern to force RegisterView remount. Changes in: TransactionFormModal.tsx, TopBar.tsx, MainLayout.tsx, RegisterGrid.tsx, BankStatementImport.tsx, StripeImportModal.tsx
@@ -340,6 +340,8 @@ All business logic is in TypeScript services (not Rust):
   - Added onCancel prop to OnboardingWizard for escape/cancel functionality
   - Added Dashboard return button in TopBar when viewing account register
   - Fixed CategorySelector dropdown focus issues (Portal z-index and pointer-events)
+  - Auto-open most recent book on startup instead of showing onboarding
+  - Auto-navigate to register after creating account via Account Setup Wizard
 
 ### 🎉 Recent Additions (December 2025)
 - **Reconciliation Context Menu** (NEW - 2025-12-23):

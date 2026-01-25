@@ -33,7 +33,15 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: Ma
   const [isStripeImporting, setIsStripeImporting] = useState(false);
 
   useEffect(() => {
-    loadAccounts();
+    loadAccounts().then(() => {
+      // Check if we should navigate to a specific account after account creation
+      const navigateToAccountId = localStorage.getItem('ledgerhound-navigate-to-account');
+      if (navigateToAccountId) {
+        localStorage.removeItem('ledgerhound-navigate-to-account');
+        setSelectedAccountId(navigateToAccountId);
+        setCurrentView('register');
+      }
+    });
   }, []);
 
   const loadAccounts = async () => {

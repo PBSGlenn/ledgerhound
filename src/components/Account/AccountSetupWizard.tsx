@@ -10,7 +10,7 @@ import { useToast } from '../../hooks/useToast';
 import type { AccountType, AccountSubtype } from '@prisma/client';
 
 interface AccountSetupWizardProps {
-  onComplete: () => void;
+  onComplete: (firstAccountId?: string) => void;
   onSkip?: () => void;
 }
 
@@ -263,12 +263,13 @@ export function AccountSetupWizard({ onComplete, onSkip }: AccountSetupWizardPro
     try {
       let successCount = 0;
       let errorCount = 0;
+      let firstTransferAccountId: string | undefined;
 
       for (const account of accountsToCreate) {
         try {
           if (account.template.kind === 'TRANSFER') {
             // Create real account (bank, credit card, etc.)
-            await accountAPI.createAccount({
+            const createdAccount = await accountAPI.createAccount({
               name: account.name,
               type: account.template.type,
               subtype: account.template.subtype,
@@ -278,6 +279,10 @@ export function AccountSetupWizard({ onComplete, onSkip }: AccountSetupWizardPro
               openingDate: new Date(account.openingDate || Date.now()),
               isBusinessDefault: account.isBusinessDefault || false,
             });
+            // Track first transfer account for auto-navigation
+            if (!firstTransferAccountId && createdAccount?.id) {
+              firstTransferAccountId = createdAccount.id;
+            }
           } else {
             // Create category account
             await accountAPI.createCategory({
@@ -307,7 +312,7 @@ export function AccountSetupWizard({ onComplete, onSkip }: AccountSetupWizardPro
         );
       }
 
-      onComplete();
+      onComplete(firstTransferAccountId);
     } catch (error) {
       showError('Failed to create accounts', (error as Error).message);
       setStep('customize');
