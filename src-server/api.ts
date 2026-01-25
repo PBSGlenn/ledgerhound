@@ -113,7 +113,10 @@ app.delete('/api/accounts/:id', async (req, res) => {
 app.get('/api/accounts/:id/balance', async (req, res) => {
   try {
     const balance = await accountService.getAccountBalance(req.params.id);
-    res.json({ balance });
+    const clearedBalance = await accountService.getAccountBalance(req.params.id, {
+      clearedOnly: true,
+    });
+    res.json({ balance, clearedBalance });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

@@ -79,12 +79,12 @@ export const accountAPI = {
     if (!account) return null;
 
     const balanceResponse = await fetch(`${API_BASE}/accounts/${id}/balance`);
-    const { balance } = await balanceResponse.json();
+    const { balance, clearedBalance } = await balanceResponse.json();
 
     return {
       ...account,
       currentBalance: balance,
-      clearedBalance: balance, // TODO: Implement cleared balance calculation
+      clearedBalance,
     };
   },
 
