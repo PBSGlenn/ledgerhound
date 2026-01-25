@@ -250,7 +250,7 @@ All business logic is in TypeScript services (not Rust):
 ### 📋 TODO
 - **E2E Tests**: 16/16 expected passing (100%). Transaction entry tests fixed with search-based category selection (2026-01-26)
 - **User documentation**: Setup guide, workflow docs, screenshots
-- **Multi-book support**: bookManager stub exists, needs UI implementation
+- ~~**Multi-book support**: bookManager stub exists, needs UI implementation~~ - **DONE 2026-01-26** - BookListDialog implemented with view all, open, and delete functionality
 - **Tauri desktop packaging**: Currently web-based, packaging planned
 
 ### 🐛 Known UX Issues (Manual Testing - 2025-11-14)
@@ -349,8 +349,12 @@ All business logic is in TypeScript services (not Rust):
   - /api/accounts/:id/balance now returns both `balance` and `clearedBalance`
   - clearedBalance only sums postings with status CLEARED (useful for reconciliation)
   - Client API updated to use clearedBalance from response
-  - Tests now select leaf categories (Salary, Office Supplies, Groceries) via search
-  - Previously tests failed because parent categories can't be selected
+- **Multi-Book Support UI** (NEW - 2026-01-26):
+  - BookListDialog component shows all accounting books with details
+  - Open any book from the list (switches active book)
+  - Delete books (with confirmation dialog, cannot delete current book)
+  - "Open Another Book..." menu item now functional in BookSwitcher dropdown
+  - Shows book name, owner, last accessed date, and currency
 
 ### 🎉 Recent Additions (December 2025)
 - **Reconciliation Context Menu** (NEW - 2025-12-23):
