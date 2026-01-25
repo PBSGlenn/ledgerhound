@@ -324,10 +324,9 @@ export function CategorySelector({
       {/* Dropdown */}
       {isOpen && !disabled && (
         <Portal>
-          {/* Backdrop */}
+          {/* Backdrop - uses pointer-events: none except for click handling */}
           <div
             className="fixed inset-0 z-[150]"
-            style={{ pointerEvents: 'auto' }}
             onClick={() => setIsOpen(false)}
           />
 
@@ -338,7 +337,6 @@ export function CategorySelector({
               top: `${dropdownPosition.top}px`,
               left: `${dropdownPosition.left}px`,
               width: `${dropdownPosition.width}px`,
-              pointerEvents: 'auto',
             }}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
@@ -350,9 +348,10 @@ export function CategorySelector({
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="🔍 Search categories..."
+                onMouseDown={(e) => e.stopPropagation()}
+                placeholder="Search categories..."
                 className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500 focus:border-transparent focus:outline-none"
-                disabled
+                autoFocus
               />
             </div>
 

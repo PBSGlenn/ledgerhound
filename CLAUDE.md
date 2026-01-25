@@ -254,13 +254,13 @@ All business logic is in TypeScript services (not Rust):
 - **Tauri desktop packaging**: Currently web-based, packaging planned
 
 ### 🐛 Known UX Issues (Manual Testing - 2025-11-14)
-- **Issue #1**: Collapsed sidebar expand button hidden by book label (Medium severity)
-- **Issue #2**: No way to cancel/exit onboarding wizard - ESC key and X button not working (Medium severity)
-- **Issue #3**: No dashboard return button when viewing account register (Medium severity)
+- ~~**Issue #1**: Collapsed sidebar expand button hidden by book label (Medium severity)~~ - **FIXED 2025-01-26** - BookSwitcher positioning now dynamically adjusts based on sidebar collapsed state in MainLayout.tsx
+- ~~**Issue #2**: No way to cancel/exit onboarding wizard - ESC key and X button not working (Medium severity)~~ - **FIXED 2025-01-26** - Added onCancel prop to OnboardingWizard when showing new book wizard in MainLayout.tsx
+- ~~**Issue #3**: No dashboard return button when viewing account register (Medium severity)~~ - **FIXED 2025-01-26** - Added Dashboard button to TopBar.tsx that appears when viewing account register or other views
 - **Issue #4**: App should open most recent book automatically on startup instead of showing onboarding (Low severity, enhancement)
 - **Issue #5**: Register doesn't auto-open after creating account via Account Setup Wizard (Low severity, UX enhancement)
 - ~~**Issue #6**: Transaction form modal closes on outside click, losing all unsaved data (HIGH severity, data loss risk)~~ - **FIXED** - Added `onInteractOutside` prevention to TransactionFormModal.tsx
-- **Issue #7**: CategorySelector search input cannot receive focus in dropdown (HIGH severity) - Portal/z-index issue preventing text input. Workaround: click categories directly
+- ~~**Issue #7**: CategorySelector search input cannot receive focus in dropdown (HIGH severity)~~ - **FIXED 2025-01-26** - Fixed Portal z-index and pointer-events handling in CategorySelector.tsx, search input now receives focus correctly
 - ~~**Issue #8**: Register doesn't auto-refresh after saving transaction (HIGH severity, CRITICAL UX)~~ - **FIXED 2025-11-25** - Fixed by making onSuccess callbacks async/await and adding refresh key pattern to force RegisterView remount. Changes in: TransactionFormModal.tsx, TopBar.tsx, MainLayout.tsx, RegisterGrid.tsx, BankStatementImport.tsx, StripeImportModal.tsx
 - ~~**Issue #9**: Expense transactions incorrectly recorded as credits (CRITICAL SEVERITY - ACCOUNTING BUG)~~ - **FIXED 2025-11-15** - Fixed in TransactionFormModal.tsx by applying correct signs: expenses are negative (debit), income is positive (credit). Double-entry validation ensures all postings sum to zero
 - ~~**Issue #11**: CSV import inverts all debit/credit signs (CRITICAL SEVERITY - ACCOUNTING BUG)~~ - **FIXED 2025-11-25** - Fixed in importService.ts. Bank statement amounts now use correct signs: positive = credit (money in), negative = debit (money out). Category postings are negated to balance.
@@ -282,7 +282,7 @@ All business logic is in TypeScript services (not Rust):
   - Expense transaction: ✅ **FIXED** - Now correctly recorded as debit (negative) ✓
   - Transfer transaction: ✅ **FIXED** - Transfer sign bug fixed, both accounts update correctly ✓
   - Split transaction: Works correctly (multiple categories, proper balancing) ✓
-  - CategorySelector search input non-functional (can't type in search) - Workaround: disabled search
+  - ✅ **FIXED 2026-01-26** - CategorySelector search input now functional (was non-functional)
   - Modal protection working (doesn't close on outside click after fix) ✓
 
 - ✅ **Transaction Editing Testing** - Edit functionality working:
@@ -296,12 +296,14 @@ All business logic is in TypeScript services (not Rust):
   - Transfer transactions delete from both account registers (cascade delete) ✓
   - Balances update correctly after deletion ✓
   - Cannot delete reconciled transactions (validation working) ✓
-  - Note: Using browser confirm() dialog - enhancement pending for nicer modal
+  - ✅ **FIXED 2026-01-26** - Now uses ConfirmDialog instead of browser confirm()
 
 - ✅ **Category Management Testing** - Basic functionality working:
   - Category creation works (created Entertainment & Recreation with 2 subcategories) ✓
   - Deletion validation improved (checks for children, transactions, memorized rules) ✓
   - Clear error messages instead of raw database errors ✓
+  - ✅ **FIXED 2026-01-26** - Transaction count indicators now shown on categories
+  - ✅ **FIXED 2026-01-26** - Custom ConfirmDialog replaces browser dialogs
   - Deferred to Round 2: Rename/edit testing, full deletion testing
 
 - ✅ **CSV Import Testing** - All features working correctly (2025-11-25):
@@ -323,6 +325,21 @@ All business logic is in TypeScript services (not Rust):
 - E2E tests remain at 12/16 passing (75%) - will revisit after manual testing complete
 - All critical accounting bugs fixed (expense/credit bug, transfer sign bug, edit loading bug, CSV import sign bug)
 - ~~Auto-refresh issues (Issue #8)~~ **FIXED 2025-11-25** - Register now refreshes after transaction save/import
+
+### 🎉 Recent Additions (January 2026)
+- **Category Management UX Improvements** (NEW - 2026-01-26):
+  - CategorySelector search now functional (input receives focus properly)
+  - Replaced browser confirm()/alert() dialogs with custom ConfirmDialog components
+  - Sidebar Archive action now calls API instead of just logging
+  - Pre-validation for delete eligibility via /api/categories/:id/can-delete endpoint
+  - Transaction count indicator on leaf categories (shows "X txns" badge)
+  - canDeleteCategory service method checks children, transactions, and memorized rules
+  - Toast notifications instead of alert() for success/error feedback
+- **General UX Fixes** (NEW - 2026-01-26):
+  - Fixed collapsed sidebar expand button visibility (dynamic BookSwitcher positioning)
+  - Added onCancel prop to OnboardingWizard for escape/cancel functionality
+  - Added Dashboard return button in TopBar when viewing account register
+  - Fixed CategorySelector dropdown focus issues (Portal z-index and pointer-events)
 
 ### 🎉 Recent Additions (December 2025)
 - **Reconciliation Context Menu** (NEW - 2025-12-23):

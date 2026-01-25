@@ -261,7 +261,7 @@ export function AccountSidebarTree({
   };
 
   const handleArchive = async () => {
-    if (!contextMenu) return;
+    if (!contextMenu || !contextMenu.accountId) return;
 
     const accountName = contextMenu.accountName;
     const accountId = contextMenu.accountId;
@@ -270,11 +270,21 @@ export function AccountSidebarTree({
     setConfirmDialog({
       isOpen: true,
       title: 'Archive Account',
-      message: `Are you sure you want to archive "${accountName}"? You can restore it later from archived accounts.`,
+      message: `Are you sure you want to archive "${accountName}"? The account will be hidden from lists but all data will be preserved. You can restore it later from Settings.`,
       onConfirm: async () => {
-        // TODO: Call API to archive account
-        console.log('Archive account:', accountId);
-        onRefresh();
+        try {
+          await accountAPI.archiveAccount(accountId);
+          onRefresh();
+        } catch (error) {
+          console.error('Failed to archive account:', error);
+          // Show error in a new confirm dialog as feedback
+          setConfirmDialog({
+            isOpen: true,
+            title: 'Archive Failed',
+            message: `Failed to archive account: ${(error as Error).message}`,
+            onConfirm: () => {},
+          });
+        }
       },
     });
   };
@@ -292,14 +302,20 @@ export function AccountSidebarTree({
     setConfirmDialog({
       isOpen: true,
       title: 'Delete Account',
-      message: `Delete "${accountName}"? This action cannot be undone.`,
+      message: `Permanently delete "${accountName}"? This action cannot be undone. Accounts with transactions cannot be deleted - use Archive instead.`,
       onConfirm: async () => {
         try {
           await accountAPI.deleteAccount(accountId);
           onRefresh();
         } catch (error) {
           console.error('Failed to delete account:', error);
-          alert(`Failed to delete account: ${(error as Error).message}`);
+          // Show error in a new confirm dialog as feedback
+          setConfirmDialog({
+            isOpen: true,
+            title: 'Delete Failed',
+            message: `Failed to delete account: ${(error as Error).message}`,
+            onConfirm: () => {},
+          });
         }
       },
     });

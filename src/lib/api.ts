@@ -216,6 +216,27 @@ export const accountAPI = {
       throw new Error(message);
     }
   },
+
+  async archiveAccount(accountId: string): Promise<Account> {
+    const response = await fetch(`${API_BASE}/categories/${accountId}/archive`, {
+      method: 'POST',
+    });
+
+    if (!response.ok) {
+      let message = 'Failed to archive account';
+      try {
+        const error = await response.json();
+        if (error?.error) {
+          message = error.error;
+        }
+      } catch {
+        // ignore parse errors
+      }
+      throw new Error(message);
+    }
+
+    return response.json();
+  },
 };
 
 /**

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { AccountType } from '@prisma/client';
 import { useToast } from '../../hooks/useToast';
+import { ConfirmDialog } from '../Common/ConfirmDialog';
 
 interface CategoryNode {
   id: string;
@@ -29,6 +30,7 @@ interface CategoryNode {
   level: number;
   isBusinessDefault: boolean;
   sortOrder: number;
+  transactionCount?: number;
   children?: CategoryNode[];
 }
 
@@ -49,6 +51,23 @@ export function CategoryManagement() {
   const [newCategoryType, setNewCategoryType] = useState<AccountType>('EXPENSE');
   const [newCategoryIsBusiness, setNewCategoryIsBusiness] = useState(false);
 
+  // Confirm dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    variant: 'danger' | 'warning';
+    confirmText: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    variant: 'danger',
+    confirmText: 'Confirm',
+    onConfirm: () => {},
+  });
+
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -60,6 +79,7 @@ export function CategoryManagement() {
       setLoading(true);
       const params = new URLSearchParams();
       params.set('type', selectedType);
+      params.set('includeTransactionCount', 'true');
 
       const response = await fetch(`http://localhost:3001/api/categories/tree?${params}`);
       if (!response.ok) throw new Error('Failed to load categories');
@@ -120,46 +140,102 @@ export function CategoryManagement() {
     setEditingName('');
   };
 
-  const handleArchive = async (categoryId: string, categoryName: string) => {
-    if (!confirm(`Archive category "${categoryName}"? It will be hidden but data will be preserved.`)) {
-      return;
-    }
+  const handleArchive = (categoryId: string, categoryName: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Archive Category',
+      message: `Archive "${categoryName}"? The category will be hidden from lists but all transaction data will be preserved. You can unarchive it later from Settings.`,
+      variant: 'warning',
+      confirmText: 'Archive',
+      onConfirm: async () => {
+        try {
+          const response = await fetch(`http://localhost:3001/api/categories/${categoryId}/archive`, {
+            method: 'POST',
+          });
 
-    try {
-      const response = await fetch(`http://localhost:3001/api/categories/${categoryId}/archive`, {
-        method: 'POST',
-      });
+          if (!response.ok) throw new Error('Failed to archive category');
 
-      if (!response.ok) throw new Error('Failed to archive category');
-
-      showToast('Category archived successfully', 'success');
-      loadCategories();
-    } catch (error) {
-      console.error('Error archiving category:', error);
-      showToast('Failed to archive category', 'error');
-    }
+          showToast('Category archived successfully', 'success');
+          loadCategories();
+        } catch (error) {
+          console.error('Error archiving category:', error);
+          showToast('Failed to archive category', 'error');
+        }
+      },
+    });
   };
 
   const handleDelete = async (categoryId: string, categoryName: string) => {
-    if (!confirm(`Delete category "${categoryName}"? This cannot be undone and only works if no transactions exist.`)) {
-      return;
-    }
-
+    // Pre-check if category can be deleted
     try {
-      const response = await fetch(`http://localhost:3001/api/categories/${categoryId}`, {
-        method: 'DELETE',
-      });
+      const response = await fetch(`http://localhost:3001/api/categories/${categoryId}/can-delete`);
+      if (!response.ok) throw new Error('Failed to check delete eligibility');
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to delete category');
+      const { canDelete, hasChildren, hasTransactions, childCount, transactionCount } = await response.json();
+
+      if (!canDelete) {
+        // Show informative message about why deletion isn't possible
+        let message = `Cannot delete "${categoryName}". `;
+        if (hasChildren && hasTransactions) {
+          message += `This category has ${childCount} subcategorie(s) and ${transactionCount} transaction(s). `;
+        } else if (hasChildren) {
+          message += `This category has ${childCount} subcategorie(s). Delete or move the subcategories first. `;
+        } else if (hasTransactions) {
+          message += `This category has ${transactionCount} transaction(s). Use Archive instead to preserve the data.`;
+        }
+
+        setConfirmDialog({
+          isOpen: true,
+          title: 'Cannot Delete Category',
+          message,
+          variant: 'warning',
+          confirmText: hasTransactions ? 'Archive Instead' : 'OK',
+          onConfirm: hasTransactions ? async () => {
+            // Offer to archive instead
+            try {
+              const archiveResponse = await fetch(`http://localhost:3001/api/categories/${categoryId}/archive`, {
+                method: 'POST',
+              });
+              if (!archiveResponse.ok) throw new Error('Failed to archive category');
+              showToast('Category archived successfully', 'success');
+              loadCategories();
+            } catch (error) {
+              showToast('Failed to archive category', 'error');
+            }
+          } : () => {},
+        });
+        return;
       }
 
-      showToast('Category deleted successfully', 'success');
-      loadCategories();
+      // Category can be deleted - show confirmation
+      setConfirmDialog({
+        isOpen: true,
+        title: 'Delete Category',
+        message: `Permanently delete "${categoryName}"? This action cannot be undone.`,
+        variant: 'danger',
+        confirmText: 'Delete',
+        onConfirm: async () => {
+          try {
+            const deleteResponse = await fetch(`http://localhost:3001/api/categories/${categoryId}`, {
+              method: 'DELETE',
+            });
+
+            if (!deleteResponse.ok) {
+              const error = await deleteResponse.json();
+              throw new Error(error.error || 'Failed to delete category');
+            }
+
+            showToast('Category deleted successfully', 'success');
+            loadCategories();
+          } catch (error) {
+            console.error('Error deleting category:', error);
+            showToast((error as Error).message, 'error');
+          }
+        },
+      });
     } catch (error) {
-      console.error('Error deleting category:', error);
-      showToast((error as Error).message, 'error');
+      console.error('Error checking delete eligibility:', error);
+      showToast('Failed to check if category can be deleted', 'error');
     }
   };
 
@@ -284,6 +360,16 @@ export function CategoryManagement() {
             </span>
           )}
 
+          {/* Transaction count indicator */}
+          {!isEditing && isLeaf && node.transactionCount !== undefined && node.transactionCount > 0 && (
+            <span
+              className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded-full"
+              title={`${node.transactionCount} transaction${node.transactionCount === 1 ? '' : 's'}`}
+            >
+              {node.transactionCount} txn{node.transactionCount === 1 ? '' : 's'}
+            </span>
+          )}
+
           {/* Actions */}
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
             {isEditing ? (
@@ -361,6 +447,17 @@ export function CategoryManagement() {
 
   return (
     <div className="max-w-5xl mx-auto p-6">
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        variant={confirmDialog.variant}
+        confirmText={confirmDialog.confirmText}
+      />
+
       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
         {/* Header */}
         <div className="border-b border-slate-200 dark:border-slate-700 p-6">

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, FolderPlus } from 'lucide-react';
 import type { AccountType } from '../../types';
+import { useToast } from '../../hooks/useToast';
 
 interface CategoryFormModalProps {
   isOpen: boolean;
@@ -22,6 +23,7 @@ export function CategoryFormModal({
 }: CategoryFormModalProps) {
   const [categoryName, setCategoryName] = useState('');
   const [loading, setLoading] = useState(false);
+  const { showToast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,7 +36,7 @@ export function CategoryFormModal({
       onClose();
     } catch (error) {
       console.error('Failed to create category:', error);
-      alert('Failed to create category');
+      showToast('Failed to create category', 'error');
     } finally {
       setLoading(false);
     }
