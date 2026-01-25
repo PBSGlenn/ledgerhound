@@ -342,6 +342,10 @@ All business logic is in TypeScript services (not Rust):
   - Fixed CategorySelector dropdown focus issues (Portal z-index and pointer-events)
   - Auto-open most recent book on startup instead of showing onboarding
   - Auto-navigate to register after creating account via Account Setup Wizard
+- **E2E Test Fixes** (NEW - 2026-01-26):
+  - Fixed all 4 transaction entry tests by using search-based category selection
+  - Tests now select leaf categories (Salary, Office Supplies, Groceries) via search
+  - Previously tests failed because parent categories can't be selected
 
 ### 🎉 Recent Additions (December 2025)
 - **Reconciliation Context Menu** (NEW - 2025-12-23):
@@ -408,6 +412,11 @@ All business logic is in TypeScript services (not Rust):
     - ✅ Transfer account selection fixed (select by name instead of index)
     - ✅ Dropdown close verification replaced with simple timeout to avoid flaky tests
     - ✅ Parent category selection as fallback when leaf categories not available
+  - **Category Selection Fix** (2026-01-26):
+    - ✅ Updated all 4 transaction entry tests to use search-based category selection
+    - ✅ Tests now search for leaf categories (Salary, Office Supplies, Groceries) instead of trying to click parent nodes
+    - ✅ Parent categories like "Personal Income", "Business Expenses" can't be selected (only toggle expand/collapse)
+    - ✅ Search functionality works reliably to find and select leaf categories
   - **Key Findings**:
     - AccountSetupWizard inputs don't have `name` attributes (use label-based selectors)
     - ReconciliationWizard inputs don't have `name` attributes (use label-based selectors)

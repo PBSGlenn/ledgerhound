@@ -42,38 +42,17 @@ test.describe('Transaction Entry Workflow', () => {
     await amountInput.fill('1500');
 
     // Select category - CategorySelector is a button-based dropdown
+    // Use search to find leaf category "Salary" (under Personal Income > Employment > Salary)
     await page.click('button:has-text("Select category...")');
+    await page.waitForTimeout(500);
 
-    // Wait for dropdown to render and categories to load
-    await page.waitForTimeout(1000);
+    // Search for the leaf category
+    const searchInput = page.locator('input[placeholder="Search categories..."]');
+    await searchInput.fill('Salary');
+    await page.waitForTimeout(500);
 
-    // Try clicking on "Personal Income" parent to see if it has children
-    // Look for the chevron icon next to "Personal Income" and click it
-    const personalIncomeRow = page.locator('button').filter({ hasText: /^Personal Income/ });
-
-    // Check if Personal Income exists and try to expand it
-    if (await personalIncomeRow.count() > 0) {
-      // Click on the chevron/arrow icon to expand (it's part of the button)
-      await personalIncomeRow.first().click();
-      await page.waitForTimeout(500);
-
-      // Now try to find and click Salary if it appears
-      const salaryButton = page.locator('button').filter({ hasText: /^Salary$/ });
-      if (await salaryButton.count() > 0) {
-        await salaryButton.first().click();
-      } else {
-        // If Salary doesn't exist, just click on Personal Income itself
-        await personalIncomeRow.first().click();
-      }
-    } else {
-      // Fallback: just type in search and hope it works
-      await page.locator('input[placeholder="Search categories..."]').fill('Income');
-      await page.waitForTimeout(500);
-      // Click the first available income category
-      await page.locator('button').filter({ hasText: 'Income' }).first().click();
-    }
-
-    // Give time for dropdown to close
+    // Click on the Salary leaf category
+    await page.locator('button').filter({ hasText: /^Salary$/ }).first().click();
     await page.waitForTimeout(500);
 
     // Fill in split amount (required for form validation)
@@ -111,38 +90,26 @@ test.describe('Transaction Entry Workflow', () => {
     const amountInput = page.locator('label:has-text("Amount")').locator('..').locator('input[type="number"]');
     await amountInput.fill('110'); // Enter as positive, form handles sign
 
-    // Select business expense category - CategorySelector is a button-based dropdown
+    // Select business expense category using search
+    // "Office Supplies" is under Business Expenses > Operating Expenses > Office Supplies
     await page.click('button:has-text("Select category...")');
+    await page.waitForTimeout(500);
 
-    // Wait for dropdown to render and categories to load
-    await page.waitForTimeout(1000);
+    // Search for the leaf category
+    const searchInput = page.locator('input[placeholder="Search categories..."]');
+    await searchInput.fill('Office Supplies');
+    await page.waitForTimeout(500);
 
-    // Try to find Business Expenses and click it
-    const businessExpensesRow = page.locator('button').filter({ hasText: /^Business Expenses/ });
-
-    if (await businessExpensesRow.count() > 0) {
-      // Click to select Business Expenses (parent category)
-      await businessExpensesRow.first().click();
-    } else {
-      // Fallback: search for expenses
-      await page.locator('input[placeholder="Search categories..."]').fill('Expense');
-      await page.waitForTimeout(500);
-      // Click the first available expense category
-      await page.locator('button').filter({ hasText: 'Expense' }).first().click();
-    }
-
-    // Give time for dropdown to close
+    // Click on the Office Supplies leaf category
+    await page.locator('button').filter({ hasText: /^Office Supplies$/ }).first().click();
     await page.waitForTimeout(500);
 
     // Fill in split amount (required for form validation)
     const splitAmountInput = page.locator('input[type="number"][step="0.01"]').nth(1);
     await splitAmountInput.fill('110');
 
-    // Mark as business transaction if checkbox exists
-    const businessCheckbox = page.locator('input[type="checkbox"][name="isBusiness"]');
-    if (await businessCheckbox.count() > 0) {
-      await businessCheckbox.check();
-    }
+    // Business checkbox should be auto-checked when selecting a business category
+    // (isBusinessDefault=true on Office Supplies)
 
     // Save transaction
     await page.click('button:has-text("Save Transaction")');
@@ -218,48 +185,36 @@ test.describe('Transaction Entry Workflow', () => {
     await page.click('button:has-text("+ Add Split")');
     await page.waitForTimeout(300);
 
-    // First split - Personal Expenses $100
-    // Click first category dropdown (in ITEMS section)
+    // First split - Groceries $100 (under Personal Expenses > Food & Dining > Groceries)
     await page.locator('button:has-text("Select category...")').first().click();
+    await page.waitForTimeout(500);
 
-    // Wait for dropdown to load
-    await page.waitForTimeout(1000);
+    // Search for Groceries
+    let searchInput = page.locator('input[placeholder="Search categories..."]');
+    await searchInput.fill('Groceries');
+    await page.waitForTimeout(500);
 
-    // Select Personal Expenses (parent category)
-    const personalExpensesRow = page.locator('button').filter({ hasText: /^Personal Expenses/ });
-    if (await personalExpensesRow.count() > 0) {
-      await personalExpensesRow.first().click();
-    } else {
-      // Fallback
-      await page.locator('button').filter({ hasText: 'Expense' }).first().click();
-    }
-
-    // Give time for dropdown to close
+    // Click on the Groceries leaf category
+    await page.locator('button').filter({ hasText: /^Groceries$/ }).first().click();
     await page.waitForTimeout(500);
 
     // Fill first split amount - it's the 2nd number input (1st is total amount at top)
     await page.locator('input[type="number"][step="0.01"]').nth(1).fill('100');
 
-    // Second split - Business Expenses $50
-    // Wait to ensure first dropdown is fully closed
+    // Second split - Office Supplies $50 (under Business Expenses > Operating Expenses)
     await page.waitForTimeout(300);
 
     // Click second category dropdown
-    await page.locator('button:has-text("Select category...")').nth(1).click();
+    await page.locator('button:has-text("Select category...")').first().click(); // Now first since Groceries is selected
+    await page.waitForTimeout(500);
 
-    // Wait for dropdown to load
-    await page.waitForTimeout(1000);
+    // Search for Office Supplies
+    searchInput = page.locator('input[placeholder="Search categories..."]');
+    await searchInput.fill('Office Supplies');
+    await page.waitForTimeout(500);
 
-    // Select Business Expenses (parent category)
-    const businessExpensesRow = page.locator('button').filter({ hasText: /^Business Expenses/ });
-    if (await businessExpensesRow.count() > 0) {
-      await businessExpensesRow.first().click();
-    } else {
-      // Fallback
-      await page.locator('button').filter({ hasText: 'Expense' }).first().click();
-    }
-
-    // Give time for dropdown to close
+    // Click on the Office Supplies leaf category
+    await page.locator('button').filter({ hasText: /^Office Supplies$/ }).first().click();
     await page.waitForTimeout(500);
 
     // Fill second split amount - it's the 3rd number input
