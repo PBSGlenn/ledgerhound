@@ -345,6 +345,10 @@ All business logic is in TypeScript services (not Rust):
   - Auto-navigate to register after creating account via Account Setup Wizard
 - **E2E Test Fixes** (NEW - 2026-01-26):
   - Fixed all 4 transaction entry tests by using search-based category selection
+- **Cleared Balance API** (NEW - 2026-01-26):
+  - /api/accounts/:id/balance now returns both `balance` and `clearedBalance`
+  - clearedBalance only sums postings with status CLEARED (useful for reconciliation)
+  - Client API updated to use clearedBalance from response
   - Tests now select leaf categories (Salary, Office Supplies, Groceries) via search
   - Previously tests failed because parent categories can't be selected
 
