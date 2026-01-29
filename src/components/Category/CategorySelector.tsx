@@ -2,15 +2,12 @@
  * CategorySelector Component
  * Hierarchical dropdown for selecting income/expense categories
  *
- * NOTE: This component uses a portal to escape overflow:hidden/auto containers.
- * It manually restores pointer-events since Radix Dialog sets pointer-events:none
- * on document.body when modal.
- * See: https://github.com/radix-ui/primitives/issues/1317
- * See: https://github.com/radix-ui/primitives/issues/2122
+ * Uses Radix Popover for proper focus management when used inside Radix Dialog.
+ * This ensures the search input works correctly even when nested in modals.
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import * as Popover from '@radix-ui/react-popover';
 import { ChevronDown, ChevronRight, Plus, X } from 'lucide-react';
 import type { AccountType } from '@prisma/client';
 import { CategoryFormModal } from './CategoryFormModal';
@@ -55,10 +52,7 @@ export function CategorySelector({
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
 
   // New category modal state
   const [showNewCategoryModal, setShowNewCategoryModal] = useState(false);
@@ -71,73 +65,13 @@ export function CategorySelector({
     setSearchTerm('');
   };
 
-  // Calculate dropdown position when opened
-  useEffect(() => {
-    if (isOpen && containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      setDropdownPosition({
-        top: rect.bottom + 4,
-        left: rect.left,
-        width: rect.width,
-      });
-    }
-  }, [isOpen]);
-
-  // Click outside handler
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-
-      // If click is inside our container (trigger button), don't close
-      if (containerRef.current?.contains(target)) {
-        return;
-      }
-
-      // If click is inside the dropdown (portal), don't close
-      if (dropdownRef.current?.contains(target)) {
-        return;
-      }
-
-      // Click was outside - close dropdown
-      closeDropdown();
-    };
-
-    // Use mousedown for immediate response, add on next frame to avoid catching opening click
-    const timeoutId = setTimeout(() => {
-      document.addEventListener('mousedown', handleClickOutside, true); // capture phase
-    }, 0);
-
-    return () => {
-      clearTimeout(timeoutId);
-      document.removeEventListener('mousedown', handleClickOutside, true);
-    };
-  }, [isOpen]);
-
   // Focus search input when dropdown opens
   useEffect(() => {
     if (isOpen && searchInputRef.current) {
-      // Multiple attempts to focus - Radix Dialog can interfere with focus
-      const focusInput = () => {
-        if (searchInputRef.current) {
-          searchInputRef.current.focus();
-        }
-      };
-
-      // Try immediately
-      focusInput();
-
-      // Try again after a short delay (for DOM readiness)
-      const t1 = setTimeout(focusInput, 10);
-
-      // Try again after a longer delay (for Radix Dialog interference)
-      const t2 = setTimeout(focusInput, 50);
-
-      return () => {
-        clearTimeout(t1);
-        clearTimeout(t2);
-      };
+      // Use requestAnimationFrame for reliable focus after Radix animations
+      requestAnimationFrame(() => {
+        searchInputRef.current?.focus();
+      });
     }
   }, [isOpen]);
 
@@ -407,135 +341,113 @@ export function CategorySelector({
     );
   };
 
-  // The dropdown content - rendered via portal
-  const dropdownContent = (
-    <div
-      ref={dropdownRef}
-      className="fixed bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg max-h-80 flex flex-col"
-      style={{
-        top: `${dropdownPosition.top}px`,
-        left: `${dropdownPosition.left}px`,
-        width: `${dropdownPosition.width}px`,
-        zIndex: 2147483647, // Max z-index to ensure we're on top
-        pointerEvents: 'auto', // Override Radix Dialog's pointer-events:none
-      }}
-      onMouseDown={(e) => e.stopPropagation()} // Prevent Dialog from intercepting
-    >
-      {/* Search */}
-      <div className="p-2 border-b border-slate-200 dark:border-slate-700">
-        <input
-          ref={searchInputRef}
-          type="text"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            // Force focus on mousedown before Radix can intercept
-            e.currentTarget.focus();
-          }}
-          onFocus={(e) => {
-            // Ensure we keep focus
-            e.stopPropagation();
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            e.currentTarget.focus();
-          }}
-          onKeyDown={(e) => {
-            e.stopPropagation(); // Prevent Radix from intercepting keystrokes
-            if (e.key === 'Enter') {
-              e.preventDefault();
-            }
-            if (e.key === 'Escape') {
-              closeDropdown();
-            }
-          }}
-          placeholder="Search categories..."
-          className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500 focus:border-transparent focus:outline-none"
-          autoComplete="off"
-          tabIndex={0}
-        />
-      </div>
-
-      {/* Category Tree */}
-      <div
-        className="flex-1 overflow-y-auto p-1"
-        onWheel={(e) => e.stopPropagation()} // Allow scrolling
-      >
-        {loading ? (
-          <div className="p-4 text-center text-sm text-slate-500 dark:text-slate-400">
-            Loading categories...
-          </div>
-        ) : filteredCategories.length === 0 ? (
-          <div className="p-4 text-center text-sm text-slate-500 dark:text-slate-400">
-            {searchTerm ? 'No categories found' : 'No categories available'}
-          </div>
-        ) : (
-          filteredCategories.map((node) => renderCategoryNode(node))
-        )}
-      </div>
-
-      {/* New Category Button */}
-      <div className="border-t border-slate-200 dark:border-slate-700 p-2">
-        <button
-          type="button"
-          onClick={handleNewCategory}
-          onMouseDown={(e) => e.stopPropagation()} // Prevent event bubbling
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-md transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New Category...</span>
-        </button>
-      </div>
-    </div>
-  );
-
   return (
-    <div ref={containerRef} className="relative" data-category-selector>
-      {/* Trigger Button */}
-      <button
-        type="button"
-        onClick={() => !disabled && setIsOpen(!isOpen)}
-        disabled={disabled}
-        className={`w-full flex items-center justify-between gap-2 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md text-sm transition-colors ${
-          disabled
-            ? 'opacity-50 cursor-not-allowed'
-            : 'hover:border-slate-400 dark:hover:border-slate-500 focus:ring-2 focus:ring-emerald-500 focus:border-transparent'
-        }`}
-      >
-        <span className="flex-1 text-left truncate">
-          {selectedCategory ? (
-            <span className="flex items-center gap-2">
-              <span className="text-slate-900 dark:text-slate-100">{selectedCategory.name}</span>
-              {selectedCategory.fullPath && (
-                <span className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                  {selectedCategory.fullPath.split('/').slice(0, -1).join(' › ')}
+    <div className="relative" data-category-selector>
+      <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
+        {/* Trigger Button */}
+        <Popover.Trigger asChild disabled={disabled}>
+          <button
+            type="button"
+            className={`w-full flex items-center justify-between gap-2 px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md text-sm transition-colors ${
+              disabled
+                ? 'opacity-50 cursor-not-allowed'
+                : 'hover:border-slate-400 dark:hover:border-slate-500 focus:ring-2 focus:ring-emerald-500 focus:border-transparent'
+            }`}
+          >
+            <span className="flex-1 text-left truncate">
+              {selectedCategory ? (
+                <span className="flex items-center gap-2">
+                  <span className="text-slate-900 dark:text-slate-100">{selectedCategory.name}</span>
+                  {selectedCategory.fullPath && (
+                    <span className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                      {selectedCategory.fullPath.split('/').slice(0, -1).join(' › ')}
+                    </span>
+                  )}
                 </span>
+              ) : (
+                <span className="text-slate-500 dark:text-slate-400">{placeholder}</span>
               )}
             </span>
-          ) : (
-            <span className="text-slate-500 dark:text-slate-400">{placeholder}</span>
-          )}
-        </span>
 
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {value && !required && !disabled && (
-            <button
-              type="button"
-              onClick={handleClear}
-              className="p-0.5 hover:bg-slate-200 dark:hover:bg-slate-600 rounded"
-            >
-              <X className="w-4 h-4 text-slate-500" />
-            </button>
-          )}
-          <ChevronDown
-            className={`w-4 h-4 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-          />
-        </div>
-      </button>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {value && !required && !disabled && (
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  onClick={handleClear}
+                  onKeyDown={(e) => e.key === 'Enter' && handleClear(e as unknown as React.MouseEvent)}
+                  className="p-0.5 hover:bg-slate-200 dark:hover:bg-slate-600 rounded"
+                >
+                  <X className="w-4 h-4 text-slate-500" />
+                </span>
+              )}
+              <ChevronDown
+                className={`w-4 h-4 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+              />
+            </div>
+          </button>
+        </Popover.Trigger>
 
-      {/* Dropdown - rendered via portal to document.body to escape overflow containers */}
-      {isOpen && !disabled && createPortal(dropdownContent, document.body)}
+        {/* Dropdown Content - Radix Portal properly integrates with Dialog focus management */}
+        <Popover.Portal>
+          <Popover.Content
+            className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg max-h-80 flex flex-col w-[var(--radix-popover-trigger-width)] z-[9999]"
+            sideOffset={4}
+            align="start"
+            onOpenAutoFocus={(e) => {
+              // Prevent Popover from focusing the first focusable element
+              // We'll manually focus the search input
+              e.preventDefault();
+              searchInputRef.current?.focus();
+            }}
+          >
+            {/* Search */}
+            <div className="p-2 border-b border-slate-200 dark:border-slate-700">
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    closeDropdown();
+                  }
+                }}
+                placeholder="Search categories..."
+                className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500 focus:border-transparent focus:outline-none"
+                autoComplete="off"
+              />
+            </div>
+
+            {/* Category Tree */}
+            <div className="flex-1 overflow-y-auto p-1">
+              {loading ? (
+                <div className="p-4 text-center text-sm text-slate-500 dark:text-slate-400">
+                  Loading categories...
+                </div>
+              ) : filteredCategories.length === 0 ? (
+                <div className="p-4 text-center text-sm text-slate-500 dark:text-slate-400">
+                  {searchTerm ? 'No categories found' : 'No categories available'}
+                </div>
+              ) : (
+                filteredCategories.map((node) => renderCategoryNode(node))
+              )}
+            </div>
+
+            {/* New Category Button */}
+            <div className="border-t border-slate-200 dark:border-slate-700 p-2">
+              <button
+                type="button"
+                onClick={handleNewCategory}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-md transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                <span>New Category...</span>
+              </button>
+            </div>
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
 
       {/* New Category Modal */}
       <CategoryFormModal
