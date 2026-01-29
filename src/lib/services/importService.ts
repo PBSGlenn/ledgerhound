@@ -332,7 +332,12 @@ export class ImportService {
       skipDuplicates?: boolean;
       applyRules?: boolean;
     } = {}
-  ): Promise<{ imported: number; skipped: number; batchId: string }> {
+  ): Promise<{
+    imported: number;
+    skipped: number;
+    batchId: string;
+    skippedDetails?: Array<{ rowIndex: number; reason: string; data?: Record<string, unknown> }>;
+  }> {
     // Create import batch
     const batch = await this.prisma.importBatch.create({
       data: {
@@ -344,6 +349,7 @@ export class ImportService {
 
     let imported = 0;
     let skipped = 0;
+    const skippedDetails: Array<{ rowIndex: number; reason: string; data?: Record<string, unknown> }> = [];
 
     console.log('Importing transactions:');
     console.log('  sourceAccountId:', sourceAccountId);
@@ -359,16 +365,33 @@ export class ImportService {
       throw new Error('Uncategorized account not found');
     }
 
-    for (const preview of previews) {
+    for (let i = 0; i < previews.length; i++) {
+      const preview = previews[i];
+
       // Skip duplicates if requested
       if (options.skipDuplicates && preview.isDuplicate) {
         skipped++;
+        skippedDetails.push({
+          rowIndex: i,
+          reason: 'Duplicate transaction detected',
+          data: { date: preview.parsed.date, payee: preview.parsed.payee, amount: preview.parsed.amount },
+        });
         continue;
       }
 
-      // Skip invalid rows
-      if (!preview.parsed.date || !preview.parsed.amount || !preview.parsed.payee) {
+      // Skip invalid rows - track specific missing fields
+      const missingFields: string[] = [];
+      if (!preview.parsed.date) missingFields.push('date');
+      if (!preview.parsed.amount) missingFields.push('amount');
+      if (!preview.parsed.payee) missingFields.push('payee/description');
+
+      if (missingFields.length > 0) {
         skipped++;
+        skippedDetails.push({
+          rowIndex: i,
+          reason: `Missing required fields: ${missingFields.join(', ')}`,
+          data: preview.row,
+        });
         continue;
       }
 
@@ -422,10 +445,10 @@ export class ImportService {
 
       // Prepare postings
       const postings: any[] = [
-        // Source account posting
+        // Source account posting (use amount as-is from bank statement)
         {
           accountId: sourceAccountId,
-          amount: -preview.parsed.amount,
+          amount: preview.parsed.amount,
           isBusiness: false,
         },
       ];
@@ -433,7 +456,9 @@ export class ImportService {
       // If business transaction with GST, create separate GST posting
       if (isBusiness && gstAmount && Math.abs(gstAmount) > 0.01) {
         // Find GST account based on transaction type
-        const isExpense = preview.parsed.amount > 0;
+        // Note: Bank statement amounts are from bank's perspective
+        // Positive = money IN (income), Negative = money OUT (expense)
+        const isExpense = preview.parsed.amount < 0;
         const gstAccount = await this.prisma.account.findFirst({
           where: {
             name: isExpense ? 'GST Paid' : 'GST Collected',
@@ -442,45 +467,56 @@ export class ImportService {
         });
 
         if (gstAccount) {
-          // Category posting (GST-exclusive amount)
-          const gstExclusiveAmount = preview.parsed.amount - gstAmount;
+          // Category posting (GST-exclusive amount, negated to balance)
+          const gstExclusiveAmount = -(preview.parsed.amount - gstAmount);
           postings.push({
             accountId: categoryAccountId,
             amount: gstExclusiveAmount,
             isBusiness: true,
             gstCode,
             gstRate,
-            gstAmount,
+            gstAmount: -gstAmount,
           });
 
-          // GST posting
+          // GST posting (negated to balance)
           postings.push({
             accountId: gstAccount.id,
-            amount: gstAmount,
+            amount: -gstAmount,
             isBusiness: false,
           });
         } else {
           console.warn('GST account not found, falling back to single posting with metadata');
-          // Fallback to old behavior
+          // Fallback to old behavior (negate to balance)
           postings.push({
             accountId: categoryAccountId,
-            amount: preview.parsed.amount,
+            amount: -preview.parsed.amount,
             isBusiness,
             gstCode,
             gstRate,
-            gstAmount,
+            gstAmount: -gstAmount,
           });
         }
       } else {
-        // No GST - single posting
+        // No GST - single posting (negate to balance the source posting)
         postings.push({
           accountId: categoryAccountId,
-          amount: preview.parsed.amount,
+          amount: -preview.parsed.amount,
           isBusiness,
           gstCode,
           gstRate,
           gstAmount,
         });
+      }
+
+      // Build metadata - store original description for reconciliation matching
+      const metadata: Record<string, any> = {};
+      if (preview.suggestedPayee && preview.parsed.payee !== preview.suggestedPayee) {
+        // Original description was transformed by a rule - store it for matching
+        metadata.originalDescription = preview.parsed.payee;
+      }
+      if (preview.matchedRule) {
+        metadata.matchedRuleId = preview.matchedRule.id;
+        metadata.matchedRuleName = preview.matchedRule.name;
       }
 
       // Create transaction
@@ -491,6 +527,7 @@ export class ImportService {
           reference: preview.parsed.reference,
           importBatchId: batch.id,
           externalId: preview.parsed.reference,
+          metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
           postings: {
             create: postings,
           },
@@ -504,6 +541,7 @@ export class ImportService {
       imported,
       skipped,
       batchId: batch.id,
+      ...(skippedDetails.length > 0 && { skippedDetails }),
     };
   }
 

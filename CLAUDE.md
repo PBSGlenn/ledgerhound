@@ -9,7 +9,7 @@ ledgerhound/
 ├── prisma/                    # Database schema and migrations
 │   ├── schema.prisma          # Prisma schema (double-entry model)
 │   ├── seed.ts                # Sample data (personal + business examples)
-│   └── migrations/            # 5 migrations (latest: add_default_has_gst)
+│   └── migrations/            # 6 migrations (latest: add_composite_indexes)
 ├── src/
 │   ├── components/            # 30+ React UI components
 │   │   ├── Account/           # Account management UI
@@ -178,7 +178,7 @@ All business logic is in TypeScript services (not Rust):
 
 ### ✅ Completed
 - Project setup (React + TypeScript + Vite + Prisma + Express API)
-- Database schema with all entities and 5 migrations (latest: `add_default_has_gst`)
+- Database schema with all entities and 6 migrations (latest: `add_composite_indexes`)
 - **Services Layer** (14 services, all core functionality complete):
   - Account service (CRUD, balances, archiving, hierarchies)
   - Category service (hierarchical management, unlimited nesting, tree operations)
@@ -248,19 +248,19 @@ All business logic is in TypeScript services (not Rust):
 - Desktop launcher (`start-ledgerhound.bat` + shortcut)
 
 ### 📋 TODO
-- **E2E Tests**: 16/16 expected passing (100%). Transaction entry tests fixed with search-based category selection (2026-01-26)
+- **E2E Tests**: 12/16 passing (75%). Remaining: 4 transaction entry tests (category selection issues)
 - **User documentation**: Setup guide, workflow docs, screenshots
-- ~~**Multi-book support**: bookManager stub exists, needs UI implementation~~ - **DONE 2026-01-26** - BookListDialog implemented with view all, open, and delete functionality
+- **Multi-book support**: bookManager stub exists, needs UI implementation
 - **Tauri desktop packaging**: Currently web-based, packaging planned
 
 ### 🐛 Known UX Issues (Manual Testing - 2025-11-14)
-- ~~**Issue #1**: Collapsed sidebar expand button hidden by book label (Medium severity)~~ - **FIXED 2025-01-26** - BookSwitcher positioning now dynamically adjusts based on sidebar collapsed state in MainLayout.tsx
-- ~~**Issue #2**: No way to cancel/exit onboarding wizard - ESC key and X button not working (Medium severity)~~ - **FIXED 2025-01-26** - Added onCancel prop to OnboardingWizard when showing new book wizard in MainLayout.tsx
-- ~~**Issue #3**: No dashboard return button when viewing account register (Medium severity)~~ - **FIXED 2025-01-26** - Added Dashboard button to TopBar.tsx that appears when viewing account register or other views
-- ~~**Issue #4**: App should open most recent book automatically on startup instead of showing onboarding (Low severity, enhancement)~~ - **FIXED 2026-01-26** - App.tsx now auto-selects most recently accessed book when no active book is set
-- ~~**Issue #5**: Register doesn't auto-open after creating account via Account Setup Wizard (Low severity, UX enhancement)~~ - **FIXED 2026-01-26** - AccountSetupWizard now returns first created account ID, stored in localStorage, MainLayout navigates to it on load
+- **Issue #1**: Collapsed sidebar expand button hidden by book label (Medium severity)
+- **Issue #2**: No way to cancel/exit onboarding wizard - ESC key and X button not working (Medium severity)
+- **Issue #3**: No dashboard return button when viewing account register (Medium severity)
+- **Issue #4**: App should open most recent book automatically on startup instead of showing onboarding (Low severity, enhancement)
+- **Issue #5**: Register doesn't auto-open after creating account via Account Setup Wizard (Low severity, UX enhancement)
 - ~~**Issue #6**: Transaction form modal closes on outside click, losing all unsaved data (HIGH severity, data loss risk)~~ - **FIXED** - Added `onInteractOutside` prevention to TransactionFormModal.tsx
-- ~~**Issue #7**: CategorySelector search input cannot receive focus in dropdown (HIGH severity)~~ - **FIXED 2025-01-26** - Fixed Portal z-index and pointer-events handling in CategorySelector.tsx, search input now receives focus correctly
+- **Issue #7**: CategorySelector search input cannot receive focus in dropdown (HIGH severity) - Portal/z-index issue preventing text input. Workaround: click categories directly
 - ~~**Issue #8**: Register doesn't auto-refresh after saving transaction (HIGH severity, CRITICAL UX)~~ - **FIXED 2025-11-25** - Fixed by making onSuccess callbacks async/await and adding refresh key pattern to force RegisterView remount. Changes in: TransactionFormModal.tsx, TopBar.tsx, MainLayout.tsx, RegisterGrid.tsx, BankStatementImport.tsx, StripeImportModal.tsx
 - ~~**Issue #9**: Expense transactions incorrectly recorded as credits (CRITICAL SEVERITY - ACCOUNTING BUG)~~ - **FIXED 2025-11-15** - Fixed in TransactionFormModal.tsx by applying correct signs: expenses are negative (debit), income is positive (credit). Double-entry validation ensures all postings sum to zero
 - ~~**Issue #11**: CSV import inverts all debit/credit signs (CRITICAL SEVERITY - ACCOUNTING BUG)~~ - **FIXED 2025-11-25** - Fixed in importService.ts. Bank statement amounts now use correct signs: positive = credit (money in), negative = debit (money out). Category postings are negated to balance.
@@ -282,7 +282,7 @@ All business logic is in TypeScript services (not Rust):
   - Expense transaction: ✅ **FIXED** - Now correctly recorded as debit (negative) ✓
   - Transfer transaction: ✅ **FIXED** - Transfer sign bug fixed, both accounts update correctly ✓
   - Split transaction: Works correctly (multiple categories, proper balancing) ✓
-  - ✅ **FIXED 2026-01-26** - CategorySelector search input now functional (was non-functional)
+  - CategorySelector search input non-functional (can't type in search) - Workaround: disabled search
   - Modal protection working (doesn't close on outside click after fix) ✓
 
 - ✅ **Transaction Editing Testing** - Edit functionality working:
@@ -296,14 +296,12 @@ All business logic is in TypeScript services (not Rust):
   - Transfer transactions delete from both account registers (cascade delete) ✓
   - Balances update correctly after deletion ✓
   - Cannot delete reconciled transactions (validation working) ✓
-  - ✅ **FIXED 2026-01-26** - Now uses ConfirmDialog instead of browser confirm()
+  - Note: Using browser confirm() dialog - enhancement pending for nicer modal
 
 - ✅ **Category Management Testing** - Basic functionality working:
   - Category creation works (created Entertainment & Recreation with 2 subcategories) ✓
   - Deletion validation improved (checks for children, transactions, memorized rules) ✓
   - Clear error messages instead of raw database errors ✓
-  - ✅ **FIXED 2026-01-26** - Transaction count indicators now shown on categories
-  - ✅ **FIXED 2026-01-26** - Custom ConfirmDialog replaces browser dialogs
   - Deferred to Round 2: Rename/edit testing, full deletion testing
 
 - ✅ **CSV Import Testing** - All features working correctly (2025-11-25):
@@ -322,39 +320,60 @@ All business logic is in TypeScript services (not Rust):
 
 **Testing Notes**:
 - Real-world manual testing proving valuable for discovering UX issues
-- E2E tests expected at 16/16 passing (100%) - transaction entry tests fixed (2026-01-26)
+- E2E tests remain at 12/16 passing (75%) - will revisit after manual testing complete
 - All critical accounting bugs fixed (expense/credit bug, transfer sign bug, edit loading bug, CSV import sign bug)
 - ~~Auto-refresh issues (Issue #8)~~ **FIXED 2025-11-25** - Register now refreshes after transaction save/import
-- ~~Issues #4 and #5~~ **FIXED 2026-01-26** - Auto-open recent book, auto-navigate after account creation
 
-### 🎉 Recent Additions (January 2026)
-- **Category Management UX Improvements** (NEW - 2026-01-26):
-  - CategorySelector search now functional (input receives focus properly)
-  - Replaced browser confirm()/alert() dialogs with custom ConfirmDialog components
-  - Sidebar Archive action now calls API instead of just logging
-  - Pre-validation for delete eligibility via /api/categories/:id/can-delete endpoint
-  - Transaction count indicator on leaf categories (shows "X txns" badge)
-  - canDeleteCategory service method checks children, transactions, and memorized rules
-  - Toast notifications instead of alert() for success/error feedback
-- **General UX Fixes** (NEW - 2026-01-26):
-  - Fixed collapsed sidebar expand button visibility (dynamic BookSwitcher positioning)
-  - Added onCancel prop to OnboardingWizard for escape/cancel functionality
-  - Added Dashboard return button in TopBar when viewing account register
-  - Fixed CategorySelector dropdown focus issues (Portal z-index and pointer-events)
-  - Auto-open most recent book on startup instead of showing onboarding
-  - Auto-navigate to register after creating account via Account Setup Wizard
-- **E2E Test Fixes** (NEW - 2026-01-26):
-  - Fixed all 4 transaction entry tests by using search-based category selection
-- **Cleared Balance API** (NEW - 2026-01-26):
-  - /api/accounts/:id/balance now returns both `balance` and `clearedBalance`
-  - clearedBalance only sums postings with status CLEARED (useful for reconciliation)
-  - Client API updated to use clearedBalance from response
-- **Multi-Book Support UI** (NEW - 2026-01-26):
-  - BookListDialog component shows all accounting books with details
-  - Open any book from the list (switches active book)
-  - Delete books (with confirmation dialog, cannot delete current book)
-  - "Open Another Book..." menu item now functional in BookSwitcher dropdown
-  - Shows book name, owner, last accessed date, and currency
+### 🎉 Code Quality & Security Review (January 2026)
+Comprehensive 5-phase code review and improvement:
+
+**Phase 1: Security & Stability**
+- Added Helmet.js for security headers (CSP, HSTS, X-Frame-Options)
+- Added express-rate-limit (1000 requests/15 min)
+- Enhanced CORS configuration with explicit allowed origins
+- Added optional API key authentication middleware
+- Fixed 28 missing `await` on `response.json()` calls in frontend API client
+- Added positive amount validation to transaction form
+- Added explicit `onDelete` clauses to Prisma schema relations
+
+**Phase 2: Input Validation & Error Handling**
+- Created centralized validation module (`src-server/validation.ts`) with 25+ Zod schemas
+- Added standardized error response helpers (`sendError`, `sendNotFound`, `sendConflict`, `sendServerError`)
+- Updated 60+ API endpoints to use consistent validation and error handling
+- Changed GST validation from warning to error for data integrity
+- Added detailed skip tracking in import service with specific reasons
+
+**Phase 3: Test Stability**
+- Rewrote E2E tests with explicit wait conditions instead of hardcoded timeouts
+- Added helper functions for common test operations (form filling, category selection)
+- Improved assertion messages for better debugging
+- Added fallback strategies for flaky CategorySelector interactions
+
+**Phase 4: Code Quality & Maintainability**
+- Removed debug console.log statements from services (accountService, categoryService)
+- Consolidated error handling across 35+ API endpoints
+- Updated services index.ts to export all 11 services properly
+- Added Zod validation to previously unvalidated endpoints
+
+**Phase 5: Performance Optimization**
+- Added 4 composite database indexes for common query patterns:
+  - `Posting(accountId, cleared, reconciled)` - Register queries
+  - `Posting(accountId, isBusiness)` - GST report queries
+  - `Posting(isBusiness, gstCode)` - GST summary queries
+  - `Transaction(date, status)` - Date range queries
+- Optimized balance calculation to use Prisma `aggregate` instead of fetching all postings
+- Added `select` fields to report queries to reduce payload size (5-10% reduction)
+
+**Files Modified:**
+- `src-server/api.ts` - Security middleware, validation, error handling
+- `src-server/validation.ts` - NEW: Centralized validation schemas
+- `src/lib/api.ts` - Fixed missing awaits
+- `src/lib/services/accountService.ts` - Optimized balance calculation
+- `src/lib/services/categoryService.ts` - Removed debug logs
+- `src/lib/services/reportService.ts` - Optimized query selects
+- `src/lib/services/index.ts` - Complete service exports
+- `prisma/schema.prisma` - Added composite indexes
+- `e2e/*.spec.ts` - Improved test stability
 
 ### 🎉 Recent Additions (December 2025)
 - **Reconciliation Context Menu** (NEW - 2025-12-23):
@@ -395,12 +414,12 @@ All business logic is in TypeScript services (not Rust):
   - Sequential execution (single worker) to avoid database conflicts
   - HTML reports with screenshots and videos on failure
   - Test fixtures for CSV data
-  - **Status**: 16/16 tests expected passing - category selection fixed (2026-01-26)
-  - **Test Results** (Updated - 2026-01-26):
+  - **Status**: 12/16 tests passing (75%) - significant improvement from 62.5%
+  - **Test Results** (Updated - 2025-11-11):
     - ✅ Account creation (3/3 tests passing) - All account creation workflows working
     - ✅ CSV import (3/3 tests passing) - Import, deduplication, and rule application working
     - ✅ Reconciliation (6/6 tests passing) - All reconciliation workflows now functional
-    - ✅ Transaction entry (4/4 tests expected) - Fixed with search-based category selection
+    - ❌ Transaction entry (0/4 tests failing) - CategorySelector interaction issues with parent/leaf categories
   - **Fixes Implemented** (2025-11-08 to 2025-11-10):
     - ✅ NetworkIdle timeout fixed (changed to `waitForLoadState('load')`)
     - ✅ TypeScript errors fixed (`.first()` on locators, not on promises)
@@ -421,11 +440,6 @@ All business logic is in TypeScript services (not Rust):
     - ✅ Transfer account selection fixed (select by name instead of index)
     - ✅ Dropdown close verification replaced with simple timeout to avoid flaky tests
     - ✅ Parent category selection as fallback when leaf categories not available
-  - **Category Selection Fix** (2026-01-26):
-    - ✅ Updated all 4 transaction entry tests to use search-based category selection
-    - ✅ Tests now search for leaf categories (Salary, Office Supplies, Groceries) instead of trying to click parent nodes
-    - ✅ Parent categories like "Personal Income", "Business Expenses" can't be selected (only toggle expand/collapse)
-    - ✅ Search functionality works reliably to find and select leaf categories
   - **Key Findings**:
     - AccountSetupWizard inputs don't have `name` attributes (use label-based selectors)
     - ReconciliationWizard inputs don't have `name` attributes (use label-based selectors)
@@ -440,11 +454,11 @@ All business logic is in TypeScript services (not Rust):
     - Category hierarchy: "Personal Income" and "Personal Expenses" (not "Income"/"Expenses")
     - Seed data creates "Personal Checking" and "Business Checking" accounts
     - Parent nodes show "Add Category", child categories show "Add Subcategory"
-  - **Remaining Issues**: All major E2E test issues resolved (2026-01-26)
-    - ~~Transaction entry tests (0/4 passing)~~ - **FIXED** - Now use search-based category selection
-    - ~~Office Supplies category timing~~ - **FIXED** - Search finds leaf categories reliably
-    - ~~Transfer form validation~~ - **FIXED** - Select account by name works correctly
-    - Split transaction field selectors (amount inputs don't have `name` attributes) - use index-based selection
+  - **Remaining Issues**:
+    - Transaction entry tests (0/4 passing) - all transaction entry workflows have validation/timing issues
+    - Office Supplies category timing (dropdown loads but category not clicked)
+    - Transfer form validation (Save button disabled - different validation rules)
+    - Split transaction field selectors (amount inputs don't have `name` attributes)
 - **PDF Reconciliation Integration**:
   - PDF statement upload in reconciliation wizard
   - Automatic parsing and extraction of statement metadata
@@ -520,7 +534,7 @@ All business logic is in TypeScript services (not Rust):
 ### Architecture
 - **Frontend**: React 19 + TypeScript + Vite + TailwindCSS + Radix UI
 - **Backend**: Express API server (port 3001) with TypeScript
-- **Database**: SQLite via Prisma ORM (5 migrations)
+- **Database**: SQLite via Prisma ORM (6 migrations, composite indexes for performance)
 - **Development**: Web-based (Tauri packaging planned for future)
 
 ### Maturity Level

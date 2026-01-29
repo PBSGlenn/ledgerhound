@@ -23,6 +23,7 @@ export function CategoryFormModal({
 }: CategoryFormModalProps) {
   const [categoryName, setCategoryName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { showToast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -30,23 +31,32 @@ export function CategoryFormModal({
     if (!categoryName.trim()) return;
 
     setLoading(true);
+    setError(null);
     try {
       await onSuccess(categoryName.trim());
       setCategoryName('');
       onClose();
-    } catch (error) {
-      console.error('Failed to create category:', error);
-      showToast('Failed to create category', 'error');
+    } catch (err) {
+      console.error('Failed to create category:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create category';
+      setError(errorMessage);
+      showToast('error', errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleClose = () => {
+    setCategoryName('');
+    setError(null);
+    onClose();
+  };
+
   return (
-    <Dialog.Root open={isOpen} onOpenChange={onClose}>
+    <Dialog.Root open={isOpen} onOpenChange={handleClose}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md z-50">
+        <Dialog.Overlay className="fixed inset-0 bg-black/50" style={{ zIndex: 2147483646 }} />
+        <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md" style={{ zIndex: 2147483647 }}>
           <div className="p-4">
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
@@ -87,19 +97,29 @@ export function CategoryFormModal({
                 <input
                   type="text"
                   value={categoryName}
-                  onChange={(e) => setCategoryName(e.target.value)}
+                  onChange={(e) => {
+                    setCategoryName(e.target.value);
+                    if (error) setError(null);
+                  }}
                   placeholder="e.g., Office Supplies, Marketing, Rent"
                   autoFocus
                   required
-                  className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+                  className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-700 text-slate-900 dark:text-white ${
+                    error ? 'border-red-500' : 'border-slate-300 dark:border-slate-600'
+                  }`}
                 />
+                {error && (
+                  <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">
+                    {error}
+                  </p>
+                )}
               </div>
 
               {/* Buttons */}
               <div className="flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
                   disabled={loading}
                 >

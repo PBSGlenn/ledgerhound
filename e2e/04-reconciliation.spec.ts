@@ -3,21 +3,29 @@ import { test, expect } from '@playwright/test';
 test.describe('Reconciliation Workflow', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    // Wait for app to load (using 'load' instead of 'networkidle' due to continuous polling)
-    await page.waitForLoadState('load');
+    await page.waitForLoadState('domcontentloaded');
 
-    // Wait for the app to load and accounts to be fetched
-    await page.waitForTimeout(1000);
+    // Wait for app to initialize - check for sidebar or main UI element
+    await expect(
+      page.locator('button:has-text("Accounts"), [data-testid="accounts-tab"]'),
+      'App should load with Accounts tab visible'
+    ).toBeVisible({ timeout: 15000 });
 
     // Make sure we're on the Accounts tab
     await page.click('button:has-text("Accounts")');
 
-    // Wait for account list to populate
-    await page.waitForTimeout(500);
+    // Wait for account list to populate - look for seeded account
+    await expect(
+      page.locator('text=Personal Checking'),
+      'Personal Checking account should be visible in sidebar'
+    ).toBeVisible({ timeout: 10000 });
 
     // Select an account first (Reconcile button is disabled without an account selected)
-    await page.click('text=Personal Checking', { timeout: 10000 });
-    await expect(page.locator('h1:has-text("Personal Checking")')).toBeVisible({ timeout: 10000 });
+    await page.click('text=Personal Checking');
+    await expect(
+      page.locator('h1:has-text("Personal Checking")'),
+      'Account header should be visible after selection'
+    ).toBeVisible({ timeout: 10000 });
   });
 
   test('should start a reconciliation session', async ({ page }) => {
@@ -54,11 +62,11 @@ test.describe('Reconciliation Workflow', () => {
       // Confirm to start reconciliation - target the submit button inside the dialog
       await page.locator('button[type="submit"]:has-text("Start Reconciliation")').click({ force: true });
 
-      // Wait for page to process and session to start
-      await page.waitForTimeout(2000);
-
       // Verify reconciliation session started - look for session header
-      await expect(page.locator('text=Transactions to Reconcile')).toBeVisible({ timeout: 10000 });
+      await expect(
+        page.locator('text=Transactions to Reconcile'),
+        'Reconciliation session should start with transaction list visible'
+      ).toBeVisible({ timeout: 15000 });
     }
   });
 
@@ -86,13 +94,13 @@ test.describe('Reconciliation Workflow', () => {
 
       // Use force click to bypass modal overlay - target submit button inside dialog
       await page.locator('button[type="submit"]:has-text("Start Reconciliation")').click({ force: true });
-
-      // Wait for session to initialize
-      await page.waitForTimeout(2000);
     }
 
     // Wait for transaction list to load - look for the transactions header
-    await expect(page.locator('text=Transactions to Reconcile')).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.locator('text=Transactions to Reconcile'),
+      'Reconciliation session should start with transaction list visible'
+    ).toBeVisible({ timeout: 15000 });
 
     // Click on first transaction checkbox to mark as reconciled
     const firstCheckbox = page.locator('input[type="checkbox"], [role="checkbox"]').nth(1);
@@ -129,10 +137,14 @@ test.describe('Reconciliation Workflow', () => {
       await page.click('button:has-text("Start"), button:has-text("Begin")', { force: true });
     }
 
+    // Wait for session to initialize
+    await expect(
+      page.locator('text=Transactions to Reconcile, text=Reconciliation'),
+      'Reconciliation view should be visible'
+    ).toBeVisible({ timeout: 15000 });
+
     // In a balanced state, there should be a "Lock" or "Finish" button enabled
     // Or a balanced indicator showing $0.00 difference
-    await page.waitForTimeout(1000);
-
     const balancedIndicator = page.locator('text=Balanced, text=$0.00, text=Difference: $0.00');
     if (await balancedIndicator.count() > 0) {
       await expect(balancedIndicator.first()).toBeVisible();
@@ -164,7 +176,11 @@ test.describe('Reconciliation Workflow', () => {
       await page.click('button:has-text("Start"), button:has-text("Begin")', { force: true });
     }
 
-    await page.waitForTimeout(1000);
+    // Wait for session to initialize
+    await expect(
+      page.locator('text=Transactions to Reconcile, text=Reconciliation'),
+      'Reconciliation view should be visible'
+    ).toBeVisible({ timeout: 15000 });
 
     // Look for enabled "Lock" or "Finish" button
     const lockButton = page.locator('button:has-text("Lock"), button:has-text("Finish Reconciliation")').first();

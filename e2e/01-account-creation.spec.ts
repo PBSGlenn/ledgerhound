@@ -3,10 +3,13 @@ import { test, expect } from '@playwright/test';
 test.describe('Account Creation Workflow', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    // Wait for app to load (using 'load' instead of 'networkidle' due to continuous polling)
-    await page.waitForLoadState('load');
-    // Give the app a moment to initialize
-    await page.waitForTimeout(1000);
+    await page.waitForLoadState('domcontentloaded');
+
+    // Wait for app to initialize - check for sidebar or main UI element
+    await expect(
+      page.locator('button:has-text("Accounts"), [data-testid="accounts-tab"]'),
+      'App should load with Accounts tab visible'
+    ).toBeVisible({ timeout: 15000 });
   });
 
   test('should create a new bank account', async ({ page }) => {
@@ -54,15 +57,21 @@ test.describe('Account Creation Workflow', () => {
     // Navigate to Categories tab
     await page.click('button:has-text("Categories")');
 
-    // Wait for categories to load
-    await page.waitForTimeout(500);
+    // Wait for categories to load - look for the category tree structure
+    await expect(
+      page.locator('button:has-text("Personal Income")'),
+      'Personal Income category should be visible'
+    ).toBeVisible({ timeout: 10000 });
 
     // Right-click on "Personal Income" parent node to add a subcategory
     const personalIncomeButton = page.locator('button:has-text("Personal Income")').first();
     await personalIncomeButton.click({ button: 'right' });
 
-    // Wait for context menu to appear and click "Add Category" (parent nodes show "Add Category")
-    await page.waitForTimeout(200);
+    // Wait for context menu to appear
+    await expect(
+      page.locator('text=Add Category'),
+      'Context menu with "Add Category" should appear'
+    ).toBeVisible({ timeout: 5000 });
     await page.click('text=Add Category');
 
     // Fill in category name (using label-based selector)
@@ -80,15 +89,21 @@ test.describe('Account Creation Workflow', () => {
     // Navigate to Categories tab
     await page.click('button:has-text("Categories")');
 
-    // Wait for categories to load
-    await page.waitForTimeout(500);
+    // Wait for categories to load - look for the category tree structure
+    await expect(
+      page.locator('button:has-text("Personal Expenses")'),
+      'Personal Expenses category should be visible'
+    ).toBeVisible({ timeout: 10000 });
 
     // Right-click on "Personal Expenses" parent node
     const personalExpensesButton = page.locator('button:has-text("Personal Expenses")').first();
     await personalExpensesButton.click({ button: 'right' });
 
-    // Wait for context menu to appear and click "Add Category" (parent nodes show "Add Category")
-    await page.waitForTimeout(200);
+    // Wait for context menu to appear
+    await expect(
+      page.locator('text=Add Category'),
+      'Context menu with "Add Category" should appear'
+    ).toBeVisible({ timeout: 5000 });
     await page.click('text=Add Category');
 
     // Fill in category name (using label-based selector)

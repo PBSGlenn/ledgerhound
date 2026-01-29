@@ -10,7 +10,7 @@ import { BookSwitcher } from '../Book/BookSwitcher';
 import { OnboardingWizard } from '../Onboarding/OnboardingWizard';
 import type { AccountWithBalance } from '../../types';
 import type { Book } from '../../types/book';
-import { ImportWizard } from '../../features/import/ImportWizard';
+import { BankStatementImport } from '../Import/BankStatementImport';
 import { StripeImportWizard } from '../../features/import/StripeImportWizard';
 import { accountAPI } from '../../lib/api';
 
@@ -31,17 +31,10 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: Ma
 
   const [isImporting, setIsImporting] = useState(false);
   const [isStripeImporting, setIsStripeImporting] = useState(false);
+  const [registerRefreshKey, setRegisterRefreshKey] = useState(0);
 
   useEffect(() => {
-    loadAccounts().then(() => {
-      // Check if we should navigate to a specific account after account creation
-      const navigateToAccountId = localStorage.getItem('ledgerhound-navigate-to-account');
-      if (navigateToAccountId) {
-        localStorage.removeItem('ledgerhound-navigate-to-account');
-        setSelectedAccountId(navigateToAccountId);
-        setCurrentView('register');
-      }
-    });
+    loadAccounts();
   }, []);
 
   const loadAccounts = async () => {
@@ -53,27 +46,25 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: Ma
     }
   };
 
+  // Refresh both accounts AND trigger register to reload
+  const handleTransactionSaved = async () => {
+    await loadAccounts();
+    setRegisterRefreshKey(prev => prev + 1);
+  };
+
   const handleNewBookCreated = (bookId: string) => {
     setShowNewBookWizard(false);
     onSwitchBook(bookId);
   };
 
   if (showNewBookWizard) {
-    return (
-      <OnboardingWizard
-        onComplete={handleNewBookCreated}
-        onCancel={() => setShowNewBookWizard(false)}
-      />
-    );
+    return <OnboardingWizard onComplete={handleNewBookCreated} />;
   }
 
   return (
     <div className="flex h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-      {/* Book Switcher - Top Left - adjusts position when sidebar collapses */}
-      <div
-        className="absolute top-4 z-10 transition-all duration-300"
-        style={{ left: sidebarCollapsed ? '4.5rem' : '1rem' }}
-      >
+      {/* Book Switcher - Top Left */}
+      <div className="absolute top-4 left-4 z-10">
         <BookSwitcher
           currentBook={currentBook}
           onSwitchBook={onSwitchBook}
@@ -105,7 +96,7 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: Ma
               : undefined
           }
           currentView={currentView}
-          onRefresh={loadAccounts}
+          onRefresh={handleTransactionSaved}
           onImportClick={() => setIsImporting(true)}
           onStripeImportClick={() => setIsStripeImporting(true)}
           onReportsClick={() => setCurrentView('reports')}
@@ -132,7 +123,7 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: Ma
               account={accounts.find((a) => a.id === selectedAccountId)!}
             />
           ) : selectedAccountId ? (
-            <RegisterView accountId={selectedAccountId} />
+            <RegisterView key={registerRefreshKey} accountId={selectedAccountId} />
           ) : (
             <DashboardView
               accounts={accounts}
@@ -147,11 +138,16 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: Ma
       </div>
 
       {isImporting && (
-        <ImportWizard
+        <BankStatementImport
           isOpen={isImporting}
           onClose={() => setIsImporting(false)}
-          onImportSuccess={loadAccounts}
+          onImportComplete={loadAccounts}
           accountId={selectedAccountId || undefined}
+          accountName={
+            selectedAccountId
+              ? accounts.find((a) => a.id === selectedAccountId)?.name
+              : undefined
+          }
         />
       )}
 

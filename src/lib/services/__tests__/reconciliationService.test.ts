@@ -176,11 +176,6 @@ describe('ReconciliationService', () => {
 
   describe('getReconciliationStatus', () => {
     it('should calculate reconciliation status correctly', async () => {
-      // Set opening balance
-      await accountService.updateAccount(accounts.personalChecking.id, {
-        openingBalance: 1000,
-      });
-
       // Create transactions
       const tx1 = await transactionService.createTransaction({
         date: new Date('2025-01-15'),
@@ -200,7 +195,9 @@ describe('ReconciliationService', () => {
         ],
       });
 
-      // Create reconciliation
+      // Create reconciliation with statement balances
+      // New formula: statementStartBalance + reconciledAmount = statementEndBalance
+      // 1000 + (500 - 200) = 1300
       const reconciliation = await reconciliationService.createReconciliation({
         accountId: accounts.personalChecking.id,
         statementStartDate: new Date('2025-01-01'),
@@ -209,29 +206,29 @@ describe('ReconciliationService', () => {
         statementEndBalance: 1300, // 1000 + 500 - 200
       });
 
-      // Mark postings as cleared
+      // Get postings for this account and reconcile them (not just clear)
       const postings = await prisma.posting.findMany({
         where: { accountId: accounts.personalChecking.id },
       });
 
-      await prisma.posting.updateMany({
-        where: { id: { in: postings.map((p) => p.id) } },
-        data: { cleared: true },
-      });
+      // Reconcile postings using the service method (which sets cleared, reconciled, and reconcileId)
+      await reconciliationService.reconcilePostings(
+        reconciliation.id,
+        postings.map((p) => p.id)
+      );
 
       const status = await reconciliationService.getReconciliationStatus(reconciliation.id);
 
       expect(status.statementBalance).toBe(1300);
-      expect(status.clearedBalance).toBe(1300); // 1000 + 500 - 200
+      expect(status.statementStartBalance).toBe(1000);
+      expect(status.reconciledAmount).toBe(300); // 500 - 200
+      expect(status.expectedEndBalance).toBe(1300); // 1000 + 300
+      expect(status.clearedBalance).toBe(1300); // Same as expectedEndBalance for compatibility
       expect(status.isBalanced).toBe(true);
       expect(status.difference).toBeCloseTo(0, 2);
     });
 
     it('should identify unbalanced reconciliation', async () => {
-      await accountService.updateAccount(accounts.personalChecking.id, {
-        openingBalance: 1000,
-      });
-
       await transactionService.createTransaction({
         date: new Date('2025-01-15'),
         payee: 'Test',
@@ -241,27 +238,33 @@ describe('ReconciliationService', () => {
         ],
       });
 
+      // Statement says end balance is 1000, but we have a -100 transaction
+      // If we reconcile that transaction: 1000 + (-100) = 900, which != 1000
       const reconciliation = await reconciliationService.createReconciliation({
         accountId: accounts.personalChecking.id,
         statementStartDate: new Date('2025-01-01'),
         statementEndDate: new Date('2025-01-31'),
         statementStartBalance: 1000,
-        statementEndBalance: 1000, // Should be 900 after -100 transaction
+        statementEndBalance: 1000, // But actual should be 900 after -100 transaction
       });
 
-      // Mark posting as cleared
+      // Reconcile the posting
       const postings = await prisma.posting.findMany({
         where: { accountId: accounts.personalChecking.id },
       });
 
-      await prisma.posting.updateMany({
-        where: { id: { in: postings.map((p) => p.id) } },
-        data: { cleared: true },
-      });
+      await reconciliationService.reconcilePostings(
+        reconciliation.id,
+        postings.map((p) => p.id)
+      );
 
       const status = await reconciliationService.getReconciliationStatus(reconciliation.id);
 
+      // Expected: 1000 + (-100) = 900, but statement says 1000
+      // Difference = expectedEndBalance - statementEndBalance = 900 - 1000 = -100
       expect(status.isBalanced).toBe(false);
+      expect(status.expectedEndBalance).toBe(900);
+      expect(status.statementBalance).toBe(1000);
       expect(status.difference).toBeCloseTo(-100, 2);
     });
   });
@@ -406,10 +409,6 @@ describe('ReconciliationService', () => {
     });
 
     it('should not lock unbalanced reconciliation', async () => {
-      await accountService.updateAccount(accounts.personalChecking.id, {
-        openingBalance: 1000,
-      });
-
       await transactionService.createTransaction({
         date: new Date('2025-01-15'),
         payee: 'Test',
@@ -419,24 +418,25 @@ describe('ReconciliationService', () => {
         ],
       });
 
-      // Mark posting as cleared
-      const postings = await prisma.posting.findMany({
-        where: { accountId: accounts.personalChecking.id },
-      });
-
-      await prisma.posting.updateMany({
-        where: { id: { in: postings.map((p) => p.id) } },
-        data: { cleared: true },
-      });
-
       const reconciliation = await reconciliationService.createReconciliation({
         accountId: accounts.personalChecking.id,
         statementStartDate: new Date('2025-01-01'),
         statementEndDate: new Date('2025-01-31'),
         statementStartBalance: 1000,
-        statementEndBalance: 1000, // Should be 900, so unbalanced
+        statementEndBalance: 1000, // Should be 900 after reconciling -100, so will be unbalanced
       });
 
+      // Reconcile the posting (this creates the imbalance)
+      const postings = await prisma.posting.findMany({
+        where: { accountId: accounts.personalChecking.id },
+      });
+
+      await reconciliationService.reconcilePostings(
+        reconciliation.id,
+        postings.map((p) => p.id)
+      );
+
+      // Now locking should fail because 1000 + (-100) = 900 != 1000
       await expect(
         reconciliationService.lockReconciliation(reconciliation.id)
       ).rejects.toThrow('Cannot lock reconciliation with difference');

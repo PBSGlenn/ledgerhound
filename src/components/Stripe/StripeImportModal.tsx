@@ -6,7 +6,7 @@ import { toast } from 'react-hot-toast';
 interface StripeImportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: () => void | Promise<void>;
 }
 
 interface DatePreset {
@@ -123,7 +123,7 @@ export function StripeImportModal({ isOpen, onClose, onSuccess }: StripeImportMo
         toast.error(`${result.errors.length} errors occurred. Check console for details.`);
       }
 
-      onSuccess();
+      await onSuccess();
       onClose();
     } catch (error) {
       console.error('Import failed:', error);

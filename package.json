@@ -67,6 +67,7 @@
     "express": "^5.1.0",
     "lucide-react": "^0.544.0",
     "multer": "^2.0.2",
+    "munkres-js": "^1.2.2",
     "papaparse": "^5.5.3",
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^5.4.149",

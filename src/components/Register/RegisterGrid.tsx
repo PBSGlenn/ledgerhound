@@ -700,9 +700,8 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
           onClose={handleModalClose}
           accountId={accountId}
           transactionId={editingTransactionId || undefined}
-          onSuccess={() => {
-            loadEntries();
-            handleModalClose();
+          onSuccess={async () => {
+            await loadEntries();
           }}
         />
       )}
@@ -751,9 +750,9 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
         onClose={() => setShowImportModal(false)}
         accountId={accountId}
         accountName={account?.name || "Account"}
-        onImportComplete={() => {
-          loadEntries();
-          setShowImportModal(false);
+        onImportComplete={async () => {
+          await loadEntries();
+          // Note: BankStatementImport calls handleClose() after onImportComplete
         }}
       />
 
@@ -761,8 +760,8 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
       <StripeImportModal
         isOpen={showStripeImportModal}
         onClose={() => setShowStripeImportModal(false)}
-        onSuccess={() => {
-          loadEntries();
+        onSuccess={async () => {
+          await loadEntries();
         }}
       />
     </div>

@@ -119,6 +119,8 @@ model Transaction {
   @@index([payee])
   @@index([importBatchId])
   @@index([externalId])
+  // Composite index for date range + status filter
+  @@index([date, status])
   @@map("transactions")
 }
 
@@ -139,14 +141,19 @@ model Posting {
 
   // Relations
   transaction           Transaction   @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  account               Account       @relation(fields: [accountId], references: [id])
-  reconciliation        Reconciliation? @relation(fields: [reconcileId], references: [id])
+  account               Account       @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  reconciliation        Reconciliation? @relation(fields: [reconcileId], references: [id], onDelete: SetNull)
 
   @@index([transactionId])
   @@index([accountId])
   @@index([cleared])
   @@index([reconciled])
   @@index([isBusiness])
+  @@index([reconcileId])
+  // Composite indexes for common query patterns
+  @@index([accountId, cleared, reconciled])  // Register queries with filter
+  @@index([accountId, isBusiness])           // GST report queries
+  @@index([isBusiness, gstCode])             // GST summary queries
   @@map("postings")
 }
 

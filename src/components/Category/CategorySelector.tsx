@@ -1,12 +1,20 @@
 /**
  * CategorySelector Component
  * Hierarchical dropdown for selecting income/expense categories
+ *
+ * NOTE: This component uses a portal to escape overflow:hidden/auto containers.
+ * It manually restores pointer-events since Radix Dialog sets pointer-events:none
+ * on document.body when modal.
+ * See: https://github.com/radix-ui/primitives/issues/1317
+ * See: https://github.com/radix-ui/primitives/issues/2122
  */
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Portal } from '@radix-ui/react-portal';
-import { ChevronDown, ChevronRight, Search, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ChevronDown, ChevronRight, Plus, X } from 'lucide-react';
 import type { AccountType } from '@prisma/client';
+import { CategoryFormModal } from './CategoryFormModal';
+import { useToast } from '../../hooks/useToast';
 
 export interface CategoryNode {
   id: string;
@@ -47,23 +55,89 @@ export function CategorySelector({
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
 
-  // Update dropdown position when opened
+  // New category modal state
+  const [showNewCategoryModal, setShowNewCategoryModal] = useState(false);
+  const [newCategoryParent, setNewCategoryParent] = useState<CategoryNode | null>(null);
+  const { showToast } = useToast();
+
+  // Close dropdown function
+  const closeDropdown = () => {
+    setIsOpen(false);
+    setSearchTerm('');
+  };
+
+  // Calculate dropdown position when opened
   useEffect(() => {
-    if (isOpen && triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
       setDropdownPosition({
-        top: rect.bottom + window.scrollY + 4,
-        left: rect.left + window.scrollX,
+        top: rect.bottom + 4,
+        left: rect.left,
         width: rect.width,
       });
-      // Focus the search input when dropdown opens
-      setTimeout(() => {
-        searchInputRef.current?.focus();
-      }, 50);
+    }
+  }, [isOpen]);
+
+  // Click outside handler
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+
+      // If click is inside our container (trigger button), don't close
+      if (containerRef.current?.contains(target)) {
+        return;
+      }
+
+      // If click is inside the dropdown (portal), don't close
+      if (dropdownRef.current?.contains(target)) {
+        return;
+      }
+
+      // Click was outside - close dropdown
+      closeDropdown();
+    };
+
+    // Use mousedown for immediate response, add on next frame to avoid catching opening click
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside, true); // capture phase
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('mousedown', handleClickOutside, true);
+    };
+  }, [isOpen]);
+
+  // Focus search input when dropdown opens
+  useEffect(() => {
+    if (isOpen && searchInputRef.current) {
+      // Multiple attempts to focus - Radix Dialog can interfere with focus
+      const focusInput = () => {
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+        }
+      };
+
+      // Try immediately
+      focusInput();
+
+      // Try again after a short delay (for DOM readiness)
+      const t1 = setTimeout(focusInput, 10);
+
+      // Try again after a longer delay (for Radix Dialog interference)
+      const t2 = setTimeout(focusInput, 50);
+
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+      };
     }
   }, [isOpen]);
 
@@ -85,7 +159,6 @@ export function CategorySelector({
       if (!response.ok) throw new Error('Failed to load categories');
 
       const tree = await response.json();
-      console.log('CategorySelector: Full tree structure:', JSON.stringify(tree, null, 2));
       setCategories(tree);
 
       // Flatten for search and selection
@@ -161,13 +234,50 @@ export function CategorySelector({
     }
 
     onChange(categoryId);
-    setIsOpen(false);
-    setSearchTerm('');
+    closeDropdown();
   };
 
   const handleClear = (e: React.MouseEvent) => {
     e.stopPropagation();
     onChange(null);
+  };
+
+  const handleNewCategory = () => {
+    setNewCategoryParent(null);
+    setShowNewCategoryModal(true);
+    closeDropdown(); // Close dropdown so modal is visible
+  };
+
+  const handleCreateCategory = async (categoryName: string) => {
+    // Determine the type and business settings from parent or current selector type
+    const categoryType = newCategoryParent?.type || type || 'EXPENSE';
+    const isBusiness = newCategoryParent?.isBusinessDefault || false;
+    const parentId = newCategoryParent?.id.startsWith('virtual-') ? null : newCategoryParent?.id || null;
+
+    const response = await fetch('http://localhost:3001/api/categories/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: categoryName,
+        type: categoryType,
+        parentId,
+        isBusinessDefault: isBusiness,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to create category');
+    }
+
+    const newCategory = await response.json();
+    showToast('success', `Category "${categoryName}" created`);
+
+    // Reload categories and select the new one
+    await loadCategories();
+    onChange(newCategory.id);
+    setShowNewCategoryModal(false);
+    closeDropdown();
   };
 
   // Get display name for selected category
@@ -203,21 +313,38 @@ export function CategorySelector({
   }, [searchTerm, categories, flatCategories]);
 
   const filterTree = (nodes: CategoryNode[], matchIds: Set<string>): CategoryNode[] => {
-    return nodes
-      .map((node) => {
-        const hasMatchingChild = node.children?.some((child) =>
-          matchIds.has(child.id) || (child.children && filterTree([child], matchIds).length > 0)
-        );
+    const result: CategoryNode[] = [];
+    for (const node of nodes) {
+      const hasMatchingChild = node.children?.some((child) =>
+        matchIds.has(child.id) || (child.children && filterTree([child], matchIds).length > 0)
+      );
 
-        if (matchIds.has(node.id) || hasMatchingChild) {
-          return {
-            ...node,
-            children: node.children ? filterTree(node.children, matchIds) : undefined,
-          };
-        }
-        return null;
-      })
-      .filter((node): node is CategoryNode => node !== null);
+      if (matchIds.has(node.id) || hasMatchingChild) {
+        result.push({
+          ...node,
+          children: node.children ? filterTree(node.children, matchIds) : undefined,
+        });
+      }
+    }
+    return result;
+  };
+
+  // Highlight search term in text
+  const highlightMatch = (text: string) => {
+    if (!searchTerm) return text;
+
+    const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const parts = text.split(regex);
+
+    return parts.map((part, i) =>
+      regex.test(part) ? (
+        <mark key={i} className="bg-yellow-200 dark:bg-yellow-700 text-inherit rounded px-0.5">
+          {part}
+        </mark>
+      ) : (
+        part
+      )
+    );
   };
 
   const renderCategoryNode = (node: CategoryNode, depth: number = 0) => {
@@ -225,6 +352,7 @@ export function CategorySelector({
     const isExpanded = expandedNodes.has(node.id);
     const isSelected = value === node.id;
     const isLeaf = !hasChildren;
+    const isVirtual = node.id.startsWith('virtual-');
 
     return (
       <div key={node.id} className="select-none">
@@ -234,9 +362,12 @@ export function CategorySelector({
           className={`w-full flex items-center gap-1.5 px-2 py-1.5 text-left text-xs transition-colors ${
             isSelected
               ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-900 dark:text-blue-100'
-              : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100'
+              : isVirtual || !isLeaf
+                ? 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 cursor-default'
+                : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-900 dark:text-slate-100'
           } ${!isLeaf ? 'font-semibold' : ''}`}
           style={{ paddingLeft: `${depth * 1.25 + 0.5}rem` }}
+          title={!isLeaf ? 'Click to expand/collapse' : undefined}
         >
           {hasChildren ? (
             <span
@@ -257,7 +388,7 @@ export function CategorySelector({
           )}
 
           <span className="flex-1 truncate">
-            {node.name}
+            {highlightMatch(node.name)}
           </span>
 
           {!isLeaf && (
@@ -276,11 +407,93 @@ export function CategorySelector({
     );
   };
 
+  // The dropdown content - rendered via portal
+  const dropdownContent = (
+    <div
+      ref={dropdownRef}
+      className="fixed bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg max-h-80 flex flex-col"
+      style={{
+        top: `${dropdownPosition.top}px`,
+        left: `${dropdownPosition.left}px`,
+        width: `${dropdownPosition.width}px`,
+        zIndex: 2147483647, // Max z-index to ensure we're on top
+        pointerEvents: 'auto', // Override Radix Dialog's pointer-events:none
+      }}
+      onMouseDown={(e) => e.stopPropagation()} // Prevent Dialog from intercepting
+    >
+      {/* Search */}
+      <div className="p-2 border-b border-slate-200 dark:border-slate-700">
+        <input
+          ref={searchInputRef}
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            // Force focus on mousedown before Radix can intercept
+            e.currentTarget.focus();
+          }}
+          onFocus={(e) => {
+            // Ensure we keep focus
+            e.stopPropagation();
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            e.currentTarget.focus();
+          }}
+          onKeyDown={(e) => {
+            e.stopPropagation(); // Prevent Radix from intercepting keystrokes
+            if (e.key === 'Enter') {
+              e.preventDefault();
+            }
+            if (e.key === 'Escape') {
+              closeDropdown();
+            }
+          }}
+          placeholder="Search categories..."
+          className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500 focus:border-transparent focus:outline-none"
+          autoComplete="off"
+          tabIndex={0}
+        />
+      </div>
+
+      {/* Category Tree */}
+      <div
+        className="flex-1 overflow-y-auto p-1"
+        onWheel={(e) => e.stopPropagation()} // Allow scrolling
+      >
+        {loading ? (
+          <div className="p-4 text-center text-sm text-slate-500 dark:text-slate-400">
+            Loading categories...
+          </div>
+        ) : filteredCategories.length === 0 ? (
+          <div className="p-4 text-center text-sm text-slate-500 dark:text-slate-400">
+            {searchTerm ? 'No categories found' : 'No categories available'}
+          </div>
+        ) : (
+          filteredCategories.map((node) => renderCategoryNode(node))
+        )}
+      </div>
+
+      {/* New Category Button */}
+      <div className="border-t border-slate-200 dark:border-slate-700 p-2">
+        <button
+          type="button"
+          onClick={handleNewCategory}
+          onMouseDown={(e) => e.stopPropagation()} // Prevent event bubbling
+          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-md transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          <span>New Category...</span>
+        </button>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="relative">
-      {/* Selected Value / Trigger */}
+    <div ref={containerRef} className="relative" data-category-selector>
+      {/* Trigger Button */}
       <button
-        ref={triggerRef}
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
@@ -321,57 +534,21 @@ export function CategorySelector({
         </div>
       </button>
 
-      {/* Dropdown */}
-      {isOpen && !disabled && (
-        <Portal>
-          {/* Backdrop - uses pointer-events: none except for click handling */}
-          <div
-            className="fixed inset-0 z-[150]"
-            onClick={() => setIsOpen(false)}
-          />
+      {/* Dropdown - rendered via portal to document.body to escape overflow containers */}
+      {isOpen && !disabled && createPortal(dropdownContent, document.body)}
 
-          {/* Dropdown Content */}
-          <div
-            className="fixed z-[151] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md shadow-lg max-h-96 flex flex-col"
-            style={{
-              top: `${dropdownPosition.top}px`,
-              left: `${dropdownPosition.left}px`,
-              width: `${dropdownPosition.width}px`,
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Search */}
-            <div className="p-2 border-b border-slate-200 dark:border-slate-700">
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                onMouseDown={(e) => e.stopPropagation()}
-                placeholder="Search categories..."
-                className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500 focus:border-transparent focus:outline-none"
-                autoFocus
-              />
-            </div>
-
-            {/* Category Tree */}
-            <div className="flex-1 overflow-y-auto p-1">
-              {loading ? (
-                <div className="p-4 text-center text-sm text-slate-500 dark:text-slate-400">
-                  Loading categories...
-                </div>
-              ) : filteredCategories.length === 0 ? (
-                <div className="p-4 text-center text-sm text-slate-500 dark:text-slate-400">
-                  {searchTerm ? 'No categories found' : 'No categories available'}
-                </div>
-              ) : (
-                filteredCategories.map((node) => renderCategoryNode(node))
-              )}
-            </div>
-          </div>
-        </Portal>
-      )}
+      {/* New Category Modal */}
+      <CategoryFormModal
+        isOpen={showNewCategoryModal}
+        onClose={() => {
+          setShowNewCategoryModal(false);
+          setNewCategoryParent(null);
+        }}
+        parentName={newCategoryParent?.name || (type === 'INCOME' ? 'Income' : 'Expenses')}
+        accountType={newCategoryParent?.type || type || 'EXPENSE'}
+        isBusinessDefault={newCategoryParent?.isBusinessDefault || false}
+        onSuccess={handleCreateCategory}
+      />
     </div>
   );
 }

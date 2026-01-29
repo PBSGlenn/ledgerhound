@@ -51,13 +51,22 @@ export const accountAPI = {
 
     const accountsWithBalances = await Promise.all(
       accounts.map(async (account: Account) => {
-        const balanceResponse = await fetch(`${API_BASE}/accounts/${account.id}/balance`);
-        const { balance } = await balanceResponse.json();
-        return {
-          ...account,
-          currentBalance: balance,
-          clearedBalance: balance,
-        };
+        try {
+          const balanceResponse = await fetch(`${API_BASE}/accounts/${account.id}/balance`);
+          if (!balanceResponse.ok) {
+            console.warn(`Failed to fetch balance for account ${account.id}`);
+            return { ...account, currentBalance: 0, clearedBalance: 0 };
+          }
+          const { balance } = await balanceResponse.json();
+          return {
+            ...account,
+            currentBalance: balance ?? 0,
+            clearedBalance: balance ?? 0,
+          };
+        } catch (error) {
+          console.warn(`Error fetching balance for account ${account.id}:`, error);
+          return { ...account, currentBalance: 0, clearedBalance: 0 };
+        }
       })
     );
 
@@ -71,21 +80,29 @@ export const accountAPI = {
     const response = await fetch(`${API_BASE}/accounts/${id}`);
     if (response.status === 404) return null;
     if (!response.ok) throw new Error('Failed to fetch account');
-    return response.json();
+    return await response.json();
   },
 
   async getAccountWithBalance(id: string): Promise<AccountWithBalance | null> {
     const account = await this.getAccountById(id);
     if (!account) return null;
 
-    const balanceResponse = await fetch(`${API_BASE}/accounts/${id}/balance`);
-    const { balance, clearedBalance } = await balanceResponse.json();
-
-    return {
-      ...account,
-      currentBalance: balance,
-      clearedBalance,
-    };
+    try {
+      const balanceResponse = await fetch(`${API_BASE}/accounts/${id}/balance`);
+      if (!balanceResponse.ok) {
+        console.warn(`Failed to fetch balance for account ${id}`);
+        return { ...account, currentBalance: 0, clearedBalance: 0 };
+      }
+      const { balance } = await balanceResponse.json();
+      return {
+        ...account,
+        currentBalance: balance ?? 0,
+        clearedBalance: balance ?? 0,
+      };
+    } catch (error) {
+      console.warn(`Error fetching balance for account ${id}:`, error);
+      return { ...account, currentBalance: 0, clearedBalance: 0 };
+    }
   },
 
   async createCategory(payload: CategoryAccountPayload): Promise<Account> {
@@ -115,7 +132,7 @@ export const accountAPI = {
       throw new Error(message);
     }
 
-    return response.json();
+    return await response.json();
   },
 
   async createAccount(payload: {
@@ -161,7 +178,7 @@ export const accountAPI = {
       throw new Error(message);
     }
 
-    return response.json();
+    return await response.json();
   },
 
   async updateAccount(accountId: string, payload: {
@@ -195,7 +212,7 @@ export const accountAPI = {
       throw new Error(message);
     }
 
-    return response.json();
+    return await response.json();
   },
 
   async deleteAccount(accountId: string): Promise<void> {
@@ -215,27 +232,6 @@ export const accountAPI = {
       }
       throw new Error(message);
     }
-  },
-
-  async archiveAccount(accountId: string): Promise<Account> {
-    const response = await fetch(`${API_BASE}/categories/${accountId}/archive`, {
-      method: 'POST',
-    });
-
-    if (!response.ok) {
-      let message = 'Failed to archive account';
-      try {
-        const error = await response.json();
-        if (error?.error) {
-          message = error.error;
-        }
-      } catch {
-        // ignore parse errors
-      }
-      throw new Error(message);
-    }
-
-    return response.json();
   },
 };
 
@@ -257,7 +253,7 @@ export const transactionAPI = {
     const url = `${API_BASE}/transactions/register/${accountId}?${params}`;
     const response = await fetch(url);
     if (!response.ok) throw new Error('Failed to fetch register entries');
-    return response.json();
+    return await response.json();
   },
 
   async createTransaction(data: CreateTransactionDTO): Promise<TransactionWithPostings> {
@@ -270,7 +266,7 @@ export const transactionAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to create transaction');
     }
-    return response.json();
+    return await response.json();
   },
 
   async updateTransaction(data: UpdateTransactionDTO): Promise<TransactionWithPostings> {
@@ -283,7 +279,7 @@ export const transactionAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to update transaction');
     }
-    return response.json();
+    return await response.json();
   },
 
   async getTransaction(id: string): Promise<TransactionWithPostings> {
@@ -291,7 +287,7 @@ export const transactionAPI = {
     if (!response.ok) {
       throw new Error('Failed to fetch transaction');
     }
-    return response.json();
+    return await response.json();
   },
 
   async deleteTransaction(id: string): Promise<void> {
@@ -336,7 +332,7 @@ export const memorizedRuleAPI = {
   async getAllRules(): Promise<MemorizedRule[]> {
     const response = await fetch(`${API_BASE}/rules`);
     if (!response.ok) throw new Error('Failed to fetch memorized rules');
-    return response.json();
+    return await response.json();
   },
 
   async createRule(data: Partial<MemorizedRule>): Promise<MemorizedRule> {
@@ -346,7 +342,7 @@ export const memorizedRuleAPI = {
       body: JSON.stringify(data),
     });
     if (!response.ok) throw new Error('Failed to create rule');
-    return response.json();
+    return await response.json();
   },
 
   async updateRule(id: string, data: Partial<MemorizedRule>): Promise<MemorizedRule> {
@@ -356,7 +352,7 @@ export const memorizedRuleAPI = {
       body: JSON.stringify(data),
     });
     if (!response.ok) throw new Error('Failed to update rule');
-    return response.json();
+    return await response.json();
   },
 
   async deleteRule(id: string): Promise<void> {
@@ -379,8 +375,11 @@ export const memorizedRuleAPI = {
     const response = await fetch(`${API_BASE}/rules/${ruleId}/apply-to-existing`, {
       method: 'POST',
     });
-    if (!response.ok) throw new Error('Failed to apply rule to existing transactions');
-    return response.json();
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Failed to apply rule to existing transactions');
+    }
+    return await response.json();
   },
 };
 
@@ -402,7 +401,7 @@ export const importAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to preview import');
     }
-    return response.json();
+    return await response.json();
   },
 
   async importTransactions(
@@ -421,7 +420,7 @@ export const importAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to import transactions');
     }
-    return response.json();
+    return await response.json();
   },
 
   async saveImportMappingTemplate(
@@ -447,7 +446,7 @@ export const importAPI = {
     const path = query ? `${API_BASE}/import/mappings?${query}` : `${API_BASE}/import/mappings`;
     const response = await fetch(path);
     if (!response.ok) throw new Error('Failed to fetch import mapping templates');
-    return response.json();
+    return await response.json();
   },
 };
 
@@ -476,7 +475,7 @@ export const reportAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to generate P&L report');
     }
-    return response.json();
+    return await response.json();
   },
 
   async generateGSTSummary(startDate: Date, endDate: Date): Promise<GSTSummary> {
@@ -489,7 +488,7 @@ export const reportAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to generate GST summary');
     }
-    return response.json();
+    return await response.json();
   },
 
   async generateBASDraft(startDate: Date, endDate: Date): Promise<BASDraft> {
@@ -502,7 +501,7 @@ export const reportAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to generate BAS draft');
     }
-    return response.json();
+    return await response.json();
   },
 };
 
@@ -534,7 +533,7 @@ export const reconciliationAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to start reconciliation');
     }
-    return response.json();
+    return await response.json();
   },
 
   async getReconciliation(id: string): Promise<Reconciliation> {
@@ -543,7 +542,16 @@ export const reconciliationAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to get reconciliation');
     }
-    return response.json();
+    return await response.json();
+  },
+
+  async getInProgressReconciliation(accountId: string): Promise<Reconciliation | null> {
+    const response = await fetch(`${API_BASE}/reconciliation/in-progress/${accountId}`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to get in-progress reconciliation');
+    }
+    return await response.json();
   },
 
   async getReconciliationStatus(id: string): Promise<{
@@ -560,7 +568,7 @@ export const reconciliationAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to get reconciliation status');
     }
-    return response.json();
+    return await response.json();
   },
 
   async reconcilePostings(reconciliationId: string, postingIds: string[]): Promise<void> {
@@ -595,7 +603,7 @@ export const reconciliationAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to lock reconciliation');
     }
-    return response.json();
+    return await response.json();
   },
 
   async parsePDF(file: File): Promise<{
@@ -676,7 +684,7 @@ export const reconciliationAPI = {
       body: JSON.stringify({
         statementTransactions: statementTransactions.map(tx => ({
           ...tx,
-          date: tx.date.toISOString(),
+          date: tx.date instanceof Date ? tx.date.toISOString() : tx.date,
         })),
       }),
     });
@@ -738,7 +746,7 @@ export const backupAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to create backup');
     }
-    return response.json();
+    return await response.json();
   },
 
   async listBackups(): Promise<Array<{
@@ -752,7 +760,7 @@ export const backupAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to list backups');
     }
-    return response.json();
+    return await response.json();
   },
 
   async restoreBackup(filename: string): Promise<void> {
@@ -787,7 +795,7 @@ export const backupAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to clean old backups');
     }
-    return response.json();
+    return await response.json();
   },
 
   async getStats(): Promise<{
@@ -801,7 +809,7 @@ export const backupAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to get database stats');
     }
-    return response.json();
+    return await response.json();
   },
 
   async exportToJSON(): Promise<void> {

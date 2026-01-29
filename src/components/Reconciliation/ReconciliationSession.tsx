@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Check, X, Lock, AlertCircle, Loader2, CheckCircle, Sparkles, Upload, FileText, RotateCcw } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Check, X, Lock, AlertCircle, Loader2, CheckCircle, Sparkles, Upload, FileText, RotateCcw, ChevronDown, ChevronUp, Calendar, Info } from 'lucide-react';
 import { format } from 'date-fns';
 import { reconciliationAPI, transactionAPI } from '../../lib/api';
 import type { RegisterEntry } from '../../types';
@@ -7,6 +7,55 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { PDFViewer } from './PDFViewer';
 import { TransactionContextMenu } from './TransactionContextMenu';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
+
+// Helper to get localStorage key for this reconciliation session
+const getStorageKey = (reconciliationId: string) => `recon-match-${reconciliationId}`;
+
+// Helper to save match state to localStorage
+const saveMatchState = (reconciliationId: string, parsedTransactions: any[] | null, matchPreview: any | null) => {
+  const key = getStorageKey(reconciliationId);
+  if (parsedTransactions || matchPreview) {
+    const state = {
+      parsedTransactions,
+      matchPreview,
+      savedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(key, JSON.stringify(state));
+  } else {
+    localStorage.removeItem(key);
+  }
+};
+
+// Helper to load match state from localStorage
+const loadMatchState = (reconciliationId: string): { parsedTransactions: any[] | null; matchPreview: any | null } | null => {
+  const key = getStorageKey(reconciliationId);
+  const stored = localStorage.getItem(key);
+  if (stored) {
+    try {
+      const state = JSON.parse(stored);
+      // Check if data is less than 24 hours old
+      const savedAt = new Date(state.savedAt);
+      const hoursSinceSave = (Date.now() - savedAt.getTime()) / (1000 * 60 * 60);
+      if (hoursSinceSave < 24) {
+        return {
+          parsedTransactions: state.parsedTransactions,
+          matchPreview: state.matchPreview,
+        };
+      } else {
+        // Data is stale, remove it
+        localStorage.removeItem(key);
+      }
+    } catch {
+      localStorage.removeItem(key);
+    }
+  }
+  return null;
+};
+
+// Helper to clear match state from localStorage
+const clearMatchState = (reconciliationId: string) => {
+  localStorage.removeItem(getStorageKey(reconciliationId));
+};
 
 interface ReconciliationSessionProps {
   reconciliationId: string;
@@ -22,9 +71,11 @@ export function ReconciliationSession({
   const [transactions, setTransactions] = useState<RegisterEntry[]>([]);
   const [reconciledIds, setReconciledIds] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<any>(null);
+  const [reconciliation, setReconciliation] = useState<any>(null); // Statement details
   const [loading, setLoading] = useState(true);
   const [lockLoading, setLockLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showStatementDetails, setShowStatementDetails] = useState(false);
 
   // Smart matching state
   const [showMatchModal, setShowMatchModal] = useState(false);
@@ -33,6 +84,7 @@ export function ReconciliationSession({
   const [parsedTransactions, setParsedTransactions] = useState<any[] | null>(null);
   const [matchPreview, setMatchPreview] = useState<any>(null);
   const [matchingLoading, setMatchingLoading] = useState(false);
+  const [hasRestoredState, setHasRestoredState] = useState(false);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -48,26 +100,44 @@ export function ReconciliationSession({
   const [showTransactionForm, setShowTransactionForm] = useState(false);
   const [transactionToCreate, setTransactionToCreate] = useState<any>(null);
 
+  // Load data and restore match state on mount
   useEffect(() => {
     loadData();
+
+    // Restore match state from localStorage if available
+    const savedState = loadMatchState(reconciliationId);
+    if (savedState) {
+      setParsedTransactions(savedState.parsedTransactions);
+      setMatchPreview(savedState.matchPreview);
+      setHasRestoredState(true);
+    }
   }, [reconciliationId, accountId]);
+
+  // Save match state to localStorage whenever it changes
+  useEffect(() => {
+    // Don't save on initial load before we've checked localStorage
+    if (!hasRestoredState && !parsedTransactions && !matchPreview) return;
+
+    saveMatchState(reconciliationId, parsedTransactions, matchPreview);
+  }, [reconciliationId, parsedTransactions, matchPreview, hasRestoredState]);
 
   const loadData = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const [reconciliation, statusData] = await Promise.all([
+      const [reconData, statusData] = await Promise.all([
         reconciliationAPI.getReconciliation(reconciliationId),
         reconciliationAPI.getReconciliationStatus(reconciliationId),
       ]);
 
+      setReconciliation(reconData);
       setStatus(statusData);
 
       // Load transactions for the statement period
       const txns = await transactionAPI.getRegisterEntries(accountId, {
-        dateFrom: new Date(reconciliation.statementStartDate),
-        dateTo: new Date(reconciliation.statementEndDate),
+        dateFrom: new Date(reconData.statementStartDate),
+        dateTo: new Date(reconData.statementEndDate),
       });
 
       setTransactions(txns);
@@ -125,6 +195,8 @@ export function ReconciliationSession({
     setLockLoading(true);
     try {
       await reconciliationAPI.lockReconciliation(reconciliationId);
+      // Clear saved match state since reconciliation is complete
+      clearMatchState(reconciliationId);
       alert('Reconciliation locked successfully!');
       onComplete();
     } catch (err) {
@@ -194,34 +266,54 @@ export function ReconciliationSession({
       const statusData = await reconciliationAPI.getReconciliationStatus(reconciliationId);
       setStatus(statusData);
 
-      // Remove from preview
-      if (matchPreview) {
-        setMatchPreview({
-          ...matchPreview,
-          exactMatches: matchPreview.exactMatches.filter((m: any) => m !== match),
-          probableMatches: matchPreview.probableMatches.filter((m: any) => m !== match),
-          possibleMatches: matchPreview.possibleMatches.filter((m: any) => m !== match),
-        });
-      }
+      // Keep matches in preview - don't remove them
     } catch (err) {
       alert('Failed to accept match: ' + (err as Error).message);
+    }
+  };
+
+  const handleUnacceptMatch = async (match: any) => {
+    if (!match.ledgerTx) return;
+
+    const posting = match.ledgerTx.postings.find((p: any) => p.accountId === accountId);
+    if (!posting) return;
+
+    try {
+      await reconciliationAPI.unreconcilePostings(reconciliationId, [posting.id]);
+      setReconciledIds((prev) => {
+        const next = new Set(prev);
+        next.delete(match.ledgerTx.id);
+        return next;
+      });
+
+      // Reload status
+      const statusData = await reconciliationAPI.getReconciliationStatus(reconciliationId);
+      setStatus(statusData);
+    } catch (err) {
+      alert('Failed to unaccept match: ' + (err as Error).message);
     }
   };
 
   const handleAcceptAllExact = async () => {
     if (!matchPreview?.exactMatches?.length) return;
 
+    // Only accept matches that aren't already reconciled
     const postingIds: string[] = [];
     const txIds: string[] = [];
 
     for (const match of matchPreview.exactMatches) {
-      if (match.ledgerTx) {
+      if (match.ledgerTx && !reconciledIds.has(match.ledgerTx.id)) {
         const posting = match.ledgerTx.postings.find((p: any) => p.accountId === accountId);
         if (posting) {
           postingIds.push(posting.id);
           txIds.push(match.ledgerTx.id);
         }
       }
+    }
+
+    if (postingIds.length === 0) {
+      alert('All exact matches are already accepted.');
+      return;
     }
 
     try {
@@ -236,11 +328,7 @@ export function ReconciliationSession({
       const statusData = await reconciliationAPI.getReconciliationStatus(reconciliationId);
       setStatus(statusData);
 
-      // Clear exact matches from preview
-      setMatchPreview({
-        ...matchPreview,
-        exactMatches: [],
-      });
+      // Keep matches in preview - don't remove them
     } catch (err) {
       alert('Failed to accept matches: ' + (err as Error).message);
     }
@@ -333,15 +421,34 @@ export function ReconciliationSession({
   };
 
   const handleTransactionSaved = async () => {
+    // Close the transaction form but keep the match modal open
     setShowTransactionForm(false);
     setEditingTransaction(null);
     setTransactionToCreate(null);
-    // Refresh data
+
+    // Refresh data first - wait for it to complete
     await loadData();
+
     // Re-run matching if we have parsed transactions
+    // Use a small delay to ensure state has updated
     if (parsedTransactions) {
-      await handleMatchTransactions(parsedTransactions);
+      // Force a fresh match by calling the API directly
+      setMatchingLoading(true);
+      try {
+        const preview = await reconciliationAPI.matchTransactions(
+          reconciliationId,
+          parsedTransactions
+        );
+        setMatchPreview(preview);
+      } catch (err) {
+        console.error('Failed to re-match transactions:', err);
+      } finally {
+        setMatchingLoading(false);
+      }
     }
+
+    // Ensure the match modal stays open
+    setShowMatchModal(true);
   };
 
   const formatCurrency = (amount: number) => {
@@ -377,6 +484,86 @@ export function ReconciliationSession({
 
   return (
     <div className="space-y-6">
+      {/* Statement Details Panel (collapsible) */}
+      {reconciliation && (
+        <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <button
+            onClick={() => setShowStatementDetails(!showStatementDetails)}
+            className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Info className="w-4 h-4 text-blue-600" />
+              <span className="font-medium text-slate-900 dark:text-slate-100">Statement Details</span>
+              <span className="text-sm text-slate-500 dark:text-slate-400">
+                ({formatDate(reconciliation.statementStartDate)} - {formatDate(reconciliation.statementEndDate)})
+              </span>
+            </div>
+            {showStatementDetails ? (
+              <ChevronUp className="w-4 h-4 text-slate-500" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-slate-500" />
+            )}
+          </button>
+
+          {showStatementDetails && (
+            <div className="px-4 pb-4 border-t border-slate-200 dark:border-slate-700">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4">
+                <div>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Start Date</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 mt-1">
+                    {formatDate(reconciliation.statementStartDate)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">End Date</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 mt-1">
+                    {formatDate(reconciliation.statementEndDate)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Opening Balance</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 mt-1">
+                    {formatCurrency(reconciliation.statementStartBalance)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Closing Balance</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 mt-1">
+                    {formatCurrency(reconciliation.statementEndBalance)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Calculated values */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-slate-100 dark:border-slate-700">
+                <div>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Net Change (Statement)</p>
+                  <p className={`text-sm font-semibold mt-1 ${
+                    (reconciliation.statementEndBalance - reconciliation.statementStartBalance) >= 0
+                      ? 'text-green-600'
+                      : 'text-red-600'
+                  }`}>
+                    {formatCurrency(reconciliation.statementEndBalance - reconciliation.statementStartBalance)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Total Transactions</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 mt-1">
+                    {transactions.length}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wide">Period Length</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 mt-1">
+                    {Math.ceil((new Date(reconciliation.statementEndDate).getTime() - new Date(reconciliation.statementStartDate).getTime()) / (1000 * 60 * 60 * 24))} days
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Status Panel */}
       <div className={`p-6 rounded-lg border-2 ${
         isBalanced
@@ -429,17 +616,52 @@ export function ReconciliationSession({
           </div>
         </div>
 
+        {/* Reconciliation Formula Display */}
+        <div className="bg-white/50 dark:bg-slate-900/30 rounded-lg p-4 mb-4">
+          <div className="flex items-center justify-center gap-2 text-sm font-mono">
+            <div className="text-center">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Statement Start</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                {formatCurrency(status?.statementStartBalance ?? 0)}
+              </p>
+            </div>
+            <span className="text-xl text-slate-400">+</span>
+            <div className="text-center">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Reconciled Txns</p>
+              <p className={`text-lg font-bold ${(status?.reconciledAmount ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatCurrency(status?.reconciledAmount ?? 0)}
+              </p>
+            </div>
+            <span className="text-xl text-slate-400">=</span>
+            <div className="text-center">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Your Total</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                {formatCurrency(status?.expectedEndBalance ?? 0)}
+              </p>
+            </div>
+            <span className={`text-xl ${isBalanced ? 'text-green-600' : 'text-red-600'}`}>
+              {isBalanced ? '✓' : '≠'}
+            </span>
+            <div className="text-center">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Statement End</p>
+              <p className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                {formatCurrency(status?.statementBalance ?? 0)}
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
-            <p className="text-sm text-slate-600 dark:text-slate-400">Statement Balance</p>
+            <p className="text-sm text-slate-600 dark:text-slate-400">Target (Statement End)</p>
             <p className="text-xl font-bold text-slate-900 dark:text-slate-100">
               {formatCurrency(status?.statementBalance ?? 0)}
             </p>
           </div>
           <div>
-            <p className="text-sm text-slate-600 dark:text-slate-400">Cleared Balance</p>
+            <p className="text-sm text-slate-600 dark:text-slate-400">Current (Start + Reconciled)</p>
             <p className="text-xl font-bold text-slate-900 dark:text-slate-100">
-              {formatCurrency(status?.clearedBalance ?? 0)}
+              {formatCurrency(status?.expectedEndBalance ?? 0)}
             </p>
           </div>
           <div>
@@ -455,7 +677,7 @@ export function ReconciliationSession({
           <div>
             <p className="text-sm text-slate-600 dark:text-slate-400">Reconciled</p>
             <p className="text-xl font-bold text-slate-900 dark:text-slate-100">
-              {reconciledIds.size} / {transactions.length}
+              {status?.reconciledCount ?? 0} / {transactions.length}
             </p>
           </div>
         </div>
@@ -571,9 +793,16 @@ export function ReconciliationSession({
                 <div>
                   <Dialog.Title className="text-2xl font-bold text-slate-900 dark:text-slate-100">
                     Smart Transaction Matching
+                    {hasRestoredState && parsedTransactions && (
+                      <span className="ml-2 text-sm font-normal text-green-600 dark:text-green-400">
+                        (Resumed)
+                      </span>
+                    )}
                   </Dialog.Title>
                   <Dialog.Description className="text-sm text-slate-600 dark:text-slate-400">
-                    Upload your bank statement to automatically match transactions
+                    {hasRestoredState && parsedTransactions
+                      ? 'Your previous matching session has been restored'
+                      : 'Upload your bank statement to automatically match transactions'}
                   </Dialog.Description>
                 </div>
               </div>
@@ -773,19 +1002,32 @@ export function ReconciliationSession({
                             }
 
                             return rows.map((row, idx) => {
+                              // Check if this row's ledger transaction is already reconciled/accepted
+                              const isAccepted = row.ledgerTx && reconciledIds.has(row.ledgerTx.id);
+
                               const matchColors = {
-                                exact: 'bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30',
-                                probable: 'bg-yellow-50 dark:bg-yellow-900/20 hover:bg-yellow-100 dark:hover:bg-yellow-900/30',
-                                possible: 'bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/30',
+                                exact: isAccepted
+                                  ? 'bg-green-100 dark:bg-green-900/40'
+                                  : 'bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30',
+                                probable: isAccepted
+                                  ? 'bg-yellow-100 dark:bg-yellow-900/40'
+                                  : 'bg-yellow-50 dark:bg-yellow-900/20 hover:bg-yellow-100 dark:hover:bg-yellow-900/30',
+                                possible: isAccepted
+                                  ? 'bg-orange-100 dark:bg-orange-900/40'
+                                  : 'bg-orange-50 dark:bg-orange-900/20 hover:bg-orange-100 dark:hover:bg-orange-900/30',
                                 none: 'hover:bg-slate-50 dark:hover:bg-slate-700/50',
                               };
+
+                              // Text weight classes - bold when accepted
+                              const textWeight = isAccepted ? 'font-bold' : '';
 
                               return (
                                 <tr
                                   key={idx}
-                                  className={`${matchColors[row.matchType]} ${row.matchType !== 'none' && matchPreview ? 'cursor-pointer' : ''}`}
+                                  className={`${matchColors[row.matchType]} ${row.matchType !== 'none' && matchPreview && !isAccepted ? 'cursor-pointer' : ''}`}
                                   onClick={() => {
-                                    if (row.matchType !== 'none' && row.ledgerTx && matchPreview) {
+                                    // Only allow click-to-accept if not already accepted
+                                    if (row.matchType !== 'none' && row.ledgerTx && matchPreview && !isAccepted) {
                                       const match = [...matchPreview.exactMatches, ...matchPreview.probableMatches, ...matchPreview.possibleMatches]
                                         .find((m: any) => m.ledgerTx?.id === row.ledgerTx.id);
                                       if (match) handleAcceptMatch(match);
@@ -795,20 +1037,20 @@ export function ReconciliationSession({
                                 >
                                   {/* PDF Transaction - right-click for context menu */}
                                   <td
-                                    className="py-1.5 px-2 text-slate-700 dark:text-slate-300 whitespace-nowrap"
+                                    className={`py-1.5 px-2 text-slate-700 dark:text-slate-300 whitespace-nowrap ${textWeight}`}
                                     onContextMenu={(e) => row.pdfTx && handleContextMenu(e, 'pdf', undefined, row.pdfTx)}
                                   >
                                     {row.pdfTx ? formatDate(row.pdfTx.date) : ''}
                                   </td>
                                   <td
-                                    className="py-1.5 px-2 text-slate-900 dark:text-slate-100 truncate max-w-[180px]"
+                                    className={`py-1.5 px-2 text-slate-900 dark:text-slate-100 truncate max-w-[180px] ${textWeight}`}
                                     title={row.pdfTx?.description}
                                     onContextMenu={(e) => row.pdfTx && handleContextMenu(e, 'pdf', undefined, row.pdfTx)}
                                   >
                                     {row.pdfTx?.description || ''}
                                   </td>
                                   <td
-                                    className={`py-1.5 px-2 text-right font-mono whitespace-nowrap ${row.pdfTx?.credit ? 'text-green-600' : 'text-slate-700 dark:text-slate-300'}`}
+                                    className={`py-1.5 px-2 text-right font-mono whitespace-nowrap ${row.pdfTx?.credit ? 'text-green-600' : 'text-slate-700 dark:text-slate-300'} ${textWeight}`}
                                     onContextMenu={(e) => row.pdfTx && handleContextMenu(e, 'pdf', undefined, row.pdfTx)}
                                   >
                                     {row.pdfTx ? (row.pdfTx.credit ? `-${formatCurrency(row.pdfTx.credit)}` : formatCurrency(row.pdfTx.debit || 0)) : ''}
@@ -816,27 +1058,27 @@ export function ReconciliationSession({
 
                                   {/* Match indicator */}
                                   <td className="border-l border-slate-200 dark:border-slate-700 text-center">
-                                    {row.matchType === 'exact' && <CheckCircle className="w-4 h-4 text-green-600 mx-auto" />}
-                                    {row.matchType === 'probable' && <AlertCircle className="w-4 h-4 text-yellow-600 mx-auto" />}
-                                    {row.matchType === 'possible' && <AlertCircle className="w-4 h-4 text-orange-600 mx-auto" />}
+                                    {row.matchType === 'exact' && <CheckCircle className={`w-4 h-4 mx-auto ${isAccepted ? 'text-green-700' : 'text-green-600'}`} />}
+                                    {row.matchType === 'probable' && <AlertCircle className={`w-4 h-4 mx-auto ${isAccepted ? 'text-yellow-700' : 'text-yellow-600'}`} />}
+                                    {row.matchType === 'possible' && <AlertCircle className={`w-4 h-4 mx-auto ${isAccepted ? 'text-orange-700' : 'text-orange-600'}`} />}
                                   </td>
 
                                   {/* Ledger Transaction - right-click for context menu */}
                                   <td
-                                    className="py-1.5 px-2 text-slate-700 dark:text-slate-300 whitespace-nowrap"
+                                    className={`py-1.5 px-2 text-slate-700 dark:text-slate-300 whitespace-nowrap ${textWeight}`}
                                     onContextMenu={(e) => row.ledgerTx && handleContextMenu(e, 'ledger', row.ledgerTx)}
                                   >
                                     {row.ledgerTx ? formatDate(row.ledgerTx.date) : ''}
                                   </td>
                                   <td
-                                    className="py-1.5 px-2 text-slate-900 dark:text-slate-100 truncate max-w-[180px]"
+                                    className={`py-1.5 px-2 text-slate-900 dark:text-slate-100 truncate max-w-[180px] ${textWeight}`}
                                     title={row.ledgerTx?.payee}
                                     onContextMenu={(e) => row.ledgerTx && handleContextMenu(e, 'ledger', row.ledgerTx)}
                                   >
                                     {row.ledgerTx?.payee || ''}
                                   </td>
                                   <td
-                                    className={`py-1.5 px-2 text-right font-mono whitespace-nowrap text-slate-700 dark:text-slate-300`}
+                                    className={`py-1.5 px-2 text-right font-mono whitespace-nowrap text-slate-700 dark:text-slate-300 ${textWeight}`}
                                     onContextMenu={(e) => row.ledgerTx && handleContextMenu(e, 'ledger', row.ledgerTx)}
                                   >
                                     {(() => {
@@ -857,7 +1099,7 @@ export function ReconciliationSession({
                                     })()}
                                   </td>
 
-                                  {/* Accept button for matches */}
+                                  {/* Accept/Unaccept button for matches */}
                                   {matchPreview && (
                                     <td className="py-1.5 px-2">
                                       {row.matchType !== 'none' && row.ledgerTx && (
@@ -866,15 +1108,23 @@ export function ReconciliationSession({
                                             e.stopPropagation();
                                             const match = [...matchPreview.exactMatches, ...matchPreview.probableMatches, ...matchPreview.possibleMatches]
                                               .find((m: any) => m.ledgerTx?.id === row.ledgerTx.id);
-                                            if (match) handleAcceptMatch(match);
+                                            if (match) {
+                                              if (isAccepted) {
+                                                handleUnacceptMatch(match);
+                                              } else {
+                                                handleAcceptMatch(match);
+                                              }
+                                            }
                                           }}
-                                          className={`px-2 py-0.5 text-white rounded text-xs ${
-                                            row.matchType === 'exact' ? 'bg-green-600 hover:bg-green-700' :
-                                            row.matchType === 'probable' ? 'bg-yellow-600 hover:bg-yellow-700' :
-                                            'bg-orange-600 hover:bg-orange-700'
+                                          className={`px-2 py-0.5 rounded text-xs ${
+                                            isAccepted
+                                              ? 'bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-500'
+                                              : row.matchType === 'exact' ? 'bg-green-600 hover:bg-green-700 text-white' :
+                                                row.matchType === 'probable' ? 'bg-yellow-600 hover:bg-yellow-700 text-white' :
+                                                'bg-orange-600 hover:bg-orange-700 text-white'
                                           }`}
                                         >
-                                          Accept
+                                          {isAccepted ? 'Unaccept' : 'Accept'}
                                         </button>
                                       )}
                                     </td>
@@ -894,20 +1144,29 @@ export function ReconciliationSession({
                         setParsedTransactions(null);
                         setPdfFile(null);
                         setMatchPreview(null);
+                        setHasRestoredState(false);
+                        clearMatchState(reconciliationId);
                       }}
                       className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
                     >
-                      Upload Different PDF
+                      {hasRestoredState ? 'Clear & Start Over' : 'Upload Different PDF'}
                     </button>
                     <div className="flex gap-2">
-                      {matchPreview && matchPreview.exactMatches.length > 0 && (
-                        <button
-                          onClick={handleAcceptAllExact}
-                          className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md font-medium text-sm"
-                        >
-                          Accept All Exact ({matchPreview.exactMatches.length})
-                        </button>
-                      )}
+                      {matchPreview && matchPreview.exactMatches.length > 0 && (() => {
+                        // Count unaccepted exact matches
+                        const unacceptedCount = matchPreview.exactMatches.filter(
+                          (m: any) => m.ledgerTx && !reconciledIds.has(m.ledgerTx.id)
+                        ).length;
+                        if (unacceptedCount === 0) return null;
+                        return (
+                          <button
+                            onClick={handleAcceptAllExact}
+                            className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md font-medium text-sm"
+                          >
+                            Accept All Exact ({unacceptedCount})
+                          </button>
+                        );
+                      })()}
                       {!matchPreview && (
                         <button
                           onClick={handleRunMatching}
@@ -1010,6 +1269,13 @@ export function ReconciliationSession({
             setTransactionToCreate(null);
           }}
           accountId={accountId}
+          initialData={{
+            date: transactionToCreate.date,
+            payee: transactionToCreate.payee,
+            amount: transactionToCreate.amount,
+            isExpense: transactionToCreate.isExpense,
+            memo: transactionToCreate.memo,
+          }}
           onSuccess={handleTransactionSaved}
         />
       )}

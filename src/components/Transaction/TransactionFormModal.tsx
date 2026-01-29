@@ -4,12 +4,30 @@ import type { Account, CreateTransactionDTO, GSTCode, AccountType } from '../../
 import { transactionAPI, accountAPI, memorizedRuleAPI } from '../../lib/api';
 import { CategorySelector } from '../Category/CategorySelector';
 
+// Helper to format date for input field (YYYY-MM-DD) without timezone shift
+// Using toISOString() can shift dates due to UTC conversion in positive timezone offsets
+const formatDateForInput = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+interface InitialTransactionData {
+  date?: Date;
+  payee?: string;
+  amount?: number;
+  isExpense?: boolean;
+  memo?: string;
+}
+
 interface TransactionFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   accountId?: string; // Pre-select account if opening from register
   transactionId?: string; // For editing existing transaction
-  onSuccess?: () => void;
+  initialData?: InitialTransactionData; // Pre-populate form for new transactions
+  onSuccess?: () => void | Promise<void>;
 }
 
 export function TransactionFormModal({
@@ -17,9 +35,10 @@ export function TransactionFormModal({
   onClose,
   accountId,
   transactionId,
+  initialData,
   onSuccess,
 }: TransactionFormModalProps) {
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(formatDateForInput(new Date()));
   const [payee, setPayee] = useState('');
   const [originalPayee, setOriginalPayee] = useState(''); // Track original payee for rule suggestion
   const [showRuleSuggestion, setShowRuleSuggestion] = useState(false);
@@ -59,11 +78,11 @@ export function TransactionFormModal({
   useEffect(() => {
     if (transactionType !== 'expense' && splits.length > 0) {
       const total = parseFloat(totalAmount) || 0;
-      // Split amounts will be negated in handleSubmit (line 400: amount: -splitAmountNum)
-      // So we set split to the OPPOSITE of what we want the final posting to be
-      // For Transfer Out: we want destination account = +247.29, so split = -247.29
-      // For Transfer In: we want destination account = -247.29, so split = +247.29
-      const amount = transactionType === 'transfer-out' ? -Math.abs(total) : Math.abs(total);
+      // For transfers, always use the absolute (positive) amount
+      // The sign will be automatically flipped in handleSubmit based on the main posting's sign
+      // For Transfer Out: main posting = -200 (leaving), split posting = +200 (arriving)
+      // For Transfer In: main posting = +200 (arriving), split posting = -200 (leaving)
+      const amount = Math.abs(total);
 
       // Update the first split to match the total amount with correct sign
       const newSplits = [...splits];
@@ -106,9 +125,25 @@ export function TransactionFormModal({
   useEffect(() => {
     if (transactionId) {
       loadTransaction();
+    } else if (initialData) {
+      // Pre-populate form with initial data (e.g., from PDF import)
+      // Use local date formatting to avoid timezone shift issues
+      setDate(initialData.date
+        ? formatDateForInput(new Date(initialData.date))
+        : formatDateForInput(new Date()));
+      setPayee(initialData.payee || '');
+      setTransactionType('expense'); // Default to expense/income mode
+      setTotalAmount(initialData.amount ? initialData.amount.toFixed(2) : '');
+      setSplits([{
+        id: `temp-${Date.now()}`,
+        accountId: '',
+        amount: initialData.amount ? initialData.amount.toFixed(2) : '',
+        isBusiness: false,
+      }]);
+      setMemo(initialData.memo || '');
     } else {
       // Reset form for new transaction
-      setDate(new Date().toISOString().split('T')[0]);
+      setDate(formatDateForInput(new Date()));
       setPayee('');
       setTransactionType('expense');
       setTotalAmount('');
@@ -120,7 +155,7 @@ export function TransactionFormModal({
       }]);
       setMemo('');
     }
-  }, [transactionId]);
+  }, [transactionId, initialData]);
 
   const loadTransaction = async () => {
     if (!transactionId) return;
@@ -130,7 +165,7 @@ export function TransactionFormModal({
       const transaction = await transactionAPI.getTransaction(transactionId);
 
       // Populate form from transaction data
-      setDate(new Date(transaction.date).toISOString().split('T')[0]);
+      setDate(formatDateForInput(new Date(transaction.date)));
       const originalPayeeName = transaction.payee || '';
       console.log('Loading transaction - original payee:', originalPayeeName);
       setPayee(originalPayeeName);
@@ -158,14 +193,14 @@ export function TransactionFormModal({
       const loadedSplits: Split[] = [];
 
       for (const posting of nonGstPostings) {
-        const postingAmount = posting.amount; // From database (negated when saved)
+        const postingAmount = posting.amount; // From database (with double-entry signs)
 
         // Check if this posting has an associated GST posting
         // GST postings are usually created right after the main posting
         const associatedGst = gstPostings.find(gp => {
           // Match by similar timing and amount relationship
           // GST should be roughly 1/11 of the gross amount
-          const gstAmount = gp.amount; // From database (negated when saved)
+          const gstAmount = gp.amount; // From database (with double-entry signs)
           const expectedGross = Math.abs(postingAmount) + Math.abs(gstAmount);
           const calculatedGst = expectedGross * 0.1 / 1.1;
           return Math.abs(Math.abs(calculatedGst) - Math.abs(gstAmount)) < 0.02; // Within 2 cents
@@ -173,22 +208,22 @@ export function TransactionFormModal({
 
         if (associatedGst) {
           // This posting has GST - mark it as business and store original gross amount
-          const gstAmount = associatedGst.amount; // From database (negated when saved)
-          // Negate back to show user what they originally entered
+          const gstAmount = associatedGst.amount; // From database (with double-entry signs)
+          // Use absolute values - users always enter positive amounts in the form
           loadedSplits.push({
             id: posting.id,
             accountId: posting.accountId,
-            amount: (-postingAmount).toFixed(2), // Negate back for display
+            amount: Math.abs(postingAmount).toFixed(2), // Always positive for display
             isBusiness: true,
             gstCode: posting.gstCode || undefined,
-            originalAmount: (-(postingAmount + gstAmount)).toFixed(2), // Negate back for display
+            originalAmount: Math.abs(postingAmount + gstAmount).toFixed(2), // Always positive for display
           });
 
-          // Add the GST split (negate back for display)
+          // Add the GST split (always positive for display)
           loadedSplits.push({
             id: associatedGst.id,
             accountId: associatedGst.accountId,
-            amount: (-gstAmount).toFixed(2), // Negate back for display
+            amount: Math.abs(gstAmount).toFixed(2), // Always positive for display
             isBusiness: false,
             isGstSplit: true,
             parentSplitId: posting.id,
@@ -201,23 +236,23 @@ export function TransactionFormModal({
             gstPostings.splice(gstIndex, 1);
           }
         } else {
-          // No GST for this posting (negate back for display)
+          // No GST for this posting (always positive for display)
           loadedSplits.push({
             id: posting.id,
             accountId: posting.accountId,
-            amount: (-postingAmount).toFixed(2), // Negate back for display
+            amount: Math.abs(postingAmount).toFixed(2), // Always positive for display
             isBusiness: posting.isBusiness || false,
             gstCode: posting.gstCode || undefined,
           });
         }
       }
 
-      // Add any remaining unmatched GST postings (negate back for display)
+      // Add any remaining unmatched GST postings (always positive for display)
       for (const gstPosting of gstPostings) {
         loadedSplits.push({
           id: gstPosting.id,
           accountId: gstPosting.accountId,
-          amount: (-gstPosting.amount).toFixed(2), // Negate back for display
+          amount: Math.abs(gstPosting.amount).toFixed(2), // Always positive for display
           isBusiness: false,
           isGstSplit: true,
           manuallyEdited: false,
@@ -367,10 +402,17 @@ export function TransactionFormModal({
       return;
     }
 
+    // Validate amount is a positive number
+    const parsedAmount = parseFloat(totalAmount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      alert('Please enter a valid positive amount.');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      let totalAmountNum = parseFloat(totalAmount);
+      let totalAmountNum = parsedAmount;
 
       // Apply the correct sign based on transaction type
       if (transactionType === 'transfer-out') {
@@ -470,7 +512,7 @@ export function TransactionFormModal({
       } else {
         // Success! Call onSuccess and close
         if (onSuccess) {
-          onSuccess();
+          await onSuccess();
         }
         onClose();
       }
@@ -492,7 +534,9 @@ export function TransactionFormModal({
     setLoading(true);
     try {
       await transactionAPI.deleteTransaction(transactionId);
-      onSuccess?.();
+      if (onSuccess) {
+        await onSuccess();
+      }
       onClose();
     } catch (error) {
       console.error('Failed to delete transaction:', error);
@@ -520,7 +564,7 @@ export function TransactionFormModal({
       setShowRuleSuggestion(false);
       setSuggestedRuleData(null);
       if (onSuccess) {
-        onSuccess();
+        await onSuccess();
       }
       onClose();
     } catch (error) {
@@ -529,11 +573,11 @@ export function TransactionFormModal({
     }
   };
 
-  const handleSkipRule = () => {
+  const handleSkipRule = async () => {
     setShowRuleSuggestion(false);
     setSuggestedRuleData(null);
     if (onSuccess) {
-      onSuccess();
+      await onSuccess();
     }
     onClose();
   };
@@ -541,7 +585,7 @@ export function TransactionFormModal({
   // Reset form on close
   useEffect(() => {
     if (!isOpen) {
-      setDate(new Date().toISOString().split('T')[0]);
+      setDate(formatDateForInput(new Date()));
       setPayee('');
       setTransactionType('expense');
       setTotalAmount('');
@@ -669,6 +713,7 @@ export function TransactionFormModal({
                 <input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={totalAmount}
                   onChange={(e) => {
                     // Always store as positive - sign is applied by transaction type

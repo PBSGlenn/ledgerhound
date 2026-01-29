@@ -1,11 +1,7 @@
-// Dynamic import for CommonJS module
-let pdfParse: any;
-const loadPdfParse = async () => {
-  if (!pdfParse) {
-    pdfParse = (await import('pdf-parse')).default;
-  }
-  return pdfParse;
-};
+// Import pdf-parse using createRequire for ESM/CommonJS compatibility
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const { PDFParse, VerbosityLevel } = require('pdf-parse');
 
 export interface StatementTransaction {
   date: Date;
@@ -36,10 +32,21 @@ export class PDFStatementService {
    * Parse a PDF bank statement
    */
   async parseStatement(pdfBuffer: Buffer): Promise<ParsedStatement> {
-    // Extract text from PDF
-    const pdf = await loadPdfParse();
-    const data = await pdf(pdfBuffer);
-    const text = data.text;
+    // Create parser instance with the PDF data and minimal verbosity
+    const parser = new PDFParse({
+      verbosity: VerbosityLevel.ERRORS,
+      data: pdfBuffer,
+    });
+
+    // Load the PDF
+    await parser.load();
+
+    // Extract text from all pages
+    const textResult = await parser.getText();
+    const text = textResult.pages.map((p: { text: string; num: number }) => p.text).join('\n');
+
+    // Clean up parser
+    parser.destroy();
 
     // Try to detect bank format and extract info
     const info = this.extractStatementInfo(text);
@@ -55,9 +62,77 @@ export class PDFStatementService {
   }
 
   /**
+   * Detect the bank format from the PDF text
+   */
+  private detectBankFormat(text: string): 'commbank-cc' | 'commbank-savings' | 'generic' {
+    // CommBank credit card indicators
+    if (text.includes('Ultimate Awards Credit Card') ||
+        text.includes('Awards points balance') ||
+        (text.includes('commbank.com.au') && text.includes('Credit limit'))) {
+      return 'commbank-cc';
+    }
+
+    // CommBank savings/transaction account indicators
+    if (text.includes('commbank.com.au') && text.includes('NetBank')) {
+      return 'commbank-savings';
+    }
+
+    return 'generic';
+  }
+
+  /**
    * Extract statement metadata
    */
   private extractStatementInfo(text: string): StatementInfo {
+    const bankFormat = this.detectBankFormat(text);
+
+    if (bankFormat === 'commbank-cc') {
+      return this.extractCommBankCCInfo(text);
+    }
+
+    return this.extractGenericInfo(text);
+  }
+
+  /**
+   * Extract CommBank credit card statement info
+   */
+  private extractCommBankCCInfo(text: string): StatementInfo {
+    const info: StatementInfo = {};
+
+    // Extract card number (format: 5523 5082 0188 9606)
+    const cardMatch = text.match(/(\d{4}\s+\d{4}\s+\d{4}\s+\d{4})/);
+    if (cardMatch) {
+      info.accountNumber = cardMatch[1].replace(/\s+/g, '');
+    }
+
+    // Extract statement period (format: "Statement Period 8 Nov 2025 - 8 Dec 2025")
+    const periodMatch = text.match(/Statement\s+Period\s+(\d{1,2}\s+\w{3}\s+\d{4})\s*-\s*(\d{1,2}\s+\w{3}\s+\d{4})/i);
+    if (periodMatch) {
+      info.statementPeriod = {
+        start: this.parseCommBankDate(periodMatch[1]),
+        end: this.parseCommBankDate(periodMatch[2]),
+      };
+    }
+
+    // Extract opening balance (format: "Opening balance at 8 Nov $4,113.69")
+    const openingMatch = text.match(/Opening\s+balance\s+at\s+\d{1,2}\s+\w{3}\s+\$?([\d,]+\.\d{2})/i);
+    if (openingMatch) {
+      info.openingBalance = parseFloat(openingMatch[1].replace(/,/g, ''));
+    }
+
+    // Extract closing balance (format: "Closing balance at 8 Dec $5,277.37")
+    const closingMatch = text.match(/Closing\s+balance\s+at\s+\d{1,2}\s+\w{3}\s+\$?([\d,]+\.\d{2})/i);
+    if (closingMatch) {
+      info.closingBalance = parseFloat(closingMatch[1].replace(/,/g, ''));
+    }
+
+    return info;
+  }
+
+  /**
+   * Extract generic statement info (original logic)
+   */
+  private extractGenericInfo(text: string): StatementInfo {
     const info: StatementInfo = {};
 
     // Extract account number (various Australian formats)
@@ -106,6 +181,124 @@ export class PDFStatementService {
    * Extract transactions from statement text
    */
   private extractTransactions(text: string): StatementTransaction[] {
+    const bankFormat = this.detectBankFormat(text);
+
+    if (bankFormat === 'commbank-cc') {
+      return this.extractCommBankCCTransactions(text);
+    }
+
+    return this.extractGenericTransactions(text);
+  }
+
+  /**
+   * Extract CommBank credit card transactions
+   * Format: "DD MMM Description Location Amount" or "DD MMM Description Location Amount-" (for credits)
+   */
+  private extractCommBankCCTransactions(text: string): StatementTransaction[] {
+    const transactions: StatementTransaction[] = [];
+    const lines = text.split('\n');
+
+    // Get statement year from the period
+    const periodMatch = text.match(/Statement\s+Period\s+\d{1,2}\s+\w{3}\s+(\d{4})/i);
+    const statementYear = periodMatch ? parseInt(periodMatch[1]) : new Date().getFullYear();
+
+    // Track whether we're in the transactions section
+    let inTransactions = false;
+
+    // Pattern for CommBank CC transactions:
+    // "DD MMM Description Location Amount" or "DD MMM Description Amount-" (credit has trailing minus)
+    // Examples:
+    // "08 Nov Apple.Com/Bill Sydney 22.99"
+    // "24 Nov Payment Received, Thank You 4,113.69-"
+    // "08 Dec Monthly Fee Waived" (no amount - skip these)
+    const transactionPattern = /^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(.+?)\s+([\d,]+\.\d{2})(-)?$/i;
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+
+      // Look for start of transactions section
+      if (trimmedLine.includes('Date Transaction details Amount')) {
+        inTransactions = true;
+        continue;
+      }
+
+      // Skip non-transaction lines
+      if (!inTransactions) continue;
+
+      // Stop at end of transactions (look for page markers or summary sections)
+      if (trimmedLine.startsWith('TransactionsAccount') ||
+          trimmedLine.startsWith('Please check your transactions') ||
+          trimmedLine.includes('Interest charged on')) {
+        // Don't break - there may be more transaction pages
+        continue;
+      }
+
+      const match = trimmedLine.match(transactionPattern);
+      if (match) {
+        const [, day, month, description, amountStr, isCredit] = match;
+
+        // Determine the year based on month (handle year boundary in statements)
+        const monthNum = this.monthToNumber(month);
+        let year = statementYear;
+
+        // If the statement spans Dec-Jan, transactions in Jan should be next year
+        // But for now, use the statement year as the base
+
+        const date = new Date(year, monthNum, parseInt(day));
+        const amount = parseFloat(amountStr.replace(/,/g, ''));
+
+        // Credit card: purchases are debits (positive), payments/refunds are credits (negative)
+        // CommBank marks credits with trailing "-"
+        if (isCredit === '-') {
+          transactions.push({
+            date,
+            description: description.trim(),
+            credit: amount,
+            rawText: trimmedLine,
+          });
+        } else {
+          transactions.push({
+            date,
+            description: description.trim(),
+            debit: amount,
+            rawText: trimmedLine,
+          });
+        }
+      }
+    }
+
+    return transactions;
+  }
+
+  /**
+   * Convert month abbreviation to number (0-indexed)
+   */
+  private monthToNumber(month: string): number {
+    const months: Record<string, number> = {
+      jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+      jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+    };
+    return months[month.toLowerCase()] ?? 0;
+  }
+
+  /**
+   * Parse CommBank date format (e.g., "8 Nov 2025")
+   */
+  private parseCommBankDate(dateStr: string): Date {
+    const match = dateStr.match(/(\d{1,2})\s+(\w{3})\s+(\d{4})/);
+    if (match) {
+      const day = parseInt(match[1]);
+      const month = this.monthToNumber(match[2]);
+      const year = parseInt(match[3]);
+      return new Date(year, month, day);
+    }
+    return new Date(dateStr);
+  }
+
+  /**
+   * Extract generic transactions (original logic)
+   */
+  private extractGenericTransactions(text: string): StatementTransaction[] {
     const transactions: StatementTransaction[] = [];
     const lines = text.split('\n');
 

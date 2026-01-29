@@ -29,21 +29,29 @@ test.describe('CSV Import Workflow', () => {
 
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    // Wait for app to load (using 'load' instead of 'networkidle' due to continuous polling)
-    await page.waitForLoadState('load');
+    await page.waitForLoadState('domcontentloaded');
 
-    // Wait for the app to load and accounts to be fetched
-    await page.waitForTimeout(1000);
+    // Wait for app to initialize - check for sidebar or main UI element
+    await expect(
+      page.locator('button:has-text("Accounts"), [data-testid="accounts-tab"]'),
+      'App should load with Accounts tab visible'
+    ).toBeVisible({ timeout: 15000 });
 
     // Make sure we're on the Accounts tab
     await page.click('button:has-text("Accounts")');
 
-    // Wait for account list to populate
-    await page.waitForTimeout(500);
+    // Wait for account list to populate - look for seeded account
+    await expect(
+      page.locator('text=Personal Checking'),
+      'Personal Checking account should be visible in sidebar'
+    ).toBeVisible({ timeout: 10000 });
 
     // Select an account first (Import CSV button is disabled without an account selected)
-    await page.click('text=Personal Checking', { timeout: 10000 });
-    await expect(page.locator('h1:has-text("Personal Checking")')).toBeVisible({ timeout: 10000 });
+    await page.click('text=Personal Checking');
+    await expect(
+      page.locator('h1:has-text("Personal Checking")'),
+      'Account header should be visible after selection'
+    ).toBeVisible({ timeout: 10000 });
   });
 
   test('should import CSV transactions with column mapping', async ({ page }) => {
@@ -57,8 +65,11 @@ test.describe('CSV Import Workflow', () => {
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(testCsvPath);
 
-    // Wait for file to be processed
-    await page.waitForTimeout(1000);
+    // Wait for file to be processed - look for column mapping UI or preview data
+    await expect(
+      page.locator('select, text=Date, text=Amount, text=Description').first(),
+      'Column mapping should appear after file upload'
+    ).toBeVisible({ timeout: 10000 });
 
     // Column mapping step - map columns to fields
     // The wizard should auto-detect columns, but we can select them explicitly
@@ -99,7 +110,11 @@ test.describe('CSV Import Workflow', () => {
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(testCsvPath);
 
-    await page.waitForTimeout(1000);
+    // Wait for file to be processed
+    await expect(
+      page.locator('select, text=Date, text=Amount, text=Description').first(),
+      'Column mapping should appear after file upload'
+    ).toBeVisible({ timeout: 10000 });
 
     // Proceed through column mapping
     await page.click('button:has-text("Next"), button:has-text("Continue")');
@@ -146,7 +161,11 @@ test.describe('CSV Import Workflow', () => {
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles(testCsvPath);
 
-    await page.waitForTimeout(1000);
+    // Wait for file to be processed
+    await expect(
+      page.locator('select, text=Date, text=Amount, text=Description').first(),
+      'Column mapping should appear after file upload'
+    ).toBeVisible({ timeout: 10000 });
 
     // Proceed through wizard
     await page.click('button:has-text("Next"), button:has-text("Continue")');

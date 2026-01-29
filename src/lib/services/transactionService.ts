@@ -66,10 +66,11 @@ export class TransactionService {
       const expectedGST = posting.amount * posting.gstRate / (1 + posting.gstRate);
       const diff = Math.abs((posting.gstAmount ?? 0) - expectedGST);
 
-      // Allow for small rounding differences (±0.02)
+      // Allow for small rounding differences (±0.02), but throw error for larger discrepancies
       if (diff > 0.02) {
-        console.warn(
-          `GST amount mismatch: expected ${expectedGST.toFixed(2)}, got ${posting.gstAmount?.toFixed(2)}`
+        throw new Error(
+          `GST amount mismatch: expected ${expectedGST.toFixed(2)}, got ${posting.gstAmount?.toFixed(2)}. ` +
+          `Please check the GST calculation.`
         );
       }
     }

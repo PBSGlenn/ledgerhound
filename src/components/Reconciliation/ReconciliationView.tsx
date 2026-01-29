@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { GitCompare, Plus } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { GitCompare, Plus, Loader2 } from 'lucide-react';
 import { ReconciliationWizard } from './ReconciliationWizard';
 import { ReconciliationSession } from './ReconciliationSession';
+import { reconciliationAPI } from '../../lib/api';
 import type { AccountWithBalance } from '../../types';
 
 interface ReconciliationViewProps {
@@ -11,6 +12,24 @@ interface ReconciliationViewProps {
 export function ReconciliationView({ account }: ReconciliationViewProps) {
   const [showWizard, setShowWizard] = useState(false);
   const [activeReconciliationId, setActiveReconciliationId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Check for in-progress reconciliation on mount
+  useEffect(() => {
+    const checkInProgress = async () => {
+      try {
+        const inProgress = await reconciliationAPI.getInProgressReconciliation(account.id);
+        if (inProgress) {
+          setActiveReconciliationId(inProgress.id);
+        }
+      } catch (error) {
+        console.error('Failed to check for in-progress reconciliation:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    checkInProgress();
+  }, [account.id]);
 
   const handleReconciliationStarted = (reconciliationId: string) => {
     setActiveReconciliationId(reconciliationId);
@@ -38,7 +57,7 @@ export function ReconciliationView({ account }: ReconciliationViewProps) {
             </div>
           </div>
 
-          {!activeReconciliationId && (
+          {!loading && !activeReconciliationId && (
             <button
               onClick={() => setShowWizard(true)}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium flex items-center gap-2"
@@ -52,7 +71,11 @@ export function ReconciliationView({ account }: ReconciliationViewProps) {
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-6">
-        {activeReconciliationId ? (
+        {loading ? (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+          </div>
+        ) : activeReconciliationId ? (
           <ReconciliationSession
             reconciliationId={activeReconciliationId}
             accountId={account.id}

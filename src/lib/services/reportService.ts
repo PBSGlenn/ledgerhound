@@ -28,7 +28,7 @@ export class ReportService {
       ? { isBusiness: false }
       : {};
 
-    // Get all income postings
+    // Get all income postings (only select needed fields for efficiency)
     const incomePostings = await this.prisma.posting.findMany({
       where: {
         ...businessFilter,
@@ -38,12 +38,17 @@ export class ReportService {
           status: 'NORMAL',
         },
       },
-      include: {
-        account: true,
+      select: {
+        amount: true,
+        isBusiness: true,
+        gstAmount: true,
+        account: {
+          select: { name: true },
+        },
       },
     });
 
-    // Get all expense postings
+    // Get all expense postings (only select needed fields for efficiency)
     const expensePostings = await this.prisma.posting.findMany({
       where: {
         ...businessFilter,
@@ -53,8 +58,13 @@ export class ReportService {
           status: 'NORMAL',
         },
       },
-      include: {
-        account: true,
+      select: {
+        amount: true,
+        isBusiness: true,
+        gstAmount: true,
+        account: {
+          select: { name: true },
+        },
       },
     });
 

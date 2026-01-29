@@ -99,6 +99,15 @@ export class ReconciliationService {
 
   /**
    * Calculate reconciliation status
+   *
+   * Formula: Statement Opening Balance + Sum of reconciled transactions in period = Statement Closing Balance
+   *
+   * This is more intuitive because:
+   * 1. We start from the statement's opening balance (what the bank says you had)
+   * 2. We add only the transactions marked as reconciled in this period
+   * 3. The result should equal the statement's closing balance
+   *
+   * When balanced: statementStartBalance + reconciledAmount = statementEndBalance
    */
   async getReconciliationStatus(reconciliationId: string): Promise<{
     statementBalance: number;
@@ -108,24 +117,22 @@ export class ReconciliationService {
     isBalanced: boolean;
     reconciledCount: number;
     unreconciledCount: number;
+    statementStartBalance: number;
+    reconciledAmount: number;
+    expectedEndBalance: number;
   }> {
     const reconciliation = await this.getReconciliationById(reconciliationId);
     if (!reconciliation) {
       throw new Error(`Reconciliation ${reconciliationId} not found`);
     }
 
-    // Get account's opening balance
-    const account = await this.accountService.getAccountById(reconciliation.accountId);
-    if (!account) {
-      throw new Error(`Account ${reconciliation.accountId} not found`);
-    }
-
-    // Get all postings up to statement end date
-    const allPostings = await this.prisma.posting.findMany({
+    // Get all postings in the statement date range for this account
+    const periodPostings = await this.prisma.posting.findMany({
       where: {
         accountId: reconciliation.accountId,
         transaction: {
           date: {
+            gte: reconciliation.statementStartDate,
             lte: reconciliation.statementEndDate,
           },
           status: 'NORMAL',
@@ -136,36 +143,51 @@ export class ReconciliationService {
       },
     });
 
-    // Calculate cleared balance (opening + all cleared postings)
-    let clearedBalance = account.openingBalance;
-    let unreconciledBalance = account.openingBalance;
+    // Calculate reconciled amount (sum of transactions marked as reconciled in this session)
+    let reconciledAmount = 0;
+    let unreconciledAmount = 0;
     let reconciledCount = 0;
     let unreconciledCount = 0;
 
-    for (const posting of allPostings) {
-      if (posting.cleared) {
-        clearedBalance += posting.amount;
-      }
-      if (posting.reconciled) {
+    for (const posting of periodPostings) {
+      // Check if this posting is reconciled in THIS session
+      if (posting.reconciled && posting.reconcileId === reconciliationId) {
+        reconciledAmount += posting.amount;
         reconciledCount++;
-      } else {
-        unreconciledBalance += posting.amount;
+      } else if (!posting.reconciled) {
+        unreconciledAmount += posting.amount;
         unreconciledCount++;
       }
+      // Note: postings reconciled in OTHER sessions are excluded from both counts
     }
 
-    const statementBalance = reconciliation.statementEndBalance;
-    const difference = clearedBalance - statementBalance;
+    // The expected end balance if all reconciled transactions are correct
+    const expectedEndBalance = reconciliation.statementStartBalance + reconciledAmount;
+
+    // The difference tells us how much more needs to be reconciled
+    // Positive = we've reconciled more than expected (or statement end is too low)
+    // Negative = we haven't reconciled enough yet (more transactions to tick off)
+    const difference = expectedEndBalance - reconciliation.statementEndBalance;
     const isBalanced = Math.abs(difference) < 0.01;
 
+    // For backwards compatibility, also provide clearedBalance and unreconciledBalance
+    // clearedBalance = what we've ticked off so far (start + reconciled)
+    // unreconciledBalance = what's left to potentially tick off
+    const clearedBalance = reconciliation.statementStartBalance + reconciledAmount;
+    const unreconciledBalance = unreconciledAmount;
+
     return {
-      statementBalance,
+      statementBalance: reconciliation.statementEndBalance,
       clearedBalance,
       unreconciledBalance,
       difference,
       isBalanced,
       reconciledCount,
       unreconciledCount,
+      // New fields for clearer understanding
+      statementStartBalance: reconciliation.statementStartBalance,
+      reconciledAmount,
+      expectedEndBalance,
     };
   }
 

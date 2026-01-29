@@ -19,24 +19,17 @@ export class AccountService {
     isReal?: boolean;
     isBusinessDefault?: boolean;
   }): Promise<Account[]> {
-    console.log('getAllAccounts called with options:', options);
-    try {
-      const accounts = await this.prisma.account.findMany({
-        where: {
-          archived: options?.includeArchived ? undefined : false,
-          type: options?.type,
-          kind: options?.kind,
-          isReal: options?.isReal,
-          isBusinessDefault: options?.isBusinessDefault,
-        },
-        orderBy: [{ type: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
-      });
-      console.log('Successfully fetched accounts:', accounts.length);
-      return accounts;
-    } catch (error) {
-      console.error('Error in getAllAccounts:', error);
-      throw error; // Re-throw the error so it propagates
-    }
+    const accounts = await this.prisma.account.findMany({
+      where: {
+        archived: options?.includeArchived ? undefined : false,
+        type: options?.type,
+        kind: options?.kind,
+        isReal: options?.isReal,
+        isBusinessDefault: options?.isBusinessDefault,
+      },
+      orderBy: [{ type: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
+    });
+    return accounts;
   }
 
   private deriveKind(type: AccountType): AccountKind {
@@ -159,7 +152,29 @@ export class AccountService {
 
     if (postingCount > 0) {
       throw new Error(
-        `Cannot delete account with ${postingCount} transactions. Archive it instead.`
+        `Cannot delete account with ${postingCount} transaction(s). Archive it instead.`
+      );
+    }
+
+    // Check if account has any child categories
+    const childCount = await this.prisma.account.count({
+      where: { parentId: id },
+    });
+
+    if (childCount > 0) {
+      throw new Error(
+        `Cannot delete category with ${childCount} subcategory(ies). Delete or move the subcategories first.`
+      );
+    }
+
+    // Check if account is used in memorized rules
+    const ruleCount = await this.prisma.memorizedRule.count({
+      where: { defaultAccountId: id },
+    });
+
+    if (ruleCount > 0) {
+      throw new Error(
+        `Cannot delete account used in ${ruleCount} memorized rule(s). Update or delete the rules first.`
       );
     }
 
@@ -169,7 +184,7 @@ export class AccountService {
   }
 
   /**
-   * Calculate account balance
+   * Calculate account balance using database aggregation for efficiency
    */
   async getAccountBalance(
     accountId: string,
@@ -187,8 +202,8 @@ export class AccountService {
     // Start with opening balance
     let balance = account.openingBalance;
 
-    // Sum all postings
-    const postings = await this.prisma.posting.findMany({
+    // Use database aggregation for sum (more efficient than fetching all postings)
+    const result = await this.prisma.posting.aggregate({
       where: {
         accountId,
         transaction: {
@@ -200,12 +215,12 @@ export class AccountService {
         cleared: options?.clearedOnly ? true : undefined,
         reconciled: options?.reconciledOnly ? true : undefined,
       },
-      select: {
+      _sum: {
         amount: true,
       },
     });
 
-    balance += postings.reduce((sum, p) => sum + p.amount, 0);
+    balance += result._sum.amount ?? 0;
 
     return balance;
   }

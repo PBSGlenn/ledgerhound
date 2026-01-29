@@ -1,10 +1,10 @@
 /**
- * Bank Statement Import Wizard
- * Complete workflow for importing CSV bank statements (Commonwealth Bank format)
- * NOW WITH AUTOMATIC RULE MATCHING!
+ * Unified CSV Import Wizard
+ * Merged from BankStatementImport + ImportWizard
+ * Features: Account selection, template management, automatic rule matching, bank format support
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
   Upload,
@@ -18,17 +18,20 @@ import {
   ChevronRight,
   ChevronLeft,
   Sparkles,
+  Save,
 } from 'lucide-react';
 import { CategorySelector } from '../Category/CategorySelector';
 import { useToast } from '../../hooks/useToast';
+import { accountAPI, importAPI } from '../../lib/api';
 import type { AccountType } from '@prisma/client';
+import type { Account, AccountWithBalance } from '../../types';
 
 interface BankStatementImportProps {
   isOpen: boolean;
   onClose: () => void;
-  accountId: string;  // The credit card/bank account to import into
-  accountName: string;
-  onImportComplete: () => void;
+  accountId?: string;  // Optional: pre-select account (if undefined, shows dropdown)
+  accountName?: string; // Optional: pre-set account name
+  onImportComplete: () => void | Promise<void>;
 }
 
 interface ImportPreview {
@@ -63,13 +66,21 @@ interface ColumnMapping {
   debit?: string;
   credit?: string;
   reference?: string;
+  memo?: string;
+  externalId?: string;
+}
+
+interface ImportMappingTemplate {
+  name: string;
+  mapping: ColumnMapping;
+  accountId?: string;
 }
 
 export function BankStatementImport({
   isOpen,
   onClose,
-  accountId,
-  accountName,
+  accountId: propsAccountId,
+  accountName: propsAccountName,
   onImportComplete,
 }: BankStatementImportProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
@@ -82,7 +93,92 @@ export function BankStatementImport({
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
 
+  // Account selection (for toolbar usage)
+  const [accounts, setAccounts] = useState<AccountWithBalance[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState(propsAccountId || '');
+  const [selectedAccountName, setSelectedAccountName] = useState(propsAccountName || '');
+
+  // Template management
+  const [templates, setTemplates] = useState<ImportMappingTemplate[]>([]);
+  const [selectedTemplateName, setSelectedTemplateName] = useState('');
+  const [saveAsTemplate, setSaveAsTemplate] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState('');
+
   const { showToast } = useToast();
+
+  // Load accounts and templates when dialog opens (only if accountId not provided)
+  useEffect(() => {
+    if (isOpen && !propsAccountId) {
+      loadAccountsAndTemplates();
+    }
+    if (isOpen && propsAccountId) {
+      setSelectedAccountId(propsAccountId);
+      setSelectedAccountName(propsAccountName || '');
+    }
+  }, [isOpen, propsAccountId, propsAccountName]);
+
+  const loadAccountsAndTemplates = async () => {
+    try {
+      const [allAccounts, allTemplates] = await Promise.all([
+        accountAPI.getAllAccountsWithBalances(),
+        importAPI.getImportMappingTemplates(),
+      ]);
+      // Filter to only bank accounts (ASSET and LIABILITY)
+      const bankAccounts = allAccounts.filter(
+        acc => acc.type === 'ASSET' || acc.type === 'LIABILITY'
+      );
+      setAccounts(bankAccounts);
+      setTemplates(allTemplates);
+    } catch (err) {
+      console.error('Failed to load accounts/templates:', err);
+      showToast('Failed to load accounts', 'error');
+    }
+  };
+
+  const handleAccountChange = (accountId: string) => {
+    setSelectedAccountId(accountId);
+    const account = accounts.find(a => a.id === accountId);
+    setSelectedAccountName(account?.name || '');
+  };
+
+  const handleTemplateSelect = (templateName: string) => {
+    setSelectedTemplateName(templateName);
+    const template = templates.find(t => t.name === templateName);
+    if (template) {
+      setColumnMapping(template.mapping);
+      if (template.accountId && !propsAccountId) {
+        handleAccountChange(template.accountId);
+      }
+    }
+  };
+
+  const handleSaveTemplate = async () => {
+    if (!newTemplateName.trim()) {
+      showToast('Please enter a template name', 'error');
+      return;
+    }
+    if (!Object.keys(columnMapping).length) {
+      showToast('Please map at least one column', 'error');
+      return;
+    }
+    try {
+      await importAPI.saveImportMappingTemplate(
+        newTemplateName.trim(),
+        columnMapping,
+        selectedAccountId
+      );
+      showToast('Template saved successfully!', 'success');
+      setNewTemplateName('');
+      setSaveAsTemplate(false);
+      // Reload templates
+      if (!propsAccountId) {
+        loadAccountsAndTemplates();
+      }
+    } catch (err) {
+      console.error('Failed to save template:', err);
+      showToast('Failed to save template', 'error');
+    }
+  };
 
   // Step 1: Upload CSV
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -154,6 +250,10 @@ export function BankStatementImport({
 
   // Step 2: Map columns & fetch preview from backend (WITH RULE MATCHING!)
   const handleFetchPreview = async () => {
+    if (!selectedAccountId) {
+      showToast('Please select an account', 'error');
+      return;
+    }
     if (!columnMapping.date || (!columnMapping.amount && (!columnMapping.debit || !columnMapping.credit))) {
       showToast('Please map at least Date and Amount columns', 'error');
       return;
@@ -203,7 +303,7 @@ export function BankStatementImport({
         body: JSON.stringify({
           csvText: csvWithHeaders,
           mapping: mappingWithColNames,
-          sourceAccountId: accountId,
+          sourceAccountId: selectedAccountId,
         }),
       });
 
@@ -294,8 +394,8 @@ export function BankStatementImport({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           previews: previewsWithCategories,
-          sourceAccountId: accountId,
-          sourceName: accountName,
+          sourceAccountId: selectedAccountId,
+          sourceName: selectedAccountName || file?.name || 'Import',
           mapping: columnMapping,
           options: {
             applyRules: true,  // Rules were already applied in preview
@@ -314,7 +414,7 @@ export function BankStatementImport({
         'success'
       );
 
-      onImportComplete();
+      await onImportComplete();
       handleClose();
     } catch (error) {
       console.error('Import failed:', error);
@@ -332,6 +432,14 @@ export function BankStatementImport({
     setColumnMapping({});
     setPreviews([]);
     setCategoryOverrides({});
+    setSelectedTemplateName('');
+    setNewTemplateName('');
+    setSaveAsTemplate(false);
+    // Don't reset selectedAccountId if it was provided via props
+    if (!propsAccountId) {
+      setSelectedAccountId('');
+      setSelectedAccountName('');
+    }
     onClose();
   };
 
@@ -349,12 +457,20 @@ export function BankStatementImport({
     <Dialog.Root open={isOpen} onOpenChange={handleClose}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100]" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl p-6 w-full max-w-5xl shadow-2xl z-[101] border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto">
+        <Dialog.Content
+          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl p-6 w-full max-w-5xl shadow-2xl z-[101] border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto"
+          onInteractOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
           <Dialog.Title className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
-            Import Bank Statement
+            CSV Import Wizard
           </Dialog.Title>
           <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
-            Importing into: <span className="font-semibold text-slate-900 dark:text-white">{accountName}</span>
+            {selectedAccountName ? (
+              <>Importing into: <span className="font-semibold text-slate-900 dark:text-white">{selectedAccountName}</span></>
+            ) : (
+              'Import transactions from CSV bank statement'
+            )}
           </p>
 
           {/* Progress Steps */}
@@ -396,6 +512,33 @@ export function BankStatementImport({
           {/* Step 1: Upload CSV */}
           {step === 1 && (
             <div className="space-y-6">
+              {/* Account Selection (only if not pre-selected) */}
+              {!propsAccountId && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                  <label htmlFor="account-select" className="block text-sm font-semibold text-slate-900 dark:text-white mb-2">
+                    Select Account to Import Into
+                  </label>
+                  <select
+                    id="account-select"
+                    value={selectedAccountId}
+                    onChange={(e) => handleAccountChange(e.target.value)}
+                    className="w-full px-4 py-3 text-base border-2 border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 dark:bg-slate-700 dark:text-white transition-colors font-medium"
+                  >
+                    <option value="">-- Select an account --</option>
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name} ({account.type})
+                      </option>
+                    ))}
+                  </select>
+                  {selectedAccountId && selectedAccountName && (
+                    <p className="mt-2 text-sm text-blue-700 dark:text-blue-300">
+                      ✓ Importing into: {selectedAccountName}
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-xl p-12 text-center">
                 <Upload className="w-16 h-16 mx-auto mb-4 text-slate-400" />
                 <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
@@ -434,6 +577,65 @@ export function BankStatementImport({
           {/* Step 2: Map Columns */}
           {step === 2 && (
             <div className="space-y-6">
+              {/* Template Management */}
+              <div className="bg-slate-50 dark:bg-slate-900/50 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+                <h3 className="font-semibold text-slate-900 dark:text-white mb-4">
+                  Load or Save Template
+                </h3>
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="template-select" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      Load Saved Template
+                    </label>
+                    <select
+                      id="template-select"
+                      value={selectedTemplateName}
+                      onChange={(e) => handleTemplateSelect(e.target.value)}
+                      className="w-full px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 dark:bg-slate-700 dark:text-white transition-colors"
+                    >
+                      <option value="">-- Select a template --</option>
+                      {templates.map((template) => (
+                        <option key={template.name} value={template.name}>
+                          {template.name}
+                          {template.accountId && accounts.length > 0
+                            ? ` (for ${accounts.find((a) => a.id === template.accountId)?.name || 'unknown'})`
+                            : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="saveAsTemplate"
+                      checked={saveAsTemplate}
+                      onChange={(e) => setSaveAsTemplate(e.target.checked)}
+                      className="rounded border-slate-300 dark:border-slate-600 text-emerald-600 focus:ring-2 focus:ring-emerald-500"
+                    />
+                    <label htmlFor="saveAsTemplate" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      Save current mapping as new template
+                    </label>
+                  </div>
+                  {saveAsTemplate && (
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Template Name (e.g., 'NAB Checking')"
+                        value={newTemplateName}
+                        onChange={(e) => setNewTemplateName(e.target.value)}
+                        className="flex-1 px-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      />
+                      <button
+                        onClick={handleSaveTemplate}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition-colors flex items-center gap-2"
+                      >
+                        <Save className="w-4 h-4" /> Save
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="bg-slate-50 dark:bg-slate-900/50 rounded-lg p-4">
                 <h3 className="font-semibold text-slate-900 dark:text-white mb-4">
                   Column Mapping
@@ -494,7 +696,66 @@ export function BankStatementImport({
                       ))}
                     </select>
                   </div>
+
+                  {/* Additional columns */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      Reference (Optional)
+                    </label>
+                    <select
+                      value={columnMapping.reference ?? ''}
+                      onChange={(e) => setColumnMapping({ ...columnMapping, reference: e.target.value || undefined })}
+                      className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white"
+                    >
+                      <option value="">Not used</option>
+                      {csvData[0]?.map((_, idx) => (
+                        <option key={idx} value={idx.toString()}>
+                          Column {idx + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      Memo (Optional)
+                    </label>
+                    <select
+                      value={columnMapping.memo ?? ''}
+                      onChange={(e) => setColumnMapping({ ...columnMapping, memo: e.target.value || undefined })}
+                      className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white"
+                    >
+                      <option value="">Not used</option>
+                      {csvData[0]?.map((_, idx) => (
+                        <option key={idx} value={idx.toString()}>
+                          Column {idx + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      External ID (for deduplication)
+                    </label>
+                    <select
+                      value={columnMapping.externalId ?? ''}
+                      onChange={(e) => setColumnMapping({ ...columnMapping, externalId: e.target.value || undefined })}
+                      className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white"
+                    >
+                      <option value="">Not used</option>
+                      {csvData[0]?.map((_, idx) => (
+                        <option key={idx} value={idx.toString()}>
+                          Column {idx + 1}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
+
+                <p className="text-xs text-slate-600 dark:text-slate-400 mt-3">
+                  💡 Tip: For banks with separate debit/credit columns, map "amount" to the combined column or use both debit and credit fields
+                </p>
               </div>
 
               {/* Preview */}
@@ -716,7 +977,7 @@ export function BankStatementImport({
                 <ul className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
                   <li>• {categorizedCount} transactions will be imported</li>
                   <li>• {duplicateCount} duplicates will be skipped automatically</li>
-                  <li>• Account: {accountName}</li>
+                  <li>• Account: {selectedAccountName}</li>
                   {matchedCount > 0 && (
                     <li className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                       <Sparkles className="w-3 h-3" />• {matchedCount} auto-matched by memorized rules

@@ -129,8 +129,10 @@ export function MemorizedRulesManager() {
   };
 
   const handleApplyToExisting = async (id: string) => {
+    console.log('handleApplyToExisting called with id:', id);
     try {
       const result = await memorizedRuleAPI.applyToExisting(id);
+      console.log('Apply result:', result);
       setApplyResult(result);
       setApplyRuleId(null);
       if (result.count > 0) {
@@ -141,7 +143,7 @@ export function MemorizedRulesManager() {
       }
     } catch (error) {
       console.error('Failed to apply rule:', error);
-      showError('Failed to apply rule to existing transactions');
+      showError(error instanceof Error ? error.message : 'Failed to apply rule to existing transactions');
       setApplyRuleId(null);
     }
   };
@@ -514,13 +516,15 @@ export function MemorizedRulesManager() {
             <AlertDialog.Title className="text-lg font-bold text-slate-900 dark:text-white mb-2">
               Apply Rule to Existing Transactions?
             </AlertDialog.Title>
-            <AlertDialog.Description className="text-slate-600 dark:text-slate-400 mb-6">
-              <p className="mb-2">
-                This will update all existing transactions that match this rule's pattern.
-              </p>
-              <p className="text-sm">
-                The payee name will be updated to match the rule's default payee.
-              </p>
+            <AlertDialog.Description asChild>
+              <div className="text-slate-600 dark:text-slate-400 mb-6">
+                <p className="mb-2">
+                  This will update all existing transactions that match this rule's pattern.
+                </p>
+                <p className="text-sm">
+                  The payee name will be updated to match the rule's default payee.
+                </p>
+              </div>
             </AlertDialog.Description>
             <div className="flex justify-end gap-3">
               <AlertDialog.Cancel asChild>
