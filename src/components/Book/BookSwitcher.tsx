@@ -8,6 +8,7 @@ import { Book, ChevronDown, Plus, FolderOpen } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { format } from 'date-fns';
 import { bookManager } from '../../lib/services/bookManager';
+import { BookListDialog } from './BookListDialog';
 import type { Book as BookType } from '../../types/book';
 
 interface BookSwitcherProps {
@@ -18,6 +19,7 @@ interface BookSwitcherProps {
 
 export function BookSwitcher({ currentBook, onSwitchBook, onCreateNew }: BookSwitcherProps) {
   const [open, setOpen] = useState(false);
+  const [showBookList, setShowBookList] = useState(false);
   const recentBooks = bookManager.getRecentBooks(5).filter(b => b.id !== currentBook.id);
 
   return (
@@ -97,8 +99,8 @@ export function BookSwitcher({ currentBook, onSwitchBook, onCreateNew }: BookSwi
           <DropdownMenu.Item
             className="px-3 py-2 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer focus:bg-slate-100 dark:focus:bg-slate-700 outline-none"
             onSelect={() => {
-              // TODO: Open book list dialog
               setOpen(false);
+              setShowBookList(true);
             }}
           >
             <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
@@ -121,6 +123,14 @@ export function BookSwitcher({ currentBook, onSwitchBook, onCreateNew }: BookSwi
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
+
+      {/* Book List Dialog */}
+      <BookListDialog
+        isOpen={showBookList}
+        onClose={() => setShowBookList(false)}
+        currentBookId={currentBook.id}
+        onSwitchBook={onSwitchBook}
+      />
     </DropdownMenu.Root>
   );
 }

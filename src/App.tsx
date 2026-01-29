@@ -20,7 +20,19 @@ export default function App() {
 
     if (!firstRun) {
       // Load active book
-      const activeBook = bookManager.getActiveBook();
+      let activeBook = bookManager.getActiveBook();
+
+      // If no active book, auto-select the most recently accessed book
+      if (!activeBook) {
+        const books = bookManager.getAllBooks();
+        if (books.length > 0) {
+          const sortedBooks = books.sort((a, b) =>
+            new Date(b.lastAccessedAt).getTime() - new Date(a.lastAccessedAt).getTime()
+          );
+          activeBook = bookManager.setActiveBook(sortedBooks[0].id);
+        }
+      }
+
       if (activeBook) {
         setCurrentBook(activeBook);
 
@@ -30,9 +42,6 @@ export default function App() {
           setShowAccountSetup(true);
           localStorage.removeItem('ledgerhound-show-account-setup');
         }
-      } else {
-        // Has books but no active book - show onboarding
-        setIsFirstRun(true);
       }
     }
 
@@ -50,8 +59,12 @@ export default function App() {
     }
   };
 
-  const handleAccountSetupComplete = () => {
+  const handleAccountSetupComplete = (firstAccountId?: string) => {
     setShowAccountSetup(false);
+    // Store the first created account ID so we can navigate to it after reload
+    if (firstAccountId) {
+      localStorage.setItem('ledgerhound-navigate-to-account', firstAccountId);
+    }
     // Reload to refresh account list
     window.location.reload();
   };

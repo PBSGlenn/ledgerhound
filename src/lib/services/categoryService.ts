@@ -15,6 +15,7 @@ export interface CategoryNode {
   level: number;
   isBusinessDefault: boolean;
   sortOrder: number;
+  transactionCount?: number;
   children?: CategoryNode[];
 }
 
@@ -24,6 +25,7 @@ export interface CategoryTreeOptions {
   businessOnly?: boolean; // Only business categories
   personalOnly?: boolean; // Only personal categories
   maxLevel?: number;      // Max depth to return
+  includeTransactionCount?: boolean; // Include transaction count per category
 }
 
 export class CategoryService {
@@ -39,6 +41,7 @@ export class CategoryService {
   async getAllCategories(options?: {
     type?: AccountType;
     includeArchived?: boolean;
+    includeTransactionCount?: boolean;
   }): Promise<CategoryNode[]> {
     const where: any = {
       kind: AccountKind.CATEGORY,
@@ -61,10 +64,24 @@ export class CategoryService {
         level: true,
         isBusinessDefault: true,
         sortOrder: true,
+        _count: options?.includeTransactionCount ? {
+          select: { postings: true },
+        } : undefined,
       },
     });
 
-    return categories;
+    // Map the _count field to transactionCount
+    return categories.map((cat: any) => ({
+      id: cat.id,
+      name: cat.name,
+      fullPath: cat.fullPath,
+      type: cat.type,
+      parentId: cat.parentId,
+      level: cat.level,
+      isBusinessDefault: cat.isBusinessDefault,
+      sortOrder: cat.sortOrder,
+      transactionCount: cat._count?.postings,
+    }));
   }
 
   /**
@@ -75,6 +92,7 @@ export class CategoryService {
     const categories = await this.getAllCategories({
       type: options?.type,
       includeArchived: false,
+      includeTransactionCount: options?.includeTransactionCount,
     });
 
     // Filter based on options
@@ -640,6 +658,34 @@ export class CategoryService {
   }
 
   /**
+   * Check if a category can be deleted (has no children and no transactions)
+   * Returns deletion eligibility info without actually deleting
+   */
+  async canDeleteCategory(id: string): Promise<{
+    canDelete: boolean;
+    hasChildren: boolean;
+    hasTransactions: boolean;
+    childCount: number;
+    transactionCount: number;
+  }> {
+    const childCount = await this.prisma.account.count({
+      where: { parentId: id },
+    });
+
+    const transactionCount = await this.prisma.posting.count({
+      where: { accountId: id },
+    });
+
+    return {
+      canDelete: childCount === 0 && transactionCount === 0,
+      hasChildren: childCount > 0,
+      hasTransactions: transactionCount > 0,
+      childCount,
+      transactionCount,
+    };
+  }
+
+  /**
    * Archive category (soft delete)
    */
   async archiveCategory(id: string): Promise<CategoryNode> {
@@ -688,6 +734,8 @@ export const categoryService = {
     categoryServiceInstance.updateCategory(...args),
   deleteCategory: (...args: Parameters<CategoryService['deleteCategory']>) =>
     categoryServiceInstance.deleteCategory(...args),
+  canDeleteCategory: (...args: Parameters<CategoryService['canDeleteCategory']>) =>
+    categoryServiceInstance.canDeleteCategory(...args),
   archiveCategory: (...args: Parameters<CategoryService['archiveCategory']>) =>
     categoryServiceInstance.archiveCategory(...args),
 };
