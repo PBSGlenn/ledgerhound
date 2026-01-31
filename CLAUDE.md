@@ -254,13 +254,13 @@ All business logic is in TypeScript services (not Rust):
 - **Tauri desktop packaging**: Currently web-based, packaging planned
 
 ### 🐛 Known UX Issues (Manual Testing - 2025-11-14)
-- **Issue #1**: Collapsed sidebar expand button hidden by book label (Medium severity)
-- **Issue #2**: No way to cancel/exit onboarding wizard - ESC key and X button not working (Medium severity)
-- **Issue #3**: No dashboard return button when viewing account register (Medium severity)
+- ~~**Issue #1**: Collapsed sidebar expand button hidden by book label (Medium severity)~~ - **FIXED 2026-02-01** - BookSwitcher now positioned dynamically to right of sidebar
+- ~~**Issue #2**: No way to cancel/exit onboarding wizard - ESC key and X button not working (Medium severity)~~ - **FIXED 2026-02-01** - Added onCancel prop to OnboardingWizard in MainLayout
+- ~~**Issue #3**: No dashboard return button when viewing account register (Medium severity)~~ - **FIXED 2026-02-01** - Added Dashboard button to TopBar
 - **Issue #4**: App should open most recent book automatically on startup instead of showing onboarding (Low severity, enhancement)
 - **Issue #5**: Register doesn't auto-open after creating account via Account Setup Wizard (Low severity, UX enhancement)
 - ~~**Issue #6**: Transaction form modal closes on outside click, losing all unsaved data (HIGH severity, data loss risk)~~ - **FIXED** - Added `onInteractOutside` prevention to TransactionFormModal.tsx
-- **Issue #7**: CategorySelector search input cannot receive focus in dropdown (HIGH severity) - Portal/z-index issue preventing text input. Workaround: click categories directly
+- ~~**Issue #7**: CategorySelector search input cannot receive focus in dropdown (HIGH severity)~~ - **FIXED 2026-02-01** - Replaced custom portal with Radix Popover for proper focus management inside Dialog
 - ~~**Issue #8**: Register doesn't auto-refresh after saving transaction (HIGH severity, CRITICAL UX)~~ - **FIXED 2025-11-25** - Fixed by making onSuccess callbacks async/await and adding refresh key pattern to force RegisterView remount. Changes in: TransactionFormModal.tsx, TopBar.tsx, MainLayout.tsx, RegisterGrid.tsx, BankStatementImport.tsx, StripeImportModal.tsx
 - ~~**Issue #9**: Expense transactions incorrectly recorded as credits (CRITICAL SEVERITY - ACCOUNTING BUG)~~ - **FIXED 2025-11-15** - Fixed in TransactionFormModal.tsx by applying correct signs: expenses are negative (debit), income is positive (credit). Double-entry validation ensures all postings sum to zero
 - ~~**Issue #11**: CSV import inverts all debit/credit signs (CRITICAL SEVERITY - ACCOUNTING BUG)~~ - **FIXED 2025-11-25** - Fixed in importService.ts. Bank statement amounts now use correct signs: positive = credit (money in), negative = debit (money out). Category postings are negated to balance.
