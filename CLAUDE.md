@@ -257,8 +257,8 @@ All business logic is in TypeScript services (not Rust):
 - ~~**Issue #1**: Collapsed sidebar expand button hidden by book label (Medium severity)~~ - **FIXED 2026-02-01** - BookSwitcher now positioned dynamically to right of sidebar
 - ~~**Issue #2**: No way to cancel/exit onboarding wizard - ESC key and X button not working (Medium severity)~~ - **FIXED 2026-02-01** - Added onCancel prop to OnboardingWizard in MainLayout
 - ~~**Issue #3**: No dashboard return button when viewing account register (Medium severity)~~ - **FIXED 2026-02-01** - Added Dashboard button to TopBar
-- **Issue #4**: App should open most recent book automatically on startup instead of showing onboarding (Low severity, enhancement)
-- **Issue #5**: Register doesn't auto-open after creating account via Account Setup Wizard (Low severity, UX enhancement)
+- ~~**Issue #4**: App should open most recent book automatically on startup instead of showing onboarding (Low severity, enhancement)~~ - **FIXED 2026-02-01** - Initialize isFirstRun with lazy evaluation to detect books immediately
+- ~~**Issue #5**: Register doesn't auto-open after creating account via Account Setup Wizard (Low severity, UX enhancement)~~ - **FIXED 2026-02-01** - Store account ID in localStorage, pass to MainLayout which navigates after accounts load
 - ~~**Issue #6**: Transaction form modal closes on outside click, losing all unsaved data (HIGH severity, data loss risk)~~ - **FIXED** - Added `onInteractOutside` prevention to TransactionFormModal.tsx
 - ~~**Issue #7**: CategorySelector search input cannot receive focus in dropdown (HIGH severity)~~ - **FIXED 2026-02-01** - Replaced custom portal with Radix Popover for proper focus management inside Dialog
 - ~~**Issue #8**: Register doesn't auto-refresh after saving transaction (HIGH severity, CRITICAL UX)~~ - **FIXED 2025-11-25** - Fixed by making onSuccess callbacks async/await and adding refresh key pattern to force RegisterView remount. Changes in: TransactionFormModal.tsx, TopBar.tsx, MainLayout.tsx, RegisterGrid.tsx, BankStatementImport.tsx, StripeImportModal.tsx
