@@ -58,13 +58,21 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: Ma
   };
 
   if (showNewBookWizard) {
-    return <OnboardingWizard onComplete={handleNewBookCreated} />;
+    return (
+      <OnboardingWizard
+        onComplete={handleNewBookCreated}
+        onCancel={() => setShowNewBookWizard(false)}
+      />
+    );
   }
 
   return (
     <div className="flex h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-      {/* Book Switcher - Top Left */}
-      <div className="absolute top-4 left-4 z-10">
+      {/* Book Switcher - positioned to the right of sidebar */}
+      <div
+        className="absolute top-3 z-10 transition-all duration-300"
+        style={{ left: sidebarCollapsed ? '5rem' : '19rem' }}
+      >
         <BookSwitcher
           currentBook={currentBook}
           onSwitchBook={onSwitchBook}

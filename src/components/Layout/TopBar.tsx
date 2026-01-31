@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Upload, GitCompare, BarChart3, Settings, CreditCard } from 'lucide-react';
+import { Plus, Upload, GitCompare, BarChart3, Settings, CreditCard, Home } from 'lucide-react';
 import type { AccountWithBalance } from '../../types';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
 
@@ -164,6 +164,20 @@ export function TopBar({
             <BarChart3 className="w-4 h-4" />
             Reports
           </button>
+          {/* Dashboard button - show when not on dashboard */}
+          {(selectedAccount || currentView !== 'dashboard') && (
+            <button
+              onClick={onDashboardClick}
+              className={`px-3 py-1 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2 ${
+                !selectedAccount && currentView === 'dashboard'
+                  ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                  : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300'
+              }`}
+            >
+              <Home className="w-4 h-4" />
+              Dashboard
+            </button>
+          )}
           <button
             onClick={onSettingsClick}
             className={`px-3 py-1 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2 ${
