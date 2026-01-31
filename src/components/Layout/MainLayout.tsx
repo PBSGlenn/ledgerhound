@@ -20,9 +20,10 @@ interface MainLayoutProps {
   currentBook: Book;
   onSwitchBook: (bookId: string) => void;
   onShowAccountSetup: () => void;
+  initialAccountId?: string | null; // For navigating to account after creation (Issue #5)
 }
 
-export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: MainLayoutProps) {
+export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, initialAccountId }: MainLayoutProps) {
   const [showNewBookWizard, setShowNewBookWizard] = useState(false);
   const [accounts, setAccounts] = useState<AccountWithBalance[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
@@ -36,6 +37,18 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup }: Ma
   useEffect(() => {
     loadAccounts();
   }, []);
+
+  // Navigate to initial account after accounts are loaded (Issue #5)
+  useEffect(() => {
+    if (initialAccountId && accounts.length > 0) {
+      // Verify the account exists before selecting it
+      const accountExists = accounts.some(a => a.id === initialAccountId);
+      if (accountExists) {
+        setSelectedAccountId(initialAccountId);
+        setCurrentView('register');
+      }
+    }
+  }, [initialAccountId, accounts]);
 
   const loadAccounts = async () => {
     try {

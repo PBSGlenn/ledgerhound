@@ -8,13 +8,16 @@ import { bookManager } from './lib/services/bookManager';
 import type { Book } from './types/book';
 
 export default function App() {
-  const [isFirstRun, setIsFirstRun] = useState(true);
+  // Initialize isFirstRun immediately to avoid flash of onboarding when books exist
+  const [isFirstRun, setIsFirstRun] = useState(() => bookManager.isFirstRun());
   const [showAccountSetup, setShowAccountSetup] = useState(false);
   const [currentBook, setCurrentBook] = useState<Book | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Store the account ID to navigate to after account creation (Issue #5)
+  const [initialAccountId, setInitialAccountId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Check if this is first run
+    // Re-check first run status (in case of localStorage changes)
     const firstRun = bookManager.isFirstRun();
     setIsFirstRun(firstRun);
 
@@ -22,7 +25,7 @@ export default function App() {
       // Load active book
       let activeBook = bookManager.getActiveBook();
 
-      // If no active book, auto-select the most recently accessed book
+      // If no active book, auto-select the most recently accessed book (Issue #4)
       if (!activeBook) {
         const books = bookManager.getAllBooks();
         if (books.length > 0) {
@@ -41,6 +44,13 @@ export default function App() {
         if (shouldShowAccountSetup === 'true') {
           setShowAccountSetup(true);
           localStorage.removeItem('ledgerhound-show-account-setup');
+        }
+
+        // Check if we should navigate to a specific account after creation (Issue #5)
+        const navigateToAccount = localStorage.getItem('ledgerhound-navigate-to-account');
+        if (navigateToAccount) {
+          setInitialAccountId(navigateToAccount);
+          localStorage.removeItem('ledgerhound-navigate-to-account');
         }
       }
     }
@@ -117,6 +127,7 @@ export default function App() {
               currentBook={currentBook}
               onSwitchBook={handleBookSwitch}
               onShowAccountSetup={() => setShowAccountSetup(true)}
+              initialAccountId={initialAccountId}
             />
             {showAccountSetup && (
               <AccountSetupWizard
