@@ -1,26 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PDFStatementService } from '../pdfStatementService';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { PDFStatementService, type TextExtractor } from '../pdfStatementService';
 
-// Mock pdf-parse
-vi.mock('pdf-parse', () => ({
-  default: vi.fn((buffer: Buffer) => {
-    // Return mocked text based on test scenario
-    return Promise.resolve({
-      text: buffer.toString('utf-8'),
-      numpages: 1,
-      numrender: 1,
-      info: {},
-      metadata: null,
-      version: '1.0',
-    });
-  }),
-}));
+// Create a mock text extractor that just returns the buffer as UTF-8 text
+// This allows testing the parsing logic without actually parsing PDFs
+const mockTextExtractor: TextExtractor = async (pdfBuffer: Buffer) => {
+  return pdfBuffer.toString('utf-8');
+};
 
 describe('PDFStatementService', () => {
   let service: PDFStatementService;
 
   beforeEach(() => {
-    service = new PDFStatementService();
+    // Use mock text extractor for tests
+    service = new PDFStatementService(mockTextExtractor);
   });
 
   describe('parseStatement', () => {

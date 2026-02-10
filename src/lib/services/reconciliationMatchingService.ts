@@ -447,6 +447,11 @@ export class ReconciliationMatchingService {
     startDate?: Date,
     endDate?: Date
   ): Promise<(Transaction & { postings: Posting[] })[]> {
+    // Buffer dates by 1 day to handle timezone offsets
+    // (e.g., AEST dates stored as prior-day UTC: June 1 AEST = May 31 UTC)
+    const bufferedStart = startDate ? new Date(startDate.getTime() - 24 * 60 * 60 * 1000) : undefined;
+    const bufferedEnd = endDate ? new Date(endDate.getTime() + 24 * 60 * 60 * 1000) : undefined;
+
     return this.prisma.transaction.findMany({
       where: {
         postings: {
@@ -455,8 +460,8 @@ export class ReconciliationMatchingService {
           },
         },
         date: {
-          gte: startDate,
-          lte: endDate,
+          gte: bufferedStart,
+          lte: bufferedEnd,
         },
         status: 'NORMAL',
       },

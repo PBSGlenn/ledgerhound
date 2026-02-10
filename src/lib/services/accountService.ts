@@ -9,6 +9,15 @@ export class AccountService {
     this.prisma = prisma ?? getPrismaClient();
   }
 
+  // Account type ordering for sorting (standard accounting order)
+  private static readonly TYPE_ORDER: Record<AccountType, number> = {
+    [AccountType.ASSET]: 0,
+    [AccountType.LIABILITY]: 1,
+    [AccountType.EQUITY]: 2,
+    [AccountType.INCOME]: 3,
+    [AccountType.EXPENSE]: 4,
+  };
+
   /**
    * Get all accounts with optional filtering
    */
@@ -27,9 +36,23 @@ export class AccountService {
         isReal: options?.isReal,
         isBusinessDefault: options?.isBusinessDefault,
       },
-      orderBy: [{ type: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
     });
-    return accounts;
+
+    // Sort by account type using business order (Prisma sorts enums alphabetically)
+    return accounts.sort((a, b) => {
+      const typeOrderA = AccountService.TYPE_ORDER[a.type];
+      const typeOrderB = AccountService.TYPE_ORDER[b.type];
+      if (typeOrderA !== typeOrderB) {
+        return typeOrderA - typeOrderB;
+      }
+      // Secondary sort by sortOrder (already handled by Prisma, but maintain for tie-breaking)
+      if (a.sortOrder !== b.sortOrder) {
+        return a.sortOrder - b.sortOrder;
+      }
+      // Tertiary sort by name
+      return a.name.localeCompare(b.name);
+    });
   }
 
   private deriveKind(type: AccountType): AccountKind {
@@ -54,6 +77,8 @@ export class AccountService {
     subtype?: AccountSubtype;
     isReal?: boolean;
     isBusinessDefault?: boolean;
+    defaultHasGst?: boolean;
+    parentId?: string | null;
     openingBalance?: number;
     openingDate?: Date;
     currency?: string;
@@ -79,6 +104,8 @@ export class AccountService {
         subtype: data.subtype,
         isReal: data.isReal ?? true,
         isBusinessDefault: data.isBusinessDefault ?? false,
+        defaultHasGst: data.defaultHasGst,
+        parentId: data.parentId ?? null,
         openingBalance: data.openingBalance ?? 0,
         openingDate: data.openingDate ?? new Date(),
         currency: data.currency ?? 'AUD',

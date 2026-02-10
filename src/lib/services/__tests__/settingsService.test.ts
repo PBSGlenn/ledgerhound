@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { SettingsService } from '../settingsService';
 import type { PrismaClient } from '@prisma/client';
-import { createTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
+import { getTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
 import { seedTestAccounts } from '../__test-utils__/fixtures';
 
 describe('SettingsService', () => {
@@ -9,8 +9,11 @@ describe('SettingsService', () => {
   let settingsService: SettingsService;
   let accounts: Awaited<ReturnType<typeof seedTestAccounts>>;
 
+  beforeAll(async () => {
+    prisma = await getTestDb();
+  });
+
   beforeEach(async () => {
-    prisma = await createTestDb();
     await resetTestDb(prisma);
     settingsService = new SettingsService(prisma);
     accounts = await seedTestAccounts(prisma);

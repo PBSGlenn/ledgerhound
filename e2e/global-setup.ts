@@ -10,20 +10,40 @@ async function globalSetup() {
   console.log('Setting up E2E test environment...');
 
   try {
-    // Delete the database file to start fresh
+    // Try to delete the database file to start fresh
+    // If locked (API server running), skip DB setup and use existing data
     const dbPath = path.join(process.cwd(), 'prisma', 'dev.db');
+    let dbLocked = false;
+
     if (fs.existsSync(dbPath)) {
-      fs.unlinkSync(dbPath);
-      console.log('✓ Deleted existing database');
+      try {
+        // Try to open the file exclusively to check if it's locked
+        const fd = fs.openSync(dbPath, 'r+');
+        fs.closeSync(fd);
+        // If we get here, file is not locked - we can delete and reseed
+        fs.unlinkSync(dbPath);
+        console.log('✓ Deleted existing database');
+      } catch (err: any) {
+        if (err.code === 'EBUSY' || err.code === 'EACCES') {
+          console.log('⚠ Database locked (API server running) - using existing data');
+          dbLocked = true;
+        } else {
+          throw err;
+        }
+      }
     }
 
-    // Run database migrations
-    await execAsync('npm run db:migrate');
-    console.log('✓ Database migrations completed');
+    if (!dbLocked) {
+      // Run database migrations (creates tables if needed)
+      await execAsync('npm run db:migrate');
+      console.log('✓ Database migrations completed');
 
-    // Seed with test data
-    await execAsync('npm run db:seed');
-    console.log('✓ Database seeded with test data');
+      // Seed with test data (resets and repopulates)
+      await execAsync('npm run db:seed');
+      console.log('✓ Database seeded with test data');
+    } else {
+      console.log('⚠ Skipping DB reset - tests will use existing data');
+    }
 
     // Create a book in localStorage to skip onboarding
     // We need to save this to a storage state file that tests can use

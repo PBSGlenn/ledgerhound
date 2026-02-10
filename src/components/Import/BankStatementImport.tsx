@@ -208,14 +208,30 @@ export function BankStatementImport({
 
       setCsvData(rows);
 
-      // Auto-detect column mapping for CBA format
-      // CBA format: Date, Amount, Description (no headers)
-      if (rows.length > 0 && rows[0].length === 3) {
-        setColumnMapping({
-          date: '0',
-          amount: '1',
-          description: '2',
-        });
+      // Auto-detect column mapping for common bank formats
+      // CBA format: Date, Amount, Description (3 cols) or Date, Amount, Description, Balance (4 cols)
+      if (rows.length > 0) {
+        if (rows[0].length === 3) {
+          setColumnMapping({
+            date: '0',
+            amount: '1',
+            description: '2',
+          });
+        } else if (rows[0].length === 4) {
+          // 4-column format: typically Date, Amount, Description, Balance
+          setColumnMapping({
+            date: '0',
+            amount: '1',
+            description: '2',
+          });
+        } else if (rows[0].length >= 2) {
+          // Default: assume first column is date, second is amount
+          setColumnMapping({
+            date: '0',
+            amount: '1',
+            description: rows[0].length > 2 ? '2' : undefined,
+          });
+        }
       }
 
       setStep(2);
@@ -250,6 +266,10 @@ export function BankStatementImport({
 
   // Step 2: Map columns & fetch preview from backend (WITH RULE MATCHING!)
   const handleFetchPreview = async () => {
+    console.log('handleFetchPreview called');
+    console.log('selectedAccountId:', selectedAccountId);
+    console.log('columnMapping:', columnMapping);
+
     if (!selectedAccountId) {
       showToast('Please select an account', 'error');
       return;
@@ -308,7 +328,9 @@ export function BankStatementImport({
       });
 
       if (!response.ok) {
-        throw new Error('Failed to preview import');
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Import preview failed:', response.status, errorData);
+        throw new Error(errorData.error || `Failed to preview import (${response.status})`);
       }
 
       const previewData: ImportPreview[] = await response.json();
@@ -366,19 +388,7 @@ export function BankStatementImport({
 
   // Step 4: Import using backend API
   const handleImport = async () => {
-    const categorized = previews.filter((p, idx) =>
-      !p.isDuplicate && getCategoryForPreview(p, idx)
-    );
-    const uncategorized = previews.filter((p, idx) =>
-      !p.isDuplicate && !getCategoryForPreview(p, idx)
-    );
-
-    if (uncategorized.length > 0) {
-      if (!confirm(`${uncategorized.length} transactions are uncategorized and will be skipped. Continue?`)) {
-        return;
-      }
-    }
-
+    // No longer skip uncategorized - they'll be imported as "Uncategorized" and can be categorized later
     setImporting(true);
 
     try {
@@ -966,16 +976,16 @@ export function BankStatementImport({
                   <div className="text-2xl font-bold text-yellow-900 dark:text-yellow-100">{duplicateCount}</div>
                 </div>
 
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-                  <div className="text-sm text-red-700 dark:text-red-300 mb-1">Uncategorized</div>
-                  <div className="text-2xl font-bold text-red-900 dark:text-red-100">{uncategorizedCount}</div>
+                <div className="bg-slate-50 dark:bg-slate-900/20 border border-slate-200 dark:border-slate-700 rounded-lg p-4">
+                  <div className="text-sm text-slate-700 dark:text-slate-300 mb-1">Uncategorized</div>
+                  <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{uncategorizedCount}</div>
                 </div>
               </div>
 
               <div className="bg-slate-50 dark:bg-slate-900/50 rounded-lg p-4">
                 <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Import Summary</h4>
                 <ul className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
-                  <li>• {categorizedCount} transactions will be imported</li>
+                  <li>• {previews.length - duplicateCount} transactions will be imported</li>
                   <li>• {duplicateCount} duplicates will be skipped automatically</li>
                   <li>• Account: {selectedAccountName}</li>
                   {matchedCount > 0 && (
@@ -984,8 +994,8 @@ export function BankStatementImport({
                     </li>
                   )}
                   {uncategorizedCount > 0 ? (
-                    <li className="text-red-600 dark:text-red-400">
-                      ⚠️ {uncategorizedCount} transactions will be skipped (no category)
+                    <li className="text-blue-600 dark:text-blue-400">
+                      ℹ️ {uncategorizedCount} uncategorized - you can categorize them later in the register
                     </li>
                   ) : (
                     <li className="text-green-600 dark:text-green-400">✅ All transactions categorized</li>
@@ -1003,7 +1013,7 @@ export function BankStatementImport({
                 </button>
                 <button
                   onClick={handleImport}
-                  disabled={importing || categorizedCount === 0}
+                  disabled={importing || previews.length - duplicateCount === 0}
                   className="flex-1 px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 >
                   {importing ? (
@@ -1014,7 +1024,7 @@ export function BankStatementImport({
                   ) : (
                     <>
                       <CheckCircle className="w-5 h-5 inline mr-2" />
-                      Import {categorizedCount} Transactions
+                      Import {previews.length - duplicateCount} Transactions
                     </>
                   )}
                 </button>

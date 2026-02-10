@@ -62,8 +62,9 @@ export class TransactionService {
         );
       }
 
-      // Validate GST calculation (amount should be GST-exclusive)
-      const expectedGST = posting.amount * posting.gstRate / (1 + posting.gstRate);
+      // Validate GST calculation (amount is GST-exclusive, so GST = |amount| * rate)
+      // Use absolute value since gstAmount is always positive regardless of posting sign
+      const expectedGST = Math.abs(posting.amount * posting.gstRate);
       const diff = Math.abs((posting.gstAmount ?? 0) - expectedGST);
 
       // Allow for small rounding differences (±0.02), but throw error for larger discrepancies

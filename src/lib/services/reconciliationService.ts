@@ -126,14 +126,19 @@ export class ReconciliationService {
       throw new Error(`Reconciliation ${reconciliationId} not found`);
     }
 
+    // Buffer dates by 1 day to handle timezone offsets
+    // (e.g., AEST dates stored as prior-day UTC: June 1 AEST = May 31 UTC)
+    const bufferedStart = new Date(reconciliation.statementStartDate.getTime() - 24 * 60 * 60 * 1000);
+    const bufferedEnd = new Date(reconciliation.statementEndDate.getTime() + 24 * 60 * 60 * 1000);
+
     // Get all postings in the statement date range for this account
     const periodPostings = await this.prisma.posting.findMany({
       where: {
         accountId: reconciliation.accountId,
         transaction: {
           date: {
-            gte: reconciliation.statementStartDate,
-            lte: reconciliation.statementEndDate,
+            gte: bufferedStart,
+            lte: bufferedEnd,
           },
           status: 'NORMAL',
         },

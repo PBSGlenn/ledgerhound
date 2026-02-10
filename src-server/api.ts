@@ -101,8 +101,10 @@ app.use('/api/', limiter);
 // CORS configuration - restrict to known origins in production
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
   'http://localhost:5173',
+  'http://localhost:1420',
   'http://localhost:3000',
   'http://127.0.0.1:5173',
+  'http://127.0.0.1:1420',
 ];
 app.use(cors({
   origin: (origin, callback) => {
@@ -417,12 +419,19 @@ app.post('/api/categories/create', async (req, res) => {
 
 app.put('/api/categories/:id', async (req, res) => {
   try {
+    console.log('PUT /api/categories/:id - Request body:', req.body);
+    console.log('PUT /api/categories/:id - Params:', req.params);
+
     const data = validateBody(updateCategorySchema, req.body, res);
     if (!data) return;
 
+    console.log('PUT /api/categories/:id - Validated data:', data);
+
     const category = await categoryService.updateCategory(req.params.id, data);
+    console.log('PUT /api/categories/:id - Success:', category);
     res.json(category);
   } catch (error) {
+    console.error('PUT /api/categories/:id - Error:', error);
     const message = (error as Error).message;
     if (message.includes('not found')) {
       return sendNotFound(res, 'Category');

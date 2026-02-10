@@ -12,6 +12,23 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    // Run test files sequentially to avoid SQLite file locking conflicts
+    fileParallelism: false,
+    // Also run tests within a file sequentially
+    sequence: {
+      concurrent: false,
+    },
+    // Increase timeout for database operations
+    testTimeout: 30000,
+    hookTimeout: 30000,
+    // Global setup creates the test database before all tests
+    globalSetup: ['./src/lib/services/__test-utils__/globalSetup.ts'],
+    // Exclude E2E tests (run via Playwright) and other non-unit test files
+    exclude: [
+      '**/node_modules/**',
+      '**/e2e/**',
+      '**/*.spec.ts',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

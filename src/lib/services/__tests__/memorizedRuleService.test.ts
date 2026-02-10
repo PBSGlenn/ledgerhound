@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { MemorizedRuleService } from '../memorizedRuleService';
 import { TransactionService } from '../transactionService';
 import type { PrismaClient, MemorizedRule } from '@prisma/client';
 import { MatchType, GSTCode } from '@prisma/client';
-import { createTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
+import { getTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
 import { seedTestAccounts } from '../__test-utils__/fixtures';
 
 describe('MemorizedRuleService', () => {
@@ -12,8 +12,11 @@ describe('MemorizedRuleService', () => {
   let transactionService: TransactionService;
   let accounts: Awaited<ReturnType<typeof seedTestAccounts>>;
 
+  beforeAll(async () => {
+    prisma = await getTestDb();
+  });
+
   beforeEach(async () => {
-    prisma = await createTestDb();
     await resetTestDb(prisma);
     ruleService = new MemorizedRuleService(prisma);
     transactionService = new TransactionService(prisma);

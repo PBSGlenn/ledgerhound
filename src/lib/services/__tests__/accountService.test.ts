@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { PrismaClient, AccountType, AccountKind } from '@prisma/client';
-import { createTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
+import { getTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
 import { seedTestAccounts, createPersonalTransaction } from '../__test-utils__/fixtures';
 import { AccountService } from '../accountService';
 
@@ -8,8 +8,11 @@ describe('AccountService', () => {
   let prisma: PrismaClient;
   let accountService: AccountService;
 
+  beforeAll(async () => {
+    prisma = await getTestDb();
+  });
+
   beforeEach(async () => {
-    prisma = await createTestDb();
     await resetTestDb(prisma);
     accountService = new AccountService(prisma);
   });

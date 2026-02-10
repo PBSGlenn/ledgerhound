@@ -56,7 +56,11 @@ export function CategoryFormModal({
     <Dialog.Root open={isOpen} onOpenChange={handleClose}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50" style={{ zIndex: 2147483646 }} />
-        <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md" style={{ zIndex: 2147483647 }}>
+        <Dialog.Content
+          className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md"
+          style={{ zIndex: 2147483647 }}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           <div className="p-4">
             {/* Header */}
             <div className="flex items-center justify-between mb-4">

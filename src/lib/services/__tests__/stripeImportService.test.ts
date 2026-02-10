@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { StripeImportService } from '../stripeImportService';
 import type { PrismaClient } from '@prisma/client';
-import { createTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
+import { getTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
 import { seedTestAccounts } from '../__test-utils__/fixtures';
 import { AccountType } from '@prisma/client';
 import type Stripe from 'stripe';
@@ -49,8 +49,11 @@ describe('StripeImportService', () => {
     ...overrides,
   });
 
+  beforeAll(async () => {
+    prisma = await getTestDb();
+  });
+
   beforeEach(async () => {
-    prisma = await createTestDb();
     await resetTestDb(prisma);
     stripeImportService = new StripeImportService(prisma);
     accounts = await seedTestAccounts(prisma);

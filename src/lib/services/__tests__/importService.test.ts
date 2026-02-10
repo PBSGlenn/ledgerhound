@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { ImportService } from '../importService';
 import { TransactionService } from '../transactionService';
 import type { PrismaClient } from '@prisma/client';
 import { AccountType, GSTCode } from '@prisma/client';
-import { createTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
+import { getTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
 import { seedTestAccounts } from '../__test-utils__/fixtures';
 import type { CSVColumnMapping } from '../../../types';
 
@@ -13,8 +13,11 @@ describe('ImportService', () => {
   let transactionService: TransactionService;
   let accounts: Awaited<ReturnType<typeof seedTestAccounts>>;
 
+  beforeAll(async () => {
+    prisma = await getTestDb();
+  });
+
   beforeEach(async () => {
-    prisma = await createTestDb();
     await resetTestDb(prisma);
     importService = new ImportService(prisma);
     transactionService = new TransactionService(prisma);
@@ -390,8 +393,9 @@ describe('ImportService', () => {
     });
 
     it('should import business transaction with GST', async () => {
+      // Note: In bank statements, expenses are negative (money leaving account)
       const rows = [
-        { Date: '15/01/2025', Description: 'Office Supplies', Amount: '110.00' },
+        { Date: '15/01/2025', Description: 'Office Supplies', Amount: '-110.00' },
       ];
 
       const mapping: CSVColumnMapping = {

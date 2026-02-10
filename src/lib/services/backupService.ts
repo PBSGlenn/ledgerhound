@@ -41,7 +41,8 @@ export class BackupService {
    */
   async createBackup(type: BackupInfo['type'] = 'manual'): Promise<BackupInfo> {
     const timestamp = new Date();
-    const dateStr = timestamp.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    // Include milliseconds for uniqueness when multiple backups created in same second
+    const dateStr = timestamp.toISOString().replace(/[:.]/g, '-').slice(0, -1);
     const filename = `backup-${type}-${dateStr}.db`;
     const backupPath = path.join(this.backupDir, filename);
 
@@ -171,13 +172,14 @@ export class BackupService {
   async exportToJSON(): Promise<string> {
     try {
       // Fetch all data
-      const [accounts, transactions, postings, rules, mappings, reconciliations] = await Promise.all([
+      const [accounts, transactions, postings, rules, importBatches, reconciliations, settings] = await Promise.all([
         this.prisma.account.findMany(),
         this.prisma.transaction.findMany(),
         this.prisma.posting.findMany(),
         this.prisma.memorizedRule.findMany(),
-        this.prisma.importMapping.findMany(),
+        this.prisma.importBatch.findMany(),
         this.prisma.reconciliation.findMany({ include: { postings: true } }),
+        this.prisma.settings.findMany(),
       ]);
 
       const exportData = {
@@ -188,8 +190,9 @@ export class BackupService {
           transactions,
           postings,
           rules,
-          mappings,
+          importBatches,
           reconciliations,
+          settings,
         },
       };
 

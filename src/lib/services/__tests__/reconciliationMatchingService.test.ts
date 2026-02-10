@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { ReconciliationMatchingService } from '../reconciliationMatchingService';
 import { TransactionService } from '../transactionService';
 import type { PrismaClient } from '@prisma/client';
-import { createTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
+import { getTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
 import { seedTestAccounts } from '../__test-utils__/fixtures';
 import type { StatementTransaction } from '../pdfStatementService';
 
@@ -12,8 +12,11 @@ describe('ReconciliationMatchingService', () => {
   let transactionService: TransactionService;
   let accounts: Awaited<ReturnType<typeof seedTestAccounts>>;
 
+  beforeAll(async () => {
+    prisma = await getTestDb();
+  });
+
   beforeEach(async () => {
-    prisma = await createTestDb();
     await resetTestDb(prisma);
     service = new ReconciliationMatchingService(prisma);
     transactionService = new TransactionService(prisma);
@@ -98,7 +101,7 @@ describe('ReconciliationMatchingService', () => {
         debit: 15.50,
       };
 
-      const score = (service as any).calculateMatchScore(stmtTx, ledgerTx);
+      const score = (service as any).calculateMatchScore(stmtTx, ledgerTx, [], accounts.personalChecking.id);
 
       // Note: The service sums all postings (which is 0 for balanced transactions)
       // so amount matching doesn't work as expected. This is a known limitation.
@@ -125,7 +128,7 @@ describe('ReconciliationMatchingService', () => {
         debit: 15.50,
       };
 
-      const score = (service as any).calculateMatchScore(stmtTx, ledgerTx);
+      const score = (service as any).calculateMatchScore(stmtTx, ledgerTx, [], accounts.personalChecking.id);
 
       expect(score.reasons.some(r => r.includes('Date within 3 days'))).toBe(true);
     });
@@ -149,7 +152,7 @@ describe('ReconciliationMatchingService', () => {
         debit: 100,
       };
 
-      const score = (service as any).calculateMatchScore(stmtTx, ledgerTx);
+      const score = (service as any).calculateMatchScore(stmtTx, ledgerTx, [], accounts.personalChecking.id);
 
       expect(score.reasons.some(r => r.includes('Date within 1 day'))).toBe(true);
     });
@@ -172,7 +175,7 @@ describe('ReconciliationMatchingService', () => {
         debit: 100.75, // $0.25 difference
       };
 
-      const score = (service as any).calculateMatchScore(stmtTx, ledgerTx);
+      const score = (service as any).calculateMatchScore(stmtTx, ledgerTx, [], accounts.personalChecking.id);
 
       // Note: Amount matching doesn't work due to service summing all postings (= 0)
       // Testing for date match instead
@@ -197,7 +200,7 @@ describe('ReconciliationMatchingService', () => {
         debit: 50,
       };
 
-      const score = (service as any).calculateMatchScore(stmtTx, ledgerTx);
+      const score = (service as any).calculateMatchScore(stmtTx, ledgerTx, [], accounts.personalChecking.id);
 
       expect(score.reasons.some(r => r.includes('description similarity'))).toBe(true);
     });
@@ -220,7 +223,7 @@ describe('ReconciliationMatchingService', () => {
         credit: 3000,
       };
 
-      const score = (service as any).calculateMatchScore(stmtTx, ledgerTx);
+      const score = (service as any).calculateMatchScore(stmtTx, ledgerTx, [], accounts.personalChecking.id);
 
       expect(score.reasons).toContain('Exact date match');
       // Amount matching doesn't work as expected due to posting sum = 0
@@ -243,7 +246,7 @@ describe('ReconciliationMatchingService', () => {
         debit: 500,
       };
 
-      const score = (service as any).calculateMatchScore(stmtTx, ledgerTx);
+      const score = (service as any).calculateMatchScore(stmtTx, ledgerTx, [], accounts.personalChecking.id);
 
       expect(score.total).toBeLessThan(40); // Should not match
     });
@@ -325,7 +328,7 @@ describe('ReconciliationMatchingService', () => {
         debit: 15.50,
       };
 
-      const match = (service as any).findBestMatch(stmtTx, [tx1, tx2], new Set());
+      const match = (service as any).findBestMatch(stmtTx, [tx1, tx2], new Set(), [], accounts.personalChecking.id);
 
       expect(match.ledgerTx?.id).toBe(tx1.id);
       // Match type depends on scoring - with description similarity it should match
@@ -351,7 +354,7 @@ describe('ReconciliationMatchingService', () => {
       };
 
       const excludeIds = new Set([tx1.id]);
-      const match = (service as any).findBestMatch(stmtTx, [tx1], excludeIds);
+      const match = (service as any).findBestMatch(stmtTx, [tx1], excludeIds, [], accounts.personalChecking.id);
 
       expect(match.ledgerTx).toBeUndefined();
       expect(match.matchType).toBe('none');
@@ -373,7 +376,7 @@ describe('ReconciliationMatchingService', () => {
         debit: 5,
       };
 
-      const match = (service as any).findBestMatch(stmtTx, [tx], new Set());
+      const match = (service as any).findBestMatch(stmtTx, [tx], new Set(), [], accounts.personalChecking.id);
 
       expect(match.matchType).toBe('none');
     });

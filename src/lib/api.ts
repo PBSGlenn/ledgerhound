@@ -183,6 +183,7 @@ export const accountAPI = {
 
   async updateAccount(accountId: string, payload: {
     name?: string;
+    parentId?: string | null;
     isBusinessDefault?: boolean;
     defaultHasGst?: boolean;
     openingBalance?: number;
@@ -213,6 +214,53 @@ export const accountAPI = {
     }
 
     return await response.json();
+  },
+
+  async updateCategory(categoryId: string, payload: {
+    name?: string;
+    parentId?: string | null;
+    isBusinessDefault?: boolean;
+    defaultHasGst?: boolean;
+  }): Promise<Account> {
+    const response = await fetch(`${API_BASE}/categories/${categoryId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      let message = 'Failed to update category';
+      try {
+        const error = await response.json();
+        if (error?.error) {
+          message = error.error;
+        }
+      } catch {
+        // ignore parse errors
+      }
+      throw new Error(message);
+    }
+
+    return await response.json();
+  },
+
+  async deleteCategory(categoryId: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/categories/${categoryId}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      let message = 'Failed to delete category';
+      try {
+        const error = await response.json();
+        if (error?.error) {
+          message = error.error;
+        }
+      } catch {
+        // ignore parse errors
+      }
+      throw new Error(message);
+    }
   },
 
   async deleteAccount(accountId: string): Promise<void> {

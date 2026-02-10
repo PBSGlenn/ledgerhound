@@ -356,13 +356,21 @@ export class ImportService {
     console.log('  sourceName:', sourceName);
     console.log('  mapping:', mapping);
 
-    // Get uncategorized account
-    const uncategorizedAccount = await this.prisma.account.findFirst({
+    // Get or create uncategorized account
+    let uncategorizedAccount = await this.prisma.account.findFirst({
       where: { name: 'Uncategorized', type: 'EXPENSE' },
     });
 
     if (!uncategorizedAccount) {
-      throw new Error('Uncategorized account not found');
+      // Create the Uncategorized account if it doesn't exist
+      uncategorizedAccount = await this.prisma.account.create({
+        data: {
+          name: 'Uncategorized',
+          type: 'EXPENSE',
+          kind: 'CATEGORY',
+          archived: false,
+        },
+      });
     }
 
     for (let i = 0; i < previews.length; i++) {

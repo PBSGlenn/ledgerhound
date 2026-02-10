@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { ReconciliationService } from '../reconciliationService';
 import { TransactionService } from '../transactionService';
 import { AccountService } from '../accountService';
 import type { PrismaClient } from '@prisma/client';
-import { createTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
+import { getTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
 import { seedTestAccounts } from '../__test-utils__/fixtures';
 
 describe('ReconciliationService', () => {
@@ -13,8 +13,11 @@ describe('ReconciliationService', () => {
   let accountService: AccountService;
   let accounts: Awaited<ReturnType<typeof seedTestAccounts>>;
 
+  beforeAll(async () => {
+    prisma = await getTestDb();
+  });
+
   beforeEach(async () => {
-    prisma = await createTestDb();
     await resetTestDb(prisma);
     accountService = new AccountService(prisma);
     reconciliationService = new ReconciliationService(prisma, accountService);

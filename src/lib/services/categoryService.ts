@@ -69,200 +69,99 @@ export class CategoryService {
 
   /**
    * Get categories organized as a tree structure
-   * Organized as: Income/Expense > Business/Personal > Categories
+   * Simply follows parentId relationships - the database handles hierarchy
    */
   async getCategoryTree(options?: CategoryTreeOptions): Promise<CategoryNode[]> {
+    // Fetch all categories
     const categories = await this.getAllCategories({
       type: options?.type,
       includeArchived: false,
     });
 
-    // Filter based on options
+    // Apply filters
     let filtered = categories;
-
-    // Include root categories (level 0) by default
-    if (options?.includeRoot === false) {
-      filtered = filtered.filter((c) => c.level > 0);
-    }
-
     if (options?.businessOnly) {
       filtered = filtered.filter((c) => c.isBusinessDefault);
     }
-
     if (options?.personalOnly) {
       filtered = filtered.filter((c) => !c.isBusinessDefault);
     }
-
     if (options?.maxLevel !== undefined) {
       filtered = filtered.filter((c) => c.level <= options.maxLevel!);
     }
 
-    // Build tree structure organized by type then business/personal
-    const tree = this.buildTypeFirstTree(filtered, options?.type);
-    return tree;
+    // Build tree from parentId relationships (simple!)
+    const tree = this.buildTreeFromParentId(filtered);
+
+    // Wrap in virtual Income/Expense nodes for UI organization
+    return this.wrapInTypeNodes(tree, options?.type);
   }
 
   /**
-   * Build tree structure organized by Type (Income/Expense) > Business/Personal > Categories
+   * Build tree by following parentId relationships - this is what databases do
    */
-  private buildTypeFirstTree(categories: CategoryNode[], typeFilter?: AccountType): CategoryNode[] {
-    const roots: CategoryNode[] = [];
-
-    // Separate by type
-    const incomeCategories = categories.filter((c) => c.type === AccountType.INCOME);
-    const expenseCategories = categories.filter((c) => c.type === AccountType.EXPENSE);
-
-    // If filtering by type, only create that root node
-    if (typeFilter === AccountType.INCOME) {
-      const incomeNode = this.buildIncomeNode(incomeCategories);
-      return [incomeNode];
-    }
-    if (typeFilter === AccountType.EXPENSE) {
-      const expenseNode = this.buildExpenseNode(expenseCategories);
-      return [expenseNode];
-    }
-
-    // Create virtual parent nodes for each type+business combination
-    const createVirtualParent = (name: string, type: AccountType, isBusiness: boolean): CategoryNode => ({
-      id: `virtual-${type}-${isBusiness ? 'business' : 'personal'}`,
-      name,
-      fullPath: null,
-      type,
-      parentId: null,
-      level: 0,
-      isBusinessDefault: isBusiness,
-      sortOrder: 0,
-      children: [],
-    });
-
-    // Process Income - always show even if empty
-    const incomeNode = this.buildIncomeNode(incomeCategories, createVirtualParent);
-    roots.push(incomeNode);
-
-    // Process Expenses - always show even if empty
-    const expenseNode = this.buildExpenseNode(expenseCategories, createVirtualParent);
-    roots.push(expenseNode);
-
-    return roots;
-  }
-
-  /**
-   * Build income node with business/personal children
-   */
-  private buildIncomeNode(
-    incomeCategories: CategoryNode[],
-    createVirtualParent?: (name: string, type: AccountType, isBusiness: boolean) => CategoryNode
-  ): CategoryNode {
-    const virtualParent = createVirtualParent || ((name: string, type: AccountType, isBusiness: boolean): CategoryNode => ({
-      id: `virtual-${type}-${isBusiness ? 'business' : 'personal'}`,
-      name,
-      fullPath: null,
-      type,
-      parentId: null,
-      level: 0,
-      isBusinessDefault: isBusiness,
-      sortOrder: 0,
-      children: [],
-    }));
-
-    const businessIncome = incomeCategories.filter((c) => c.isBusinessDefault);
-    const personalIncome = incomeCategories.filter((c) => !c.isBusinessDefault);
-
-    const incomeNode: CategoryNode = {
-      id: 'virtual-income',
-      name: 'Income',
-      fullPath: null,
-      type: AccountType.INCOME,
-      parentId: null,
-      level: 0,
-      isBusinessDefault: false,
-      sortOrder: 0,
-      children: [],
-    };
-
-    // Always add Business Income and Personal Income nodes, even if empty
-    const businessIncomeNode = virtualParent('Business Income', AccountType.INCOME, true);
-    businessIncomeNode.children = this.buildTree(businessIncome);
-    incomeNode.children!.push(businessIncomeNode);
-
-    const personalIncomeNode = virtualParent('Personal Income', AccountType.INCOME, false);
-    personalIncomeNode.children = this.buildTree(personalIncome);
-    incomeNode.children!.push(personalIncomeNode);
-
-    return incomeNode;
-  }
-
-  /**
-   * Build expense node with business/personal children
-   */
-  private buildExpenseNode(
-    expenseCategories: CategoryNode[],
-    createVirtualParent?: (name: string, type: AccountType, isBusiness: boolean) => CategoryNode
-  ): CategoryNode {
-    const virtualParent = createVirtualParent || ((name: string, type: AccountType, isBusiness: boolean): CategoryNode => ({
-      id: `virtual-${type}-${isBusiness ? 'business' : 'personal'}`,
-      name,
-      fullPath: null,
-      type,
-      parentId: null,
-      level: 0,
-      isBusinessDefault: isBusiness,
-      sortOrder: 0,
-      children: [],
-    }));
-
-    const businessExpense = expenseCategories.filter((c) => c.isBusinessDefault);
-    const personalExpense = expenseCategories.filter((c) => !c.isBusinessDefault);
-
-    const expenseNode: CategoryNode = {
-      id: 'virtual-expense',
-      name: 'Expenses',
-      fullPath: null,
-      type: AccountType.EXPENSE,
-      parentId: null,
-      level: 0,
-      isBusinessDefault: false,
-      sortOrder: 1,
-      children: [],
-    };
-
-    // Always add Business Expenses and Personal Expenses nodes, even if empty
-    const businessExpenseNode = virtualParent('Business Expenses', AccountType.EXPENSE, true);
-    businessExpenseNode.children = this.buildTree(businessExpense);
-    expenseNode.children!.push(businessExpenseNode);
-
-    const personalExpenseNode = virtualParent('Personal Expenses', AccountType.EXPENSE, false);
-    personalExpenseNode.children = this.buildTree(personalExpense);
-    expenseNode.children!.push(personalExpenseNode);
-
-    return expenseNode;
-  }
-
-  /**
-   * Build tree structure from flat list
-   */
-  private buildTree(categories: CategoryNode[]): CategoryNode[] {
+  private buildTreeFromParentId(categories: CategoryNode[]): CategoryNode[] {
     const map = new Map<string, CategoryNode>();
     const roots: CategoryNode[] = [];
 
-    // First pass: create map and initialize children arrays
-    categories.forEach((cat) => {
+    // First pass: create all nodes with empty children
+    for (const cat of categories) {
       map.set(cat.id, { ...cat, children: [] });
-    });
+    }
 
-    // Second pass: build tree
-    categories.forEach((cat) => {
+    // Second pass: link children to parents
+    for (const cat of categories) {
       const node = map.get(cat.id)!;
       if (cat.parentId && map.has(cat.parentId)) {
-        const parent = map.get(cat.parentId)!;
-        parent.children!.push(node);
+        map.get(cat.parentId)!.children!.push(node);
       } else {
         roots.push(node);
       }
-    });
+    }
 
     return roots;
   }
+
+  /**
+   * Wrap tree in virtual Income/Expense nodes for UI consistency
+   */
+  private wrapInTypeNodes(tree: CategoryNode[], typeFilter?: AccountType): CategoryNode[] {
+    const incomeRoots = tree.filter(n => n.type === AccountType.INCOME);
+    const expenseRoots = tree.filter(n => n.type === AccountType.EXPENSE);
+
+    const result: CategoryNode[] = [];
+
+    if (!typeFilter || typeFilter === AccountType.INCOME) {
+      result.push({
+        id: 'virtual-income',
+        name: 'Income',
+        fullPath: null,
+        type: AccountType.INCOME,
+        parentId: null,
+        level: 0,
+        isBusinessDefault: false,
+        sortOrder: 0,
+        children: incomeRoots,
+      });
+    }
+
+    if (!typeFilter || typeFilter === AccountType.EXPENSE) {
+      result.push({
+        id: 'virtual-expense',
+        name: 'Expenses',
+        fullPath: null,
+        type: AccountType.EXPENSE,
+        parentId: null,
+        level: 0,
+        isBusinessDefault: false,
+        sortOrder: 1,
+        children: expenseRoots,
+      });
+    }
+
+    return result;
+  }
+
 
   /**
    * Get all leaf categories (categories without children)
@@ -539,8 +438,9 @@ export class CategoryService {
     id: string,
     data: {
       name?: string;
-      parentId?: string;
+      parentId?: string | null;
       isBusinessDefault?: boolean;
+      defaultHasGst?: boolean;
     }
   ): Promise<CategoryNode> {
     const current = await this.prisma.account.findUnique({
@@ -561,6 +461,10 @@ export class CategoryService {
 
     if (data.isBusinessDefault !== undefined) {
       updateData.isBusinessDefault = data.isBusinessDefault;
+    }
+
+    if (data.defaultHasGst !== undefined) {
+      updateData.defaultHasGst = data.defaultHasGst;
     }
 
     if (data.parentId !== undefined) {

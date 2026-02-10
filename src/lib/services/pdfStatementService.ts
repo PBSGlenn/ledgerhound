@@ -27,26 +27,45 @@ export interface ParsedStatement {
   confidence: 'high' | 'medium' | 'low';
 }
 
+// Type for text extractor function (for testing)
+export type TextExtractor = (pdfBuffer: Buffer) => Promise<string>;
+
 export class PDFStatementService {
+  private textExtractor?: TextExtractor;
+
+  /**
+   * Create a PDF statement service with optional custom text extractor (for testing)
+   */
+  constructor(textExtractor?: TextExtractor) {
+    this.textExtractor = textExtractor;
+  }
+
   /**
    * Parse a PDF bank statement
    */
   async parseStatement(pdfBuffer: Buffer): Promise<ParsedStatement> {
-    // Create parser instance with the PDF data and minimal verbosity
-    const parser = new PDFParse({
-      verbosity: VerbosityLevel.ERRORS,
-      data: pdfBuffer,
-    });
+    let text: string;
 
-    // Load the PDF
-    await parser.load();
+    if (this.textExtractor) {
+      // Use custom text extractor (for testing)
+      text = await this.textExtractor(pdfBuffer);
+    } else {
+      // Create parser instance with the PDF data and minimal verbosity
+      const parser = new PDFParse({
+        verbosity: VerbosityLevel.ERRORS,
+        data: pdfBuffer,
+      });
 
-    // Extract text from all pages
-    const textResult = await parser.getText();
-    const text = textResult.pages.map((p: { text: string; num: number }) => p.text).join('\n');
+      // Load the PDF
+      await parser.load();
 
-    // Clean up parser
-    parser.destroy();
+      // Extract text from all pages
+      const textResult = await parser.getText();
+      text = textResult.pages.map((p: { text: string; num: number }) => p.text).join('\n');
+
+      // Clean up parser
+      parser.destroy();
+    }
 
     // Try to detect bank format and extract info
     const info = this.extractStatementInfo(text);
@@ -73,7 +92,8 @@ export class PDFStatementService {
     }
 
     // CommBank savings/transaction account indicators
-    if (text.includes('commbank.com.au') && text.includes('NetBank')) {
+    if (text.includes('Smart Access') ||
+        (text.includes('commbank.com.au') && text.includes('NetBank'))) {
       return 'commbank-savings';
     }
 
@@ -88,6 +108,10 @@ export class PDFStatementService {
 
     if (bankFormat === 'commbank-cc') {
       return this.extractCommBankCCInfo(text);
+    }
+
+    if (bankFormat === 'commbank-savings') {
+      return this.extractCommBankSavingsInfo(text);
     }
 
     return this.extractGenericInfo(text);
@@ -122,6 +146,43 @@ export class PDFStatementService {
 
     // Extract closing balance (format: "Closing balance at 8 Dec $5,277.37")
     const closingMatch = text.match(/Closing\s+balance\s+at\s+\d{1,2}\s+\w{3}\s+\$?([\d,]+\.\d{2})/i);
+    if (closingMatch) {
+      info.closingBalance = parseFloat(closingMatch[1].replace(/,/g, ''));
+    }
+
+    return info;
+  }
+
+  /**
+   * Extract CommBank savings/transaction account statement info
+   */
+  private extractCommBankSavingsInfo(text: string): StatementInfo {
+    const info: StatementInfo = {};
+
+    // Account Number: "06 3116 00623182"
+    const accountMatch = text.match(/Account\s+Number\s+(\d{2}\s+\d{4}\s+\d{8})/i);
+    if (accountMatch) {
+      info.accountNumber = accountMatch[1].replace(/\s+/g, '');
+    }
+
+    // Statement Period: "Period 1 Jun 2025 - 30 Nov 2025"
+    // Note: "Statement" and "Period" may be on separate lines in PDF extraction
+    const periodMatch = text.match(/Period\s+(\d{1,2}\s+\w{3}\s+\d{4})\s*-\s*(\d{1,2}\s+\w{3}\s+\d{4})/i);
+    if (periodMatch) {
+      info.statementPeriod = {
+        start: this.parseCommBankDate(periodMatch[1]),
+        end: this.parseCommBankDate(periodMatch[2]),
+      };
+    }
+
+    // Opening Balance: "$108.42 CR" (from OPENING BALANCE line)
+    const openingMatch = text.match(/OPENING\s+BALANCE\s+\$?([\d,]+\.\d{2})\s*(CR|DR)?/i);
+    if (openingMatch) {
+      info.openingBalance = parseFloat(openingMatch[1].replace(/,/g, ''));
+    }
+
+    // Closing Balance: "$37.78 CR"
+    const closingMatch = text.match(/Closing\s+Balance\s+\$?([\d,]+\.\d{2})\s*(CR|DR)?/i);
     if (closingMatch) {
       info.closingBalance = parseFloat(closingMatch[1].replace(/,/g, ''));
     }
@@ -185,6 +246,10 @@ export class PDFStatementService {
 
     if (bankFormat === 'commbank-cc') {
       return this.extractCommBankCCTransactions(text);
+    }
+
+    if (bankFormat === 'commbank-savings') {
+      return this.extractCommBankSavingsTransactions(text);
     }
 
     return this.extractGenericTransactions(text);
@@ -264,6 +329,135 @@ export class PDFStatementService {
             rawText: trimmedLine,
           });
         }
+      }
+    }
+
+    return transactions;
+  }
+
+  /**
+   * Extract CommBank savings/transaction account transactions
+   *
+   * Actual PDF text patterns (from pdf-parse):
+   *   Debit:  "01 Jun Account Fee 4.00 ( $104.42 CR"  — amount then ( or $
+   *   Credit: "06 Jun Direct Credit ... $2.27 $106.69 CR"  — $amount
+   *   Balance always ends line: "$xxx.xx CR" or "$xxx.xx DR"
+   *   Descriptions can span multiple lines (Direct Debit refs, Overdraw Fee details)
+   */
+  private extractCommBankSavingsTransactions(text: string): StatementTransaction[] {
+    const transactions: StatementTransaction[] = [];
+    const lines = text.split('\n');
+
+    // Get statement year from the period (note: "Statement" and "Period" may be on separate lines)
+    const periodMatch = text.match(/Period\s+\d{1,2}\s+\w{3}\s+(\d{4})/i);
+    const statementYear = periodMatch ? parseInt(periodMatch[1]) : new Date().getFullYear();
+
+    // Also get end year for cross-year statements
+    const endPeriodMatch = text.match(/Period\s+\d{1,2}\s+\w{3}\s+\d{4}\s*-\s*\d{1,2}\s+\w{3}\s+(\d{4})/i);
+    const endYear = endPeriodMatch ? parseInt(endPeriodMatch[1]) : statementYear;
+
+    // Date pattern at start of line
+    const dateLinePattern = /^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i;
+
+    // Balance at end of line: $xxx.xx CR or $xxx.xx DR
+    const balancePattern = /\$([\d,]+\.\d{2})\s*(CR|DR)\s*$/i;
+
+    let inTransactions = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+
+      // Detect start of transaction section
+      if (line.match(/^Date\s+Transaction/i)) {
+        inTransactions = true;
+        continue;
+      }
+
+      // Skip OPENING/CLOSING BALANCE lines
+      if (line.includes('OPENING BALANCE') || line.includes('CLOSING BALANCE')) {
+        continue;
+      }
+
+      // Stop at summary/info sections
+      if (line.match(/^Opening\s+balance\s+-\s+Total/i) ||
+          line.match(/^Transaction\s+Summary/i) ||
+          line.match(/^Important\s+Information/i)) {
+        inTransactions = false;
+        continue;
+      }
+
+      if (!inTransactions) continue;
+
+      // Must start with a date
+      const dateMatch = line.match(dateLinePattern);
+      if (!dateMatch) continue;
+
+      const day = parseInt(dateMatch[1]);
+      const monthNum = this.monthToNumber(dateMatch[2]);
+
+      // Handle year boundary for cross-year statements
+      let year = statementYear;
+      if (endYear > statementYear && monthNum < 6) {
+        year = endYear;
+      }
+
+      const date = new Date(year, monthNum, day);
+
+      // Join continuation lines (lines that don't start with a date or section marker)
+      const afterDate = line.substring(dateMatch[0].length).trim();
+      let fullLine = afterDate;
+      let j = i + 1;
+      while (j < lines.length) {
+        const nextLine = lines[j].trim();
+        if (!nextLine || dateLinePattern.test(nextLine) ||
+            nextLine.match(/^Date\s+Transaction/i) ||
+            nextLine.includes('OPENING BALANCE') ||
+            nextLine.includes('CLOSING BALANCE') ||
+            nextLine.match(/^Opening\s+balance/i) ||
+            nextLine.match(/^Transaction\s+Summary/i) ||
+            nextLine.match(/^Important\s+Information/i) ||
+            nextLine.match(/^Statement\s+\d+/i) ||
+            nextLine.match(/^Account\s+Number/i) ||
+            nextLine.match(/^\d{4}\.\d{4}/)) {
+          break;
+        }
+        fullLine += ' ' + nextLine;
+        j++;
+      }
+
+      // Step 1: Extract and remove balance from end
+      const balMatch = fullLine.match(balancePattern);
+      if (!balMatch) continue;
+
+      const balanceVal = parseFloat(balMatch[1].replace(/,/g, ''));
+      const crDr = balMatch[2].toUpperCase();
+      const balance = crDr === 'DR' ? -balanceVal : balanceVal;
+
+      // Remove balance portion from end
+      let remaining = fullLine.substring(0, fullLine.lastIndexOf(balMatch[0])).trim();
+
+      // Step 2: Look for transaction amount at end of remaining text
+      // Credits have $ prefix: "$2.27", "$400.00"
+      // Debits have no prefix, followed by ( or $: "4.00 (", "19.99 (", "4.00 $"
+      const creditAmtMatch = remaining.match(/\$([\d,]+\.\d{2})\s*$/);
+      const debitAmtMatch = remaining.match(/([\d,]+\.\d{2})\s*[\(\$]\s*$/);
+
+      if (creditAmtMatch) {
+        const amount = parseFloat(creditAmtMatch[1].replace(/,/g, ''));
+        let description = remaining.substring(0, remaining.lastIndexOf(creditAmtMatch[0])).trim();
+        description = description.replace(/[\$\(\)]+\s*$/, '').trim();
+
+        transactions.push({
+          date, description, credit: amount, balance, rawText: line,
+        });
+      } else if (debitAmtMatch) {
+        const amount = parseFloat(debitAmtMatch[1].replace(/,/g, ''));
+        let description = remaining.substring(0, remaining.lastIndexOf(debitAmtMatch[0])).trim();
+        description = description.replace(/[\$\(\)]+\s*$/, '').trim();
+
+        transactions.push({
+          date, description, debit: amount, balance, rawText: line,
+        });
       }
     }
 

@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
 import { BackupService } from '../backupService';
 import { TransactionService } from '../transactionService';
 import type { PrismaClient } from '@prisma/client';
-import { createTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
+import { getTestDb, resetTestDb, cleanupTestDb, getTestDbPath } from '../__test-utils__/testDb';
 import { seedTestAccounts } from '../__test-utils__/fixtures';
 import fs from 'fs';
 import path from 'path';
@@ -13,11 +13,14 @@ describe('BackupService', () => {
   let transactionService: TransactionService;
   let accounts: Awaited<ReturnType<typeof seedTestAccounts>>;
 
-  const testDbPath = './prisma/test.db';
-  const testBackupDir = './prisma/test-backups';
+  const testDbPath = getTestDbPath();
+  const testBackupDir = path.resolve(process.cwd(), 'prisma', 'test-backups');
+
+  beforeAll(async () => {
+    prisma = await getTestDb();
+  });
 
   beforeEach(async () => {
-    prisma = await createTestDb();
     await resetTestDb(prisma);
     backupService = new BackupService(prisma, testDbPath, testBackupDir);
     transactionService = new TransactionService(prisma);

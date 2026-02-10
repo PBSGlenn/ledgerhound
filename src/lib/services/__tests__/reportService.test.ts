@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { ReportService } from '../reportService';
 import { TransactionService } from '../transactionService';
 import type { PrismaClient } from '@prisma/client';
 import { AccountType, GSTCode } from '@prisma/client';
-import { createTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
+import { getTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
 import { seedTestAccounts } from '../__test-utils__/fixtures';
 import { calculateGST, calculateAmountExGST } from '../__test-utils__/helpers';
 
@@ -13,8 +13,11 @@ describe('ReportService', () => {
   let transactionService: TransactionService;
   let accounts: Awaited<ReturnType<typeof seedTestAccounts>>;
 
+  beforeAll(async () => {
+    prisma = await getTestDb();
+  });
+
   beforeEach(async () => {
-    prisma = await createTestDb();
     await resetTestDb(prisma);
     reportService = new ReportService(prisma);
     transactionService = new TransactionService(prisma);
@@ -446,19 +449,16 @@ describe('ReportService', () => {
     });
 
     it('should throw error if GST accounts dont exist', async () => {
-      // Use a fresh database without GST accounts
-      const newPrisma = await createTestDb();
-      await resetTestDb(newPrisma);
-      const newReportService = new ReportService(newPrisma);
+      // Reset database to empty state (no GST accounts)
+      await resetTestDb(prisma);
+      const emptyReportService = new ReportService(prisma);
 
       await expect(
-        newReportService.generateBASDraft(
+        emptyReportService.generateBASDraft(
           new Date('2025-01-01'),
           new Date('2025-01-31')
         )
       ).rejects.toThrow('GST Collected and GST Paid accounts must exist');
-
-      await cleanupTestDb(newPrisma);
     });
   });
 

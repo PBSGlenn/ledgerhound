@@ -1,15 +1,18 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { CategoryService } from '../categoryService';
 import type { PrismaClient } from '@prisma/client';
 import { AccountType } from '@prisma/client';
-import { createTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
+import { getTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
 
 describe('CategoryService', () => {
   let prisma: PrismaClient;
   let categoryService: CategoryService;
 
+  beforeAll(async () => {
+    prisma = await getTestDb();
+  });
+
   beforeEach(async () => {
-    prisma = await createTestDb();
     await resetTestDb(prisma);
     categoryService = new CategoryService(prisma);
   });

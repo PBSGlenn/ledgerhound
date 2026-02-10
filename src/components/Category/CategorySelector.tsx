@@ -68,10 +68,11 @@ export function CategorySelector({
   // Focus search input when dropdown opens
   useEffect(() => {
     if (isOpen && searchInputRef.current) {
-      // Use requestAnimationFrame for reliable focus after Radix animations
-      requestAnimationFrame(() => {
+      // Use setTimeout to ensure focus happens after Radix portal/modal is fully rendered
+      const timer = setTimeout(() => {
         searchInputRef.current?.focus();
-      });
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
@@ -343,7 +344,7 @@ export function CategorySelector({
 
   return (
     <div className="relative" data-category-selector>
-      <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
+      <Popover.Root open={isOpen} onOpenChange={setIsOpen} modal={true}>
         {/* Trigger Button */}
         <Popover.Trigger asChild disabled={disabled}>
           <button

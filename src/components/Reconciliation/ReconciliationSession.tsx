@@ -7,6 +7,8 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { PDFViewer } from './PDFViewer';
 import { TransactionContextMenu } from './TransactionContextMenu';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
+import { useToast } from '../../hooks/useToast';
+import { ConfirmDialog } from '../Common/ConfirmDialog';
 
 // Helper to get localStorage key for this reconciliation session
 const getStorageKey = (reconciliationId: string) => `recon-match-${reconciliationId}`;
@@ -100,6 +102,16 @@ export function ReconciliationSession({
   const [showTransactionForm, setShowTransactionForm] = useState(false);
   const [transactionToCreate, setTransactionToCreate] = useState<any>(null);
 
+  // Toast and confirm dialog
+  const { showSuccess, showError, showInfo } = useToast();
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    message: string;
+    confirmText?: string;
+    variant?: 'danger' | 'warning' | 'info';
+    onConfirm: () => void;
+  } | null>(null);
+
   // Load data and restore match state on mount
   useEffect(() => {
     loadData();
@@ -182,13 +194,13 @@ export function ReconciliationSession({
       const statusData = await reconciliationAPI.getReconciliationStatus(reconciliationId);
       setStatus(statusData);
     } catch (err) {
-      alert('Failed to toggle reconciliation: ' + (err as Error).message);
+      showError('Reconciliation Error', (err as Error).message);
     }
   };
 
   const handleLock = async () => {
     if (!status?.isBalanced) {
-      alert('Cannot lock reconciliation until it is balanced.');
+      showError('Cannot Lock', 'Reconciliation must be balanced before locking.');
       return;
     }
 
@@ -197,10 +209,10 @@ export function ReconciliationSession({
       await reconciliationAPI.lockReconciliation(reconciliationId);
       // Clear saved match state since reconciliation is complete
       clearMatchState(reconciliationId);
-      alert('Reconciliation locked successfully!');
+      showSuccess('Reconciliation Locked', 'All matched transactions have been locked.');
       onComplete();
     } catch (err) {
-      alert('Failed to lock reconciliation: ' + (err as Error).message);
+      showError('Lock Failed', (err as Error).message);
     } finally {
       setLockLoading(false);
     }
@@ -211,7 +223,24 @@ export function ReconciliationSession({
     if (!file) return;
 
     if (file.type !== 'application/pdf') {
-      alert('Please select a PDF file');
+      showError('Invalid File', 'Please select a PDF file.');
+      return;
+    }
+
+    setPdfFile(file);
+    await handleParsePdf(file);
+  };
+
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf') {
+      showError('Invalid File', 'Please select a PDF file.');
       return;
     }
 
@@ -226,7 +255,7 @@ export function ReconciliationSession({
       // Store parsed transactions for review before matching
       setParsedTransactions(result.transactions);
     } catch (err) {
-      alert('Failed to parse PDF: ' + (err as Error).message);
+      showError('PDF Parse Error', (err as Error).message);
     } finally {
       setParsingPdf(false);
     }
@@ -246,7 +275,7 @@ export function ReconciliationSession({
       );
       setMatchPreview(preview);
     } catch (err) {
-      alert('Failed to match transactions: ' + (err as Error).message);
+      showError('Matching Error', (err as Error).message);
     } finally {
       setMatchingLoading(false);
     }
@@ -268,7 +297,7 @@ export function ReconciliationSession({
 
       // Keep matches in preview - don't remove them
     } catch (err) {
-      alert('Failed to accept match: ' + (err as Error).message);
+      showError('Match Error', (err as Error).message);
     }
   };
 
@@ -290,7 +319,7 @@ export function ReconciliationSession({
       const statusData = await reconciliationAPI.getReconciliationStatus(reconciliationId);
       setStatus(statusData);
     } catch (err) {
-      alert('Failed to unaccept match: ' + (err as Error).message);
+      showError('Match Error', (err as Error).message);
     }
   };
 
@@ -312,7 +341,7 @@ export function ReconciliationSession({
     }
 
     if (postingIds.length === 0) {
-      alert('All exact matches are already accepted.');
+      showInfo('All Matched', 'All exact matches are already accepted.');
       return;
     }
 
@@ -330,42 +359,46 @@ export function ReconciliationSession({
 
       // Keep matches in preview - don't remove them
     } catch (err) {
-      alert('Failed to accept matches: ' + (err as Error).message);
+      showError('Match Error', (err as Error).message);
     }
   };
 
-  const handleClearAll = async () => {
+  const handleClearAll = () => {
     if (reconciledIds.size === 0) {
-      alert('No transactions are currently reconciled.');
+      showInfo('Nothing to Clear', 'No transactions are currently reconciled.');
       return;
     }
 
-    if (!confirm(`Are you sure you want to clear all ${reconciledIds.size} reconciled transactions? This will unmark them all.`)) {
-      return;
-    }
-
-    // Get all posting IDs for reconciled transactions
-    const postingIds: string[] = [];
-    for (const txId of reconciledIds) {
-      const transaction = transactions.find((t) => t.id === txId);
-      if (transaction) {
-        const posting = transaction.postings.find((p) => p.accountId === accountId);
-        if (posting) {
-          postingIds.push(posting.id);
+    setConfirmDialog({
+      title: 'Clear All Reconciled',
+      message: `Are you sure you want to clear all ${reconciledIds.size} reconciled transactions? This will unmark them all.`,
+      confirmText: 'Clear All',
+      variant: 'warning',
+      onConfirm: async () => {
+        // Get all posting IDs for reconciled transactions
+        const postingIds: string[] = [];
+        for (const txId of reconciledIds) {
+          const transaction = transactions.find((t) => t.id === txId);
+          if (transaction) {
+            const posting = transaction.postings.find((p) => p.accountId === accountId);
+            if (posting) {
+              postingIds.push(posting.id);
+            }
+          }
         }
-      }
-    }
 
-    try {
-      await reconciliationAPI.unreconcilePostings(reconciliationId, postingIds);
-      setReconciledIds(new Set());
+        try {
+          await reconciliationAPI.unreconcilePostings(reconciliationId, postingIds);
+          setReconciledIds(new Set());
 
-      // Reload status
-      const statusData = await reconciliationAPI.getReconciliationStatus(reconciliationId);
-      setStatus(statusData);
-    } catch (err) {
-      alert('Failed to clear reconciliation: ' + (err as Error).message);
-    }
+          // Reload status
+          const statusData = await reconciliationAPI.getReconciliationStatus(reconciliationId);
+          setStatus(statusData);
+        } catch (err) {
+          showError('Clear Failed', (err as Error).message);
+        }
+      },
+    });
   };
 
   // Context menu handlers
@@ -391,20 +424,26 @@ export function ReconciliationSession({
     setShowTransactionForm(true);
   };
 
-  const handleDeleteTransaction = async (txId: string) => {
-    if (!confirm('Are you sure you want to delete this transaction?')) return;
-
-    try {
-      await transactionAPI.deleteTransaction(txId);
-      // Refresh data
-      await loadData();
-      // Re-run matching if we have parsed transactions
-      if (parsedTransactions) {
-        await handleMatchTransactions(parsedTransactions);
-      }
-    } catch (err) {
-      alert('Failed to delete transaction: ' + (err as Error).message);
-    }
+  const handleDeleteTransaction = (txId: string) => {
+    setConfirmDialog({
+      title: 'Delete Transaction',
+      message: 'Are you sure you want to delete this transaction? This cannot be undone.',
+      confirmText: 'Delete',
+      variant: 'danger',
+      onConfirm: async () => {
+        try {
+          await transactionAPI.deleteTransaction(txId);
+          // Refresh data
+          await loadData();
+          // Re-run matching if we have parsed transactions
+          if (parsedTransactions) {
+            await handleMatchTransactions(parsedTransactions);
+          }
+        } catch (err) {
+          showError('Delete Failed', (err as Error).message);
+        }
+      },
+    });
   };
 
   const handleAddPdfToLedger = (pdfTx: any) => {
@@ -814,15 +853,25 @@ export function ReconciliationSession({
             <div className="p-6 space-y-6">
               {/* Step 1: PDF Upload */}
               {!parsedTransactions && !matchPreview && (
-                <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-8">
+                <div
+                  className={`border-2 border-dashed rounded-lg p-8 transition-colors ${
+                    isDragging
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                      : 'border-slate-300 dark:border-slate-600'
+                  }`}
+                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                  onDragEnter={(e) => { e.preventDefault(); setIsDragging(true); }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={handleDrop}
+                >
                   <div className="flex flex-col items-center gap-4">
-                    <Upload className="w-12 h-12 text-slate-400" />
+                    <Upload className={`w-12 h-12 ${isDragging ? 'text-blue-500' : 'text-slate-400'}`} />
                     <div className="text-center">
                       <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-2">
                         Upload Bank Statement PDF
                       </h3>
                       <p className="text-sm text-slate-600 dark:text-slate-400">
-                        Upload your PDF statement to extract and match transactions
+                        Drag and drop your PDF here, or click below to browse
                       </p>
                     </div>
 
@@ -1279,6 +1328,17 @@ export function ReconciliationSession({
           onSuccess={handleTransactionSaved}
         />
       )}
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        isOpen={!!confirmDialog}
+        onClose={() => setConfirmDialog(null)}
+        onConfirm={() => confirmDialog?.onConfirm()}
+        title={confirmDialog?.title ?? ''}
+        message={confirmDialog?.message ?? ''}
+        confirmText={confirmDialog?.confirmText}
+        variant={confirmDialog?.variant}
+      />
     </div>
   );
 }

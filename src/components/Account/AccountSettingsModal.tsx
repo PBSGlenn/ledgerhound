@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X, Briefcase, DollarSign, Calendar, Hash } from 'lucide-react';
+import { X, Briefcase, DollarSign, Calendar, Hash, FolderTree } from 'lucide-react';
 import type { AccountWithBalance, AccountType, AccountSubtype } from '../../types';
-import { accountAPI } from '../../lib/api';
+import { accountAPI, categoryAPI } from '../../lib/api';
 
 interface AccountSettingsModalProps {
   isOpen: boolean;
@@ -23,6 +23,8 @@ export function AccountSettingsModal({
 
   // Form fields
   const [name, setName] = useState('');
+  const [parentId, setParentId] = useState<string | null>(null);
+  const [availableParents, setAvailableParents] = useState<AccountWithBalance[]>([]);
   const [isBusinessDefault, setIsBusinessDefault] = useState(false);
   const [defaultHasGst, setDefaultHasGst] = useState(true);
   const [openingBalance, setOpeningBalance] = useState('0');
@@ -44,12 +46,24 @@ export function AccountSettingsModal({
       if (acc) {
         setAccount(acc);
         setName(acc.name);
+        setParentId(acc.parentId || null);
         setIsBusinessDefault(acc.isBusinessDefault || false);
         setDefaultHasGst(acc.defaultHasGst ?? true);
         setOpeningBalance((acc.openingBalance || 0).toFixed(2));
         setOpeningDate(acc.openingDate ? new Date(acc.openingDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
         setCurrency(acc.currency || 'AUD');
         setSortOrder(acc.sortOrder?.toString() || '0');
+
+        // Load available parent categories (same type, excluding self and descendants)
+        if (acc.kind === 'CATEGORY') {
+          const sameTypeCategories = accounts.filter(a =>
+            a.kind === 'CATEGORY' &&
+            a.type === acc.type &&
+            a.id !== accountId &&
+            !isDescendantOf(a, accountId, accounts)
+          );
+          setAvailableParents(sameTypeCategories);
+        }
       }
     } catch (error) {
       console.error('Failed to load account:', error);
@@ -57,6 +71,18 @@ export function AccountSettingsModal({
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper to check if an account is a descendant of another
+  const isDescendantOf = (account: AccountWithBalance, ancestorId: string, allAccounts: AccountWithBalance[]): boolean => {
+    let current = account;
+    while (current.parentId) {
+      if (current.parentId === ancestorId) return true;
+      const parent = allAccounts.find(a => a.id === current.parentId);
+      if (!parent) break;
+      current = parent;
+    }
+    return false;
   };
 
   const handleSave = async () => {
@@ -70,15 +96,25 @@ export function AccountSettingsModal({
 
     setSaving(true);
     try {
-      await accountAPI.updateAccount(accountId, {
-        name: name.trim(),
-        isBusinessDefault,
-        defaultHasGst,
-        openingBalance: parseFloat(openingBalance) || 0,
-        openingDate: new Date(openingDate),
-        currency,
-        sortOrder: parseInt(sortOrder) || 0,
-      });
+      // Use different API for categories vs real accounts
+      if (account.kind === 'CATEGORY') {
+        await accountAPI.updateCategory(accountId, {
+          name: name.trim(),
+          parentId: parentId || null,
+          isBusinessDefault,
+          defaultHasGst,
+        });
+      } else {
+        await accountAPI.updateAccount(accountId, {
+          name: name.trim(),
+          isBusinessDefault,
+          defaultHasGst,
+          openingBalance: parseFloat(openingBalance) || 0,
+          openingDate: new Date(openingDate),
+          currency,
+          sortOrder: parseInt(sortOrder) || 0,
+        });
+      }
 
       onSuccess?.();
       onClose();
@@ -98,7 +134,10 @@ export function AccountSettingsModal({
     <Dialog.Root open={isOpen} onOpenChange={onClose}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto z-50">
+        <Dialog.Content
+          className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto z-50"
+          onInteractOutside={(e) => e.preventDefault()}
+        >
           {loading ? (
             <div className="p-6 text-center">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto"></div>
@@ -137,6 +176,33 @@ export function AccountSettingsModal({
                     required
                   />
                 </div>
+
+                {/* Parent Category - Only show for CATEGORY accounts */}
+                {account.kind === 'CATEGORY' && availableParents.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      <div className="flex items-center gap-1.5">
+                        <FolderTree className="w-4 h-4" />
+                        Parent Category
+                      </div>
+                    </label>
+                    <select
+                      value={parentId || ''}
+                      onChange={(e) => setParentId(e.target.value || null)}
+                      className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+                    >
+                      <option value="">No parent (root level)</option>
+                      {availableParents.map((parent) => (
+                        <option key={parent.id} value={parent.id}>
+                          {parent.fullPath || parent.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      Move this category under a different parent
+                    </p>
+                  </div>
+                )}
 
                 {/* Business Default - Only show for CATEGORY accounts */}
                 {account.kind === 'CATEGORY' && (

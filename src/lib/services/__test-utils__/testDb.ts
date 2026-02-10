@@ -1,61 +1,37 @@
 import { PrismaClient } from '@prisma/client';
-import { execSync } from 'child_process';
-import { unlinkSync, existsSync, mkdirSync } from 'fs';
-import { dirname } from 'path';
+import { resolve } from 'path';
 
 /**
  * Test database utilities
  *
  * Uses a separate test.db file for testing to avoid polluting dev.db
+ *
+ * IMPORTANT: This module uses a singleton pattern for the PrismaClient.
+ * All tests share the same client to avoid SQLite file locking issues.
+ *
+ * Database initialization is handled by globalSetup.ts which runs before all tests.
  */
 
-const TEST_DATABASE_PATH = './prisma/test.db';
+// Use absolute path to avoid path resolution issues
+const TEST_DATABASE_PATH = resolve(process.cwd(), 'prisma', 'test.db');
 const TEST_DATABASE_URL = `file:${TEST_DATABASE_PATH}`;
 
 let prismaInstance: PrismaClient | null = null;
-let dbInitialized = false;
 
 /**
- * Create and initialize a test database
- * - Creates new Prisma client pointing to test.db
- * - Runs migrations if needed
- * - Returns connected client
+ * Get the singleton test database client
+ * - Creates client on first call
+ * - Returns existing client on subsequent calls
+ * - Database is already initialized by globalSetup.ts
  */
-export async function createTestDb(): Promise<PrismaClient> {
-  // Ensure prisma directory exists
-  const dbDir = dirname(TEST_DATABASE_PATH);
-  if (!existsSync(dbDir)) {
-    mkdirSync(dbDir, { recursive: true });
-  }
-
-  // Run migrations to create database schema (only once)
-  if (!dbInitialized) {
-    // Delete existing test database to start fresh
-    if (existsSync(TEST_DATABASE_PATH)) {
-      try {
-        unlinkSync(TEST_DATABASE_PATH);
-      } catch (error) {
-        // Ignore if can't delete (might be in use)
-      }
-    }
-
-    try {
-      execSync(`npx prisma migrate deploy`, {
-        env: {
-          ...process.env,
-          DATABASE_URL: TEST_DATABASE_URL,
-        },
-        stdio: 'pipe',
-      });
-      dbInitialized = true;
-    } catch (error) {
-      console.error('Failed to run migrations:', error);
-      throw error;
-    }
+export async function getTestDb(): Promise<PrismaClient> {
+  // If we already have a connected client, return it
+  if (prismaInstance) {
+    return prismaInstance;
   }
 
   // Create Prisma client with test database
-  const prisma = new PrismaClient({
+  prismaInstance = new PrismaClient({
     datasources: {
       db: {
         url: TEST_DATABASE_URL,
@@ -65,33 +41,43 @@ export async function createTestDb(): Promise<PrismaClient> {
   });
 
   // Connect
-  await prisma.$connect();
+  await prismaInstance.$connect();
 
-  // Store instance for cleanup
-  prismaInstance = prisma;
+  return prismaInstance;
+}
 
-  return prisma;
+/**
+ * Alias for backwards compatibility
+ * @deprecated Use getTestDb() instead
+ */
+export async function createTestDb(): Promise<PrismaClient> {
+  return getTestDb();
 }
 
 /**
  * Reset the test database
  * - Deletes all data
- * - Re-runs migrations
+ * - Does NOT recreate the client (reuses singleton)
  */
-export async function resetTestDb(prisma: PrismaClient): Promise<void> {
+export async function resetTestDb(prisma?: PrismaClient): Promise<void> {
+  const client = prisma || prismaInstance;
+  if (!client) {
+    throw new Error('No database client available. Call getTestDb() first.');
+  }
+
   // Delete all data in reverse order of foreign key dependencies
-  await prisma.posting.deleteMany();
-  await prisma.transaction.deleteMany();
-  await prisma.memorizedRule.deleteMany();
-  await prisma.reconciliation.deleteMany();
-  await prisma.importBatch.deleteMany();
+  await client.posting.deleteMany();
+  await client.transaction.deleteMany();
+  await client.memorizedRule.deleteMany();
+  await client.reconciliation.deleteMany();
+  await client.importBatch.deleteMany();
 
   // Delete accounts in order of hierarchy (children first)
   // Repeat until no more accounts (handles multiple levels of nesting)
   let accountsDeleted = 0;
   do {
     // Delete accounts that have no children (leaf nodes)
-    const allAccounts = await prisma.account.findMany({
+    const allAccounts = await client.account.findMany({
       select: { id: true, parentId: true },
     });
     const parentIds = new Set(allAccounts.map(a => a.parentId).filter(Boolean));
@@ -101,64 +87,62 @@ export async function resetTestDb(prisma: PrismaClient): Promise<void> {
 
     if (leafAccountIds.length === 0) break;
 
-    await prisma.account.deleteMany({
+    await client.account.deleteMany({
       where: { id: { in: leafAccountIds } },
     });
 
     accountsDeleted = leafAccountIds.length;
   } while (accountsDeleted > 0);
 
-  await prisma.settings.deleteMany();
+  await client.settings.deleteMany();
 }
 
 /**
  * Cleanup and disconnect from test database
+ * Call this in afterAll() of your test file
+ *
+ * NOTE: With singleton pattern, we don't actually disconnect -
+ * we just clear the local reference. The client stays alive for other test files.
  */
-export async function cleanupTestDb(prisma?: PrismaClient): Promise<void> {
-  const client = prisma || prismaInstance;
-  if (client) {
-    await client.$disconnect();
+export async function cleanupTestDb(_prisma?: PrismaClient): Promise<void> {
+  // Don't disconnect - let the client be reused by other test files
+  // The process will clean up when tests finish
+}
+
+/**
+ * Force disconnect from test database
+ * Only call this at the very end of all tests (in globalTeardown)
+ */
+export async function forceDisconnect(): Promise<void> {
+  if (prismaInstance) {
+    await prismaInstance.$disconnect();
     prismaInstance = null;
   }
 }
 
 /**
- * Delete the test database file
- * Use this to start completely fresh
+ * Get the test database path (for services like BackupService that need it)
  */
-export function deleteTestDb(): void {
-  try {
-    unlinkSync('./prisma/test.db');
-  } catch (error) {
-    // File doesn't exist, that's fine
-  }
+export function getTestDbPath(): string {
+  return TEST_DATABASE_PATH;
 }
 
 /**
- * Run Prisma migrations on test database
- */
-export function runTestMigrations(): void {
-  execSync('npx prisma migrate deploy', {
-    env: {
-      ...process.env,
-      DATABASE_URL: TEST_DATABASE_URL,
-    },
-    stdio: 'pipe', // Suppress output unless debugging
-  });
-}
-
-/**
- * Helper to create a fresh database for each test suite
+ * Helper documentation for test setup pattern:
  *
- * Usage:
  * ```
- * import { beforeEach, afterAll } from 'vitest';
+ * import { beforeAll, beforeEach, afterAll } from 'vitest';
+ * import { getTestDb, resetTestDb, cleanupTestDb } from '../__test-utils__/testDb';
  *
  * describe('MyService', () => {
  *   let prisma: PrismaClient;
  *
+ *   beforeAll(async () => {
+ *     prisma = await getTestDb();
+ *   });
+ *
  *   beforeEach(async () => {
- *     prisma = await createTestDb();
+ *     await resetTestDb(prisma);
  *   });
  *
  *   afterAll(async () => {

@@ -51,7 +51,6 @@ export function AccountSidebarTree({
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set([
     'personal', 'business', 'income', 'expenses',
     'other', 'card', 'bank', 'psp', 'loan', 'investment', 'cash',
-    'business-income', 'personal-income', 'business-expenses', 'personal-expenses'
   ]));
 
   // Context menu state
@@ -61,7 +60,6 @@ export function AccountSidebarTree({
     accountId: string | null;
     accountName: string;
     isParentNode: boolean;
-    parentNodeType?: 'business-expenses' | 'personal-expenses' | 'business-income' | 'personal-income';
   } | null>(null);
 
   const [settingsModalAccountId, setSettingsModalAccountId] = useState<string | null>(null);
@@ -166,40 +164,22 @@ export function AccountSidebarTree({
 
     const tree: TreeNode[] = [];
 
-    // Always show Income section with both Business and Personal nodes
-    // Only include top-level accounts (those without a parentId) - children will be rendered dynamically
-    const businessIncome = incomeAccounts.filter(a => a.isBusinessDefault && !a.parentId);
-    const personalIncome = incomeAccounts.filter(a => !a.isBusinessDefault && !a.parentId);
-
-    const incomeChildren: TreeNode[] = [
-      { id: 'business-income', label: 'Business Income', accounts: businessIncome },
-      { id: 'personal-income', label: 'Personal Income', accounts: personalIncome }
-    ];
-
+    // Show Income section with top-level categories (real parent categories like "Business Income", "Personal Income")
+    const topLevelIncome = incomeAccounts.filter(a => !a.parentId);
     tree.push({
       id: 'income',
       label: 'Income',
       type: 'income',
-      accounts: [],
-      children: incomeChildren
+      accounts: topLevelIncome
     });
 
-    // Always show Expenses section with both Business and Personal nodes
-    // Only include top-level accounts (those without a parentId) - children will be rendered dynamically
-    const businessExpense = expenseAccounts.filter(a => a.isBusinessDefault && !a.parentId);
-    const personalExpense = expenseAccounts.filter(a => !a.isBusinessDefault && !a.parentId);
-
-    const expenseChildren: TreeNode[] = [
-      { id: 'business-expenses', label: 'Business Expenses', accounts: businessExpense },
-      { id: 'personal-expenses', label: 'Personal Expenses', accounts: personalExpense }
-    ];
-
+    // Show Expenses section with top-level categories (real parent categories like "Business Expenses", "Personal Expenses")
+    const topLevelExpense = expenseAccounts.filter(a => !a.parentId);
     tree.push({
       id: 'expenses',
       label: 'Expenses',
       type: 'expense',
-      accounts: [],
-      children: expenseChildren
+      accounts: topLevelExpense
     });
 
     // Add other account types (GST, etc.) - also filter out child accounts
@@ -324,26 +304,12 @@ export function AccountSidebarTree({
   const handleAddCategory = () => {
     if (!contextMenu) return;
 
-    // Determine parent ID and type based on parent node
-    const parentNodeType = contextMenu.parentNodeType;
+    // Determine parent ID and type based on the actual account
     let accountType: AccountType = 'EXPENSE';
     let isBusinessDefault = false;
 
-    // Check if this is a virtual parent node
-    if (parentNodeType === 'business-expenses') {
-      accountType = 'EXPENSE';
-      isBusinessDefault = true;
-    } else if (parentNodeType === 'personal-expenses') {
-      accountType = 'EXPENSE';
-      isBusinessDefault = false;
-    } else if (parentNodeType === 'business-income') {
-      accountType = 'INCOME';
-      isBusinessDefault = true;
-    } else if (parentNodeType === 'personal-income') {
-      accountType = 'INCOME';
-      isBusinessDefault = false;
-    } else if (contextMenu.accountId) {
-      // This is an actual account, look up its type
+    if (contextMenu.accountId) {
+      // Look up the account's type and business default setting
       const account = accounts.find(a => a.id === contextMenu.accountId);
       if (account) {
         accountType = account.type;
@@ -354,7 +320,7 @@ export function AccountSidebarTree({
     // Open the category form modal
     setCategoryFormData({
       parentName: contextMenu.accountName,
-      parentId: contextMenu.accountId, // Will be null for virtual parent nodes
+      parentId: contextMenu.accountId,
       accountType,
       isBusinessDefault,
     });
@@ -386,10 +352,7 @@ export function AccountSidebarTree({
   const renderTreeNode = (node: TreeNode, depth: number = 0): React.ReactNode => {
     const isExpanded = expandedNodes.has(node.id);
     const hasChildren = (node.children && node.children.length > 0) || (node.accounts && node.accounts.length > 0);
-
-    // Major category nodes should always show chevron and be expandable
-    const isMajorCategory = ['business-expenses', 'personal-expenses', 'business-income', 'personal-income'].includes(node.id);
-    const shouldShowChevron = hasChildren || isMajorCategory;
+    const shouldShowChevron = hasChildren;
 
     const paddingLeft = depth * 12;
 
@@ -398,20 +361,6 @@ export function AccountSidebarTree({
         {/* Section header */}
         <button
           onClick={() => shouldShowChevron && toggleNode(node.id)}
-          onContextMenu={(e) => {
-            // Show context menu for category parent nodes in Categories tab
-            if (activeTab === 'categories' && isMajorCategory) {
-              e.preventDefault();
-              setContextMenu({
-                x: e.clientX,
-                y: e.clientY,
-                accountId: null,
-                accountName: node.label,
-                isParentNode: true,
-                parentNodeType: node.id as any,
-              });
-            }
-          }}
           className="w-full text-left px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors flex items-center gap-2"
           style={{ paddingLeft: `${paddingLeft + 12}px` }}
         >
@@ -552,13 +501,13 @@ export function AccountSidebarTree({
 
   return (
     <aside
-      className={`bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col transition-all duration-300 shadow-sm ${
+      className={`relative bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col transition-all duration-300 shadow-sm ${
         collapsed ? 'w-16' : 'w-72'
       }`}
     >
-      {/* Header */}
-      <div className="p-2 border-b border-slate-200 dark:border-slate-700">
-        <div className="flex items-center justify-between">
+      {/* Header - z-20 ensures expand button is above BookSwitcher (z-10) when collapsed */}
+      <div className="p-2 border-b border-slate-200 dark:border-slate-700 relative z-20">
+        <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
           {!collapsed && (
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
