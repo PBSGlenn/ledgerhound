@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Settings, Save, RotateCcw, Database, Download, Upload, Trash2, HardDrive, FolderTree, ListFilter, CreditCard } from 'lucide-react';
+import { Settings, Save, RotateCcw, Database, Download, Upload, Trash2, HardDrive, FolderTree, ListFilter, CreditCard, Info } from 'lucide-react';
 import { format } from 'date-fns';
 import { useToast } from '../../hooks/useToast';
 import { backupAPI } from '../../lib/api';
@@ -12,6 +12,7 @@ import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import { CategoriesManager } from './CategoriesManager';
 import { MemorizedRulesManager } from './MemorizedRulesManager';
 import { StripeSettings } from './StripeSettings';
+import { AboutTab } from './AboutTab';
 
 interface AppSettings {
   currency: string;
@@ -43,7 +44,7 @@ interface DBStats {
   size: number;
 }
 
-type SettingsTab = 'settings' | 'categories' | 'rules' | 'stripe';
+type SettingsTab = 'settings' | 'categories' | 'rules' | 'stripe' | 'about';
 
 export function SettingsView() {
   const { showSuccess, showError } = useToast();
@@ -256,6 +257,17 @@ export function SettingsView() {
             <CreditCard className="w-4 h-4" />
             Stripe
           </button>
+          <button
+            onClick={() => setActiveTab('about')}
+            className={`px-4 py-2 font-medium transition-colors border-b-2 flex items-center gap-2 ${
+              activeTab === 'about'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            <Info className="w-4 h-4" />
+            About
+          </button>
         </div>
       </div>
 
@@ -264,6 +276,7 @@ export function SettingsView() {
         {activeTab === 'categories' && <CategoriesManager />}
         {activeTab === 'rules' && <MemorizedRulesManager />}
         {activeTab === 'stripe' && <StripeSettings />}
+        {activeTab === 'about' && <AboutTab />}
         {activeTab === 'settings' && (
         <div className="max-w-3xl mx-auto space-y-6">
           {/* Regional Settings */}

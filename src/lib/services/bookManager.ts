@@ -7,8 +7,8 @@ import type { Book, CreateBookData, BookSummary } from '../../types/book';
 
 const BOOKS_STORAGE_KEY = 'ledgerhound-books';
 const ACTIVE_BOOK_KEY = 'ledgerhound-active-book';
-const DEFAULT_DB_DIR = 'ledgerhound-data';
-const DEFAULT_BACKUP_DIR = 'ledgerhound-backups';
+const DEFAULT_DB_DIR = 'books';
+const DEFAULT_BACKUP_DIR = 'books';
 
 export class BookManager {
   /**

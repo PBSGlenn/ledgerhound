@@ -589,6 +589,415 @@ describe('ReportService', () => {
     });
   });
 
+  describe('generateBalanceSheet', () => {
+    it('should generate basic balance sheet with no transactions', async () => {
+      const report = await reportService.generateBalanceSheet(new Date('2025-01-31'));
+
+      expect(report.asOfDate).toEqual(new Date('2025-01-31'));
+      expect(report.assets).toEqual([]);
+      expect(report.liabilities).toEqual([]);
+      expect(report.equity).toEqual([]);
+      expect(report.retainedEarnings).toBe(0);
+      expect(report.totalAssets).toBe(0);
+      expect(report.totalLiabilities).toBe(0);
+      expect(report.totalEquity).toBe(0);
+      expect(report.isBalanced).toBe(true);
+    });
+
+    it('should include asset and liability balances from transactions', async () => {
+      // Income transaction: bank receives $1000, income category credited
+      await transactionService.createTransaction({
+        date: new Date('2025-01-15'),
+        payee: 'Client A',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: 1000, isBusiness: false },
+          { accountId: accounts.salesIncome.id, amount: -1000, isBusiness: false },
+        ],
+      });
+
+      // Credit card expense: $500
+      await transactionService.createTransaction({
+        date: new Date('2025-01-16'),
+        payee: 'Office Depot',
+        postings: [
+          { accountId: accounts.creditCard.id, amount: -500, isBusiness: false },
+          { accountId: accounts.officeSupplies.id, amount: 500, isBusiness: false },
+        ],
+      });
+
+      const report = await reportService.generateBalanceSheet(new Date('2025-01-31'));
+
+      // Business Checking should have $1000 (ASSET)
+      const checking = report.assets.find(a => a.accountName === 'Business Checking');
+      expect(checking).toBeDefined();
+      expect(checking?.balance).toBe(1000);
+      expect(checking?.isReal).toBe(true);
+
+      // Credit Card should show as liability (absolute value of -500 = 500)
+      const cc = report.liabilities.find(l => l.accountName === 'Credit Card');
+      expect(cc).toBeDefined();
+      expect(cc?.balance).toBe(500);
+    });
+
+    it('should calculate retained earnings from income minus expenses', async () => {
+      await transactionService.createTransaction({
+        date: new Date('2025-01-15'),
+        payee: 'Client A',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: 2000, isBusiness: false },
+          { accountId: accounts.salesIncome.id, amount: -2000, isBusiness: false },
+        ],
+      });
+
+      await transactionService.createTransaction({
+        date: new Date('2025-01-16'),
+        payee: 'Office Depot',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: -800, isBusiness: false },
+          { accountId: accounts.officeSupplies.id, amount: 800, isBusiness: false },
+        ],
+      });
+
+      const report = await reportService.generateBalanceSheet(new Date('2025-01-31'));
+
+      // Retained earnings = Income ($2000) - Expenses ($800) = $1200
+      expect(report.retainedEarnings).toBe(1200);
+    });
+
+    it('should verify accounting equation balances', async () => {
+      await transactionService.createTransaction({
+        date: new Date('2025-01-15'),
+        payee: 'Client A',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: 3000, isBusiness: false },
+          { accountId: accounts.salesIncome.id, amount: -3000, isBusiness: false },
+        ],
+      });
+
+      await transactionService.createTransaction({
+        date: new Date('2025-01-20'),
+        payee: 'Supplier',
+        postings: [
+          { accountId: accounts.creditCard.id, amount: -1000, isBusiness: false },
+          { accountId: accounts.officeSupplies.id, amount: 1000, isBusiness: false },
+        ],
+      });
+
+      const report = await reportService.generateBalanceSheet(new Date('2025-01-31'));
+
+      // Assets = Liabilities + Equity (which includes retained earnings)
+      expect(report.isBalanced).toBe(true);
+      expect(report.totalAssets).toBeCloseTo(report.totalLiabilities + report.totalEquity, 2);
+    });
+
+    it('should respect asOfDate filtering', async () => {
+      await transactionService.createTransaction({
+        date: new Date('2025-01-15'),
+        payee: 'Client A',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: 1000, isBusiness: false },
+          { accountId: accounts.salesIncome.id, amount: -1000, isBusiness: false },
+        ],
+      });
+
+      await transactionService.createTransaction({
+        date: new Date('2025-02-15'),
+        payee: 'Client B',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: 2000, isBusiness: false },
+          { accountId: accounts.salesIncome.id, amount: -2000, isBusiness: false },
+        ],
+      });
+
+      // Balance sheet as of Jan 31 should only include Jan transaction
+      const janReport = await reportService.generateBalanceSheet(new Date('2025-01-31'));
+      const janChecking = janReport.assets.find(a => a.accountName === 'Business Checking');
+      expect(janChecking?.balance).toBe(1000);
+      expect(janReport.retainedEarnings).toBe(1000);
+
+      // Balance sheet as of Feb 28 should include both
+      const febReport = await reportService.generateBalanceSheet(new Date('2025-02-28'));
+      const febChecking = febReport.assets.find(a => a.accountName === 'Business Checking');
+      expect(febChecking?.balance).toBe(3000);
+      expect(febReport.retainedEarnings).toBe(3000);
+    });
+
+    it('should include opening balances', async () => {
+      // Create an account with an opening balance
+      const savingsAccount = await prisma.account.create({
+        data: {
+          name: 'Savings',
+          type: AccountType.ASSET,
+          kind: 'TRANSFER',
+          isReal: true,
+          isBusinessDefault: false,
+          openingBalance: 5000,
+        },
+      });
+
+      const report = await reportService.generateBalanceSheet(new Date('2025-01-31'));
+
+      const savings = report.assets.find(a => a.accountName === 'Savings');
+      expect(savings).toBeDefined();
+      expect(savings?.balance).toBe(5000);
+    });
+
+    it('should exclude voided transactions', async () => {
+      const txn = await transactionService.createTransaction({
+        date: new Date('2025-01-15'),
+        payee: 'Client A',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: 1000, isBusiness: false },
+          { accountId: accounts.salesIncome.id, amount: -1000, isBusiness: false },
+        ],
+      });
+
+      await transactionService.voidTransaction(txn.id);
+
+      const report = await reportService.generateBalanceSheet(new Date('2025-01-31'));
+
+      expect(report.totalAssets).toBe(0);
+      expect(report.retainedEarnings).toBe(0);
+    });
+
+    it('should include category accounts like GST Paid as assets', async () => {
+      const gstAmount = 10;
+
+      await transactionService.createTransaction({
+        date: new Date('2025-01-15'),
+        payee: 'Office Depot',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: -110, isBusiness: false },
+          { accountId: accounts.officeSupplies.id, amount: 100, isBusiness: true, gstCode: GSTCode.GST, gstRate: 0.1, gstAmount },
+          { accountId: accounts.gstPaid.id, amount: gstAmount, isBusiness: true },
+        ],
+      });
+
+      const report = await reportService.generateBalanceSheet(new Date('2025-01-31'));
+
+      // GST Paid is an ASSET category account
+      const gstPaid = report.assets.find(a => a.accountName === 'GST Paid');
+      expect(gstPaid).toBeDefined();
+      expect(gstPaid?.balance).toBe(10);
+      expect(gstPaid?.isReal).toBe(false);
+    });
+  });
+
+  describe('generateCashFlow', () => {
+    it('should generate basic cash flow with no transactions', async () => {
+      const report = await reportService.generateCashFlow(
+        new Date('2025-01-01'),
+        new Date('2025-01-31')
+      );
+
+      expect(report.period.start).toEqual(new Date('2025-01-01'));
+      expect(report.period.end).toEqual(new Date('2025-01-31'));
+      expect(report.operating.items).toEqual([]);
+      expect(report.operating.total).toBe(0);
+      expect(report.investing.items).toEqual([]);
+      expect(report.financing.items).toEqual([]);
+      expect(report.openingCash).toBe(0);
+      expect(report.closingCash).toBe(0);
+      expect(report.netCashChange).toBe(0);
+    });
+
+    it('should show income as operating cash inflow', async () => {
+      await transactionService.createTransaction({
+        date: new Date('2025-01-15'),
+        payee: 'Client A',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: 1000, isBusiness: false },
+          { accountId: accounts.salesIncome.id, amount: -1000, isBusiness: false },
+        ],
+      });
+
+      const report = await reportService.generateCashFlow(
+        new Date('2025-01-01'),
+        new Date('2025-01-31')
+      );
+
+      expect(report.operating.items.length).toBeGreaterThan(0);
+      const salesItem = report.operating.items.find(i => i.categoryName === 'Sales Income');
+      expect(salesItem).toBeDefined();
+      expect(salesItem?.amount).toBe(1000);
+      expect(report.operating.total).toBe(1000);
+    });
+
+    it('should show expenses as operating cash outflow', async () => {
+      await transactionService.createTransaction({
+        date: new Date('2025-01-15'),
+        payee: 'Office Depot',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: -500, isBusiness: false },
+          { accountId: accounts.officeSupplies.id, amount: 500, isBusiness: false },
+        ],
+      });
+
+      const report = await reportService.generateCashFlow(
+        new Date('2025-01-01'),
+        new Date('2025-01-31')
+      );
+
+      const officeItem = report.operating.items.find(i => i.categoryName === 'Office Supplies');
+      expect(officeItem).toBeDefined();
+      expect(officeItem?.amount).toBe(-500);
+      expect(report.operating.total).toBe(-500);
+    });
+
+    it('should calculate opening and closing cash from real accounts', async () => {
+      // Transaction before the period
+      await transactionService.createTransaction({
+        date: new Date('2024-12-15'),
+        payee: 'Prior Income',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: 5000, isBusiness: false },
+          { accountId: accounts.salesIncome.id, amount: -5000, isBusiness: false },
+        ],
+      });
+
+      // Transaction in the period
+      await transactionService.createTransaction({
+        date: new Date('2025-01-15'),
+        payee: 'Client A',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: 1000, isBusiness: false },
+          { accountId: accounts.salesIncome.id, amount: -1000, isBusiness: false },
+        ],
+      });
+
+      const report = await reportService.generateCashFlow(
+        new Date('2025-01-01'),
+        new Date('2025-01-31')
+      );
+
+      expect(report.openingCash).toBe(5000);
+      expect(report.closingCash).toBe(6000);
+      expect(report.netCashChange).toBe(1000);
+    });
+
+    it('should show transfers between real accounts as financing', async () => {
+      // Transfer from checking to credit card (paying off CC)
+      await transactionService.createTransaction({
+        date: new Date('2025-01-15'),
+        payee: 'CC Payment',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: -500, isBusiness: false },
+          { accountId: accounts.creditCard.id, amount: 500, isBusiness: false },
+        ],
+      });
+
+      const report = await reportService.generateCashFlow(
+        new Date('2025-01-01'),
+        new Date('2025-01-31')
+      );
+
+      expect(report.financing.items.length).toBe(1);
+      expect(report.financing.items[0].description).toContain('Business Checking');
+      expect(report.financing.items[0].description).toContain('Credit Card');
+      expect(report.financing.items[0].amount).toBe(500);
+    });
+
+    it('should respect date range filtering', async () => {
+      await transactionService.createTransaction({
+        date: new Date('2025-01-15'),
+        payee: 'Jan Income',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: 1000, isBusiness: false },
+          { accountId: accounts.salesIncome.id, amount: -1000, isBusiness: false },
+        ],
+      });
+
+      await transactionService.createTransaction({
+        date: new Date('2025-02-15'),
+        payee: 'Feb Income',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: 2000, isBusiness: false },
+          { accountId: accounts.salesIncome.id, amount: -2000, isBusiness: false },
+        ],
+      });
+
+      // Only January
+      const janReport = await reportService.generateCashFlow(
+        new Date('2025-01-01'),
+        new Date('2025-01-31')
+      );
+      expect(janReport.operating.total).toBe(1000);
+      expect(janReport.netCashChange).toBe(1000);
+
+      // Only February (Jan income becomes opening cash)
+      const febReport = await reportService.generateCashFlow(
+        new Date('2025-02-01'),
+        new Date('2025-02-28')
+      );
+      expect(febReport.operating.total).toBe(2000);
+      expect(febReport.openingCash).toBe(1000);
+      expect(febReport.closingCash).toBe(3000);
+    });
+
+    it('should handle mixed income and expenses', async () => {
+      await transactionService.createTransaction({
+        date: new Date('2025-01-10'),
+        payee: 'Client A',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: 3000, isBusiness: false },
+          { accountId: accounts.salesIncome.id, amount: -3000, isBusiness: false },
+        ],
+      });
+
+      await transactionService.createTransaction({
+        date: new Date('2025-01-15'),
+        payee: 'Office Depot',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: -800, isBusiness: false },
+          { accountId: accounts.officeSupplies.id, amount: 800, isBusiness: false },
+        ],
+      });
+
+      await transactionService.createTransaction({
+        date: new Date('2025-01-20'),
+        payee: 'Woolworths',
+        postings: [
+          { accountId: accounts.personalChecking.id, amount: -200, isBusiness: false },
+          { accountId: accounts.groceries.id, amount: 200, isBusiness: false },
+        ],
+      });
+
+      const report = await reportService.generateCashFlow(
+        new Date('2025-01-01'),
+        new Date('2025-01-31')
+      );
+
+      // Net operating = 3000 - 800 - 200 = 2000
+      expect(report.operating.total).toBe(2000);
+      expect(report.netCashChange).toBe(2000);
+      expect(report.closingCash).toBe(2000);
+    });
+
+    it('should include opening balance in cash calculations', async () => {
+      // Create account with opening balance
+      const savingsAccount = await prisma.account.create({
+        data: {
+          name: 'Savings',
+          type: AccountType.ASSET,
+          kind: 'TRANSFER',
+          isReal: true,
+          isBusinessDefault: false,
+          openingBalance: 10000,
+        },
+      });
+
+      const report = await reportService.generateCashFlow(
+        new Date('2025-01-01'),
+        new Date('2025-01-31')
+      );
+
+      // Opening and closing cash should include the savings opening balance
+      expect(report.openingCash).toBe(10000);
+      expect(report.closingCash).toBe(10000);
+      expect(report.netCashChange).toBe(0);
+    });
+  });
+
   describe('exportToCSV', () => {
     it('should export data to CSV format', () => {
       const data = [

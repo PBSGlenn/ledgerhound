@@ -16,6 +16,7 @@ ledgerhound/
 │   │   ├── Category/          # Category hierarchy UI
 │   │   ├── Layout/            # Sidebar, topbar, context menus
 │   │   ├── Transaction/       # Transaction forms and register
+│   │   ├── Transfer/          # Transfer matching wizard
 │   │   ├── Dashboard/         # Dashboard view
 │   │   ├── Reports/           # P&L, GST, BAS reports
 │   │   ├── Settings/          # Settings and configuration
@@ -23,17 +24,18 @@ ledgerhound/
 │   ├── lib/
 │   │   ├── db.ts              # Prisma client singleton
 │   │   ├── api.ts             # API client (HTTP wrapper)
-│   │   └── services/          # Business logic layer (14 services)
-│   │       ├── accountService.ts        # CRUD + balance calculations
-│   │       ├── categoryService.ts       # Hierarchical category management
-│   │       ├── transactionService.ts    # Double-entry + GST validation
-│   │       ├── importService.ts         # CSV import with column mapping
-│   │       ├── reconciliationService.ts # Reconciliation sessions
-│   │       ├── reportService.ts         # P&L, GST Summary, BAS Draft
-│   │       ├── stripeImportService.ts   # Stripe Balance Transaction API
-│   │       ├── settingsService.ts       # JSON-based settings storage
-│   │       ├── backupService.ts         # Auto-backup system
-│   │       ├── memorizedRuleService.ts  # Auto-categorization rules
+│   │   └── services/          # Business logic layer (15 services)
+│   │       ├── accountService.ts            # CRUD + balance calculations
+│   │       ├── categoryService.ts           # Hierarchical category management
+│   │       ├── transactionService.ts        # Double-entry + GST validation
+│   │       ├── importService.ts             # CSV import with column mapping
+│   │       ├── reconciliationService.ts     # Reconciliation sessions
+│   │       ├── reportService.ts             # P&L, GST Summary, BAS Draft
+│   │       ├── stripeImportService.ts       # Stripe Balance Transaction API
+│   │       ├── settingsService.ts           # JSON-based settings storage
+│   │       ├── backupService.ts             # Auto-backup system
+│   │       ├── memorizedRuleService.ts      # Auto-categorization rules
+│   │       ├── transferMatchingService.ts   # Duplicate transfer detection and merging
 │   │       └── ...others
 │   ├── types/                 # TypeScript type definitions
 │   ├── App.tsx                # Main app
@@ -138,6 +140,7 @@ All business logic is in TypeScript services (not Rust):
 - **backupService**: Automatic database backups on startup, manual backups, restore, cleanup, JSON export
 - **pdfStatementService**: PDF parsing and statement extraction
 - **reconciliationMatchingService**: Statement parsing and transaction matching algorithms
+- **transferMatchingService**: Duplicate transfer detection using Hungarian algorithm, optimal 1:1 matching with scoring (amount, date, keywords), atomic merge operations
 - **bookManager**: Multi-book support (stub/planned)
 
 ## Testing
@@ -179,7 +182,7 @@ All business logic is in TypeScript services (not Rust):
 ### ✅ Completed
 - Project setup (React + TypeScript + Vite + Prisma + Express API)
 - Database schema with all entities and 6 migrations (latest: `add_composite_indexes`)
-- **Services Layer** (14 services, all core functionality complete):
+- **Services Layer** (15 services, all core functionality complete):
   - Account service (CRUD, balances, archiving, hierarchies)
   - Category service (hierarchical management, unlimited nesting, tree operations)
   - Transaction service (double-entry + GST validation + bulk operations)
@@ -192,6 +195,7 @@ All business logic is in TypeScript services (not Rust):
   - Settings service (JSON key-value storage)
   - PDF statement service (parsing and extraction)
   - Reconciliation matching service (transaction matching algorithms)
+  - Transfer matching service (duplicate transfer detection and merging)
 - **API Server** (100+ REST endpoints):
   - Account endpoints (CRUD, balance)
   - Category hierarchy endpoints (tree, leaf, path, context, search) - 9 endpoints
@@ -202,11 +206,13 @@ All business logic is in TypeScript services (not Rust):
   - Memorized rule endpoints (CRUD, match, preview, apply)
   - Backup endpoints (create, restore, clean, export)
   - Stripe endpoints (settings, test, import, balance)
+  - Transfer matching endpoints (preview, commit) - 2 endpoints
 - **UI Components** (30+ components):
   - **Layout**: Hierarchical tree sidebar with tabs (Accounts vs Categories), topbar, context menus
   - **Account**: Account setup wizard, account settings modal, account combo selector
   - **Category**: Category selector, category management, category form modal (quick create)
   - **Transaction**: Transaction form modal with splits, register grid with bulk select/delete
+  - **Transfer**: Transfer matching wizard (3-step: select accounts, preview matches, results)
   - **Dashboard**: Net worth summary, cash flow, GST liability, recent transactions
   - **Reports**: P&L report, GST summary report, BAS draft report, date range picker
   - **Import**: CSV import wizard with column mapping and preview
@@ -337,6 +343,16 @@ Comprehensive 5-phase code review and improvement:
 - `src/lib/services/index.ts` - Complete service exports
 - `prisma/schema.prisma` - Added composite indexes
 - `e2e/*.spec.ts` - Improved test stability
+
+### 🎉 Recent Additions (February 2026)
+- **Transfer Matching** (NEW - 2026-02-16):
+  - Finds and merges duplicate transfer transactions after CSV import
+  - Hungarian algorithm (munkres-js) for optimal 1:1 matching
+  - Scoring: amount match with opposite signs (50pts), date proximity (30pts), transfer keywords (20pts)
+  - 3-step wizard: Select Accounts → Preview Matches → Results
+  - Atomic merge operations via Prisma transactions
+  - TopBar integration with "Match Transfers" button
+  - API endpoints: `POST /api/transfers/match-preview` and `POST /api/transfers/commit`
 
 ### 🎉 Recent Fixes (February 2026)
 - **Subcategory Creation Bug** - Fixed missing `parentId` and `defaultHasGst` fields in `accountService.createAccount`, categories created via "Add Subcategory" context menu now properly save parent relationship
@@ -484,8 +500,9 @@ Comprehensive 5-phase code review and improvement:
 - ✅ Smart transaction matching with confidence scoring
 - ✅ Professional UI with 30+ components
 - ✅ 100+ REST API endpoints
-- ✅ 14 business logic services
+- ✅ 15 business logic services
 - ✅ Comprehensive test coverage (402 unit tests, 16 E2E tests)
+- ✅ Transfer matching with Hungarian algorithm for duplicate detection
 
 **What Needs Work:**
 - ⚠️ User documentation (setup guide, workflows, screenshots)

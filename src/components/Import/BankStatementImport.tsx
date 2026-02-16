@@ -87,6 +87,7 @@ export function BankStatementImport({
   const [file, setFile] = useState<File | null>(null);
   const [csvText, setCsvText] = useState('');
   const [csvData, setCsvData] = useState<string[][]>([]);
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]); // Detected header names
   const [columnMapping, setColumnMapping] = useState<ColumnMapping>({});
   const [previews, setPreviews] = useState<ImportPreview[]>([]);
   const [categoryOverrides, setCategoryOverrides] = useState<Record<number, string>>({});
@@ -105,6 +106,10 @@ export function BankStatementImport({
   const [newTemplateName, setNewTemplateName] = useState('');
 
   const { showToast } = useToast();
+
+  // Get display label for a column (uses header name if available)
+  const getColumnLabel = (idx: number) =>
+    csvHeaders[idx] ? `${csvHeaders[idx]}` : `Column ${idx + 1}`;
 
   // Load accounts and templates when dialog opens (only if accountId not provided)
   useEffect(() => {
@@ -209,27 +214,61 @@ export function BankStatementImport({
       setCsvData(rows);
 
       // Auto-detect column mapping for common bank formats
-      // CBA format: Date, Amount, Description (3 cols) or Date, Amount, Description, Balance (4 cols)
       if (rows.length > 0) {
-        if (rows[0].length === 3) {
+        const firstRow = rows[0];
+        const headerLower = firstRow.map(h => h.toLowerCase().trim());
+
+        // Check if first row looks like headers (contains common keywords)
+        const hasHeaders = headerLower.some(h =>
+          ['date', 'transaction date', 'details', 'description', 'amount', 'debit', 'credit', 'balance'].includes(h)
+        );
+
+        if (hasHeaders) {
+          // Header-based auto-detection (Macquarie, ING, etc.)
+          const mapping: Record<string, string | undefined> = {};
+
+          const dateIdx = headerLower.findIndex(h => h.includes('date'));
+          const descIdx = headerLower.findIndex(h => h === 'original description' || h === 'details' || h === 'description' || h === 'narrative');
+          const amountIdx = headerLower.findIndex(h => h === 'amount');
+          const debitIdx = headerLower.findIndex(h => h === 'debit');
+          const creditIdx = headerLower.findIndex(h => h === 'credit');
+          const balanceIdx = headerLower.findIndex(h => h === 'balance');
+
+          if (dateIdx >= 0) mapping.date = dateIdx.toString();
+          if (descIdx >= 0) mapping.description = descIdx.toString();
+
+          // Prefer separate debit/credit if both present
+          if (debitIdx >= 0 && creditIdx >= 0) {
+            mapping.debit = debitIdx.toString();
+            mapping.credit = creditIdx.toString();
+          } else if (amountIdx >= 0) {
+            mapping.amount = amountIdx.toString();
+          }
+
+          setColumnMapping(mapping);
+          // Save header names and remove header row from data
+          setCsvHeaders(firstRow);
+          setCsvData(rows.slice(1));
+        } else if (firstRow.length === 3) {
+          // CBA format: Date, Amount, Description (3 cols)
           setColumnMapping({
             date: '0',
             amount: '1',
             description: '2',
           });
-        } else if (rows[0].length === 4) {
+        } else if (firstRow.length === 4) {
           // 4-column format: typically Date, Amount, Description, Balance
           setColumnMapping({
             date: '0',
             amount: '1',
             description: '2',
           });
-        } else if (rows[0].length >= 2) {
+        } else if (firstRow.length >= 2) {
           // Default: assume first column is date, second is amount
           setColumnMapping({
             date: '0',
             amount: '1',
-            description: rows[0].length > 2 ? '2' : undefined,
+            description: firstRow.length > 2 ? '2' : undefined,
           });
         }
       }
@@ -663,7 +702,7 @@ export function BankStatementImport({
                       <option value="">Select column...</option>
                       {csvData[0]?.map((_, idx) => (
                         <option key={idx} value={idx.toString()}>
-                          Column {idx + 1}
+                          {getColumnLabel(idx)}
                         </option>
                       ))}
                     </select>
@@ -675,16 +714,20 @@ export function BankStatementImport({
                     </label>
                     <select
                       value={columnMapping.amount ?? ''}
-                      onChange={(e) => setColumnMapping({ ...columnMapping, amount: e.target.value || undefined })}
+                      onChange={(e) => setColumnMapping({ ...columnMapping, amount: e.target.value || undefined, debit: undefined, credit: undefined })}
                       className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white"
+                      disabled={!!(columnMapping.debit || columnMapping.credit)}
                     >
                       <option value="">Select column...</option>
                       {csvData[0]?.map((_, idx) => (
                         <option key={idx} value={idx.toString()}>
-                          Column {idx + 1}
+                          {getColumnLabel(idx)}
                         </option>
                       ))}
                     </select>
+                    {!!(columnMapping.debit || columnMapping.credit) && (
+                      <p className="text-xs text-slate-500 mt-1">Disabled — using Debit/Credit below</p>
+                    )}
                   </div>
 
                   <div>
@@ -701,7 +744,46 @@ export function BankStatementImport({
                       <option value="">Select column...</option>
                       {csvData[0]?.map((_, idx) => (
                         <option key={idx} value={idx.toString()}>
-                          Column {idx + 1}
+                          {getColumnLabel(idx)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Debit/Credit columns for banks like Macquarie */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      Debit Column (money out)
+                    </label>
+                    <select
+                      value={columnMapping.debit ?? ''}
+                      onChange={(e) => setColumnMapping({ ...columnMapping, debit: e.target.value || undefined, amount: undefined })}
+                      className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white"
+                      disabled={!!columnMapping.amount}
+                    >
+                      <option value="">Not used</option>
+                      {csvData[0]?.map((_, idx) => (
+                        <option key={idx} value={idx.toString()}>
+                          {getColumnLabel(idx)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      Credit Column (money in)
+                    </label>
+                    <select
+                      value={columnMapping.credit ?? ''}
+                      onChange={(e) => setColumnMapping({ ...columnMapping, credit: e.target.value || undefined, amount: undefined })}
+                      className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white"
+                      disabled={!!columnMapping.amount}
+                    >
+                      <option value="">Not used</option>
+                      {csvData[0]?.map((_, idx) => (
+                        <option key={idx} value={idx.toString()}>
+                          {getColumnLabel(idx)}
                         </option>
                       ))}
                     </select>
@@ -720,7 +802,7 @@ export function BankStatementImport({
                       <option value="">Not used</option>
                       {csvData[0]?.map((_, idx) => (
                         <option key={idx} value={idx.toString()}>
-                          Column {idx + 1}
+                          {getColumnLabel(idx)}
                         </option>
                       ))}
                     </select>
@@ -738,7 +820,7 @@ export function BankStatementImport({
                       <option value="">Not used</option>
                       {csvData[0]?.map((_, idx) => (
                         <option key={idx} value={idx.toString()}>
-                          Column {idx + 1}
+                          {getColumnLabel(idx)}
                         </option>
                       ))}
                     </select>
@@ -756,7 +838,7 @@ export function BankStatementImport({
                       <option value="">Not used</option>
                       {csvData[0]?.map((_, idx) => (
                         <option key={idx} value={idx.toString()}>
-                          Column {idx + 1}
+                          {getColumnLabel(idx)}
                         </option>
                       ))}
                     </select>
@@ -764,7 +846,7 @@ export function BankStatementImport({
                 </div>
 
                 <p className="text-xs text-slate-600 dark:text-slate-400 mt-3">
-                  💡 Tip: For banks with separate debit/credit columns, map "amount" to the combined column or use both debit and credit fields
+                  Use either <strong>Amount</strong> (single column, e.g. CBA) or <strong>Debit + Credit</strong> (separate columns, e.g. Macquarie). Setting one disables the other.
                 </p>
               </div>
 
@@ -779,7 +861,7 @@ export function BankStatementImport({
                       <tr>
                         {csvData[0]?.map((_, idx) => (
                           <th key={idx} className="px-3 py-2 text-left font-medium text-slate-700 dark:text-slate-300">
-                            Column {idx + 1}
+                            {getColumnLabel(idx)}
                           </th>
                         ))}
                       </tr>
@@ -793,6 +875,8 @@ export function BankStatementImport({
                               className={`px-3 py-2 text-slate-900 dark:text-slate-100 ${
                                 columnMapping.date === cellIdx.toString() ||
                                 columnMapping.amount === cellIdx.toString() ||
+                                columnMapping.debit === cellIdx.toString() ||
+                                columnMapping.credit === cellIdx.toString() ||
                                 columnMapping.description === cellIdx.toString()
                                   ? 'bg-emerald-100 dark:bg-emerald-900/30 font-medium'
                                   : ''
@@ -818,7 +902,7 @@ export function BankStatementImport({
                 </button>
                 <button
                   onClick={handleFetchPreview}
-                  disabled={loading || !columnMapping.date || !columnMapping.amount}
+                  disabled={loading || !columnMapping.date || (!columnMapping.amount && (!columnMapping.debit || !columnMapping.credit))}
                   className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
                   {loading ? (

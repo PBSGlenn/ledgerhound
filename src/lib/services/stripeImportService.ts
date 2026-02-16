@@ -97,6 +97,14 @@ export class StripeImportService {
    * Ensure all required accounts exist for Stripe transactions with proper GST tracking
    */
   private async ensureRequiredAccounts(): Promise<void> {
+    // Find parent categories to nest auto-created categories under
+    const businessIncome = await this.prisma.account.findFirst({
+      where: { name: 'Business Income', type: AccountType.INCOME, kind: 'CATEGORY' },
+    });
+    const businessExpenses = await this.prisma.account.findFirst({
+      where: { name: 'Business Expenses', type: AccountType.EXPENSE, kind: 'CATEGORY' },
+    });
+
     // Find or create Consultation Income (for Calendly/invoice payments)
     let incomeAccount = await this.prisma.account.findFirst({
       where: {
@@ -114,7 +122,8 @@ export class StripeImportService {
           isReal: false,
           isBusinessDefault: true,
           defaultHasGst: true,
-          level: 0,
+          parentId: businessIncome?.id ?? null,
+          level: businessIncome ? 1 : 0,
         },
       });
     }
@@ -156,7 +165,8 @@ export class StripeImportService {
           kind: 'CATEGORY',
           isReal: false,
           isBusinessDefault: true,
-          level: 0,
+          parentId: businessExpenses?.id ?? null,
+          level: businessExpenses ? 1 : 0,
         },
       });
     }

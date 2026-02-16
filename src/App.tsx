@@ -5,7 +5,17 @@ import { AccountSetupWizard } from './components/Account/AccountSetupWizard';
 import { ToastProvider } from './components/UI/Toast';
 import { ToastContextProvider } from './hooks/useToast';
 import { bookManager } from './lib/services/bookManager';
+import { booksAPI } from './lib/api';
 import type { Book } from './types/book';
+
+// Helper: tell the server to switch to a book's database
+async function switchServerDatabase(book: Book): Promise<void> {
+  // Legacy books may have old path format — treat as dev.db (the original database)
+  const dbPath = book.databasePath.startsWith('books/')
+    ? book.databasePath
+    : 'dev.db';
+  await booksAPI.switchDatabase(dbPath);
+}
 
 export default function App() {
   // Initialize isFirstRun immediately to avoid flash of onboarding when books exist
@@ -17,50 +27,68 @@ export default function App() {
   const [initialAccountId, setInitialAccountId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Re-check first run status (in case of localStorage changes)
-    const firstRun = bookManager.isFirstRun();
-    setIsFirstRun(firstRun);
+    const init = async () => {
+      // Re-check first run status (in case of localStorage changes)
+      const firstRun = bookManager.isFirstRun();
+      setIsFirstRun(firstRun);
 
-    if (!firstRun) {
-      // Load active book
-      let activeBook = bookManager.getActiveBook();
+      if (!firstRun) {
+        // Load active book
+        let activeBook = bookManager.getActiveBook();
 
-      // If no active book, auto-select the most recently accessed book (Issue #4)
-      if (!activeBook) {
-        const books = bookManager.getAllBooks();
-        if (books.length > 0) {
-          const sortedBooks = books.sort((a, b) =>
-            new Date(b.lastAccessedAt).getTime() - new Date(a.lastAccessedAt).getTime()
-          );
-          activeBook = bookManager.setActiveBook(sortedBooks[0].id);
+        // If no active book, auto-select the most recently accessed book (Issue #4)
+        if (!activeBook) {
+          const books = bookManager.getAllBooks();
+          if (books.length > 0) {
+            const sortedBooks = books.sort((a, b) =>
+              new Date(b.lastAccessedAt).getTime() - new Date(a.lastAccessedAt).getTime()
+            );
+            activeBook = bookManager.setActiveBook(sortedBooks[0].id);
+          }
+        }
+
+        if (activeBook) {
+          // Tell the server to use this book's database
+          try {
+            await switchServerDatabase(activeBook);
+          } catch (error) {
+            console.error('Failed to switch server database:', error);
+          }
+
+          setCurrentBook(activeBook);
+
+          // Check if we should show account setup after onboarding
+          const shouldShowAccountSetup = localStorage.getItem('ledgerhound-show-account-setup');
+          if (shouldShowAccountSetup === 'true') {
+            setShowAccountSetup(true);
+            localStorage.removeItem('ledgerhound-show-account-setup');
+          }
+
+          // Check if we should navigate to a specific account after creation (Issue #5)
+          const navigateToAccount = localStorage.getItem('ledgerhound-navigate-to-account');
+          if (navigateToAccount) {
+            setInitialAccountId(navigateToAccount);
+            localStorage.removeItem('ledgerhound-navigate-to-account');
+          }
         }
       }
 
-      if (activeBook) {
-        setCurrentBook(activeBook);
+      setIsLoading(false);
+    };
 
-        // Check if we should show account setup after onboarding
-        const shouldShowAccountSetup = localStorage.getItem('ledgerhound-show-account-setup');
-        if (shouldShowAccountSetup === 'true') {
-          setShowAccountSetup(true);
-          localStorage.removeItem('ledgerhound-show-account-setup');
-        }
-
-        // Check if we should navigate to a specific account after creation (Issue #5)
-        const navigateToAccount = localStorage.getItem('ledgerhound-navigate-to-account');
-        if (navigateToAccount) {
-          setInitialAccountId(navigateToAccount);
-          localStorage.removeItem('ledgerhound-navigate-to-account');
-        }
-      }
-    }
-
-    setIsLoading(false);
+    init();
   }, []);
 
-  const handleOnboardingComplete = (bookId: string) => {
+  const handleOnboardingComplete = async (bookId: string) => {
     const book = bookManager.getBook(bookId);
     if (book) {
+      // Switch the server to the new book's database
+      try {
+        await switchServerDatabase(book);
+      } catch (error) {
+        console.error('Failed to switch server database for new book:', error);
+      }
+
       setCurrentBook(book);
       setIsFirstRun(false);
       // Show account setup wizard after onboarding
@@ -79,14 +107,20 @@ export default function App() {
     window.location.reload();
   };
 
-  const handleBookSwitch = (bookId: string) => {
+  const handleBookSwitch = async (bookId: string) => {
     const book = bookManager.setActiveBook(bookId);
+    // Tell the server to switch to this book's database
+    try {
+      await switchServerDatabase(book);
+    } catch (error) {
+      console.error('Failed to switch server database:', error);
+    }
     setCurrentBook(book);
     // Reload the page to reinitialize with new database
     window.location.reload();
   };
 
-  const handleOnboardingCancel = () => {
+  const handleOnboardingCancel = async () => {
     // Try to load the last active book
     const books = bookManager.getAllBooks();
     if (books.length > 0) {
@@ -95,6 +129,12 @@ export default function App() {
         new Date(b.lastAccessedAt).getTime() - new Date(a.lastAccessedAt).getTime()
       );
       const book = bookManager.setActiveBook(sortedBooks[0].id);
+      // Switch the server to this book's database
+      try {
+        await switchServerDatabase(book);
+      } catch (error) {
+        console.error('Failed to switch server database:', error);
+      }
       setCurrentBook(book);
       setIsFirstRun(false);
       // Reload to initialize with the database

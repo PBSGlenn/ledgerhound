@@ -155,6 +155,69 @@ export function CategoriesManager() {
   const parentCategories = categories.filter(c => c.parentId === null);
   const getChildren = (parentId: string) => categories.filter(c => c.parentId === parentId);
 
+  // Recursive category renderer for unlimited nesting
+  const renderCategoryChild = (child: typeof categories[0], depth: number = 0): React.ReactNode => {
+    const grandchildren = getChildren(child.id);
+    const isExpanded = expandedParents.has(child.id);
+    const hasChildren = grandchildren.length > 0;
+
+    return (
+      <div key={child.id}>
+        <div
+          className="group flex items-center gap-2 py-1.5 px-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/50"
+          style={{ marginLeft: `${depth * 24}px` }}
+        >
+          {hasChildren ? (
+            <button
+              onClick={() => toggleExpand(child.id)}
+              className="p-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+            >
+              {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            </button>
+          ) : (
+            <div className="w-4" />
+          )}
+          <span className="flex-1 text-sm text-slate-700 dark:text-slate-300">
+            {child.name}
+            {child.isBusinessDefault && (
+              <span className="ml-2 text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded">
+                BIZ
+              </span>
+            )}
+          </span>
+          <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
+            <button
+              onClick={() => handleAddChild(child)}
+              className="p-1 text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"
+              title="Add subcategory"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => handleEdit(child)}
+              className="p-1 text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"
+              title="Edit"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setDeleteCategoryId(child.id)}
+              className="p-1 text-slate-600 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"
+              title="Delete"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+        {isExpanded && hasChildren && (
+          <div className="space-y-1">
+            {grandchildren.map(gc => renderCategoryChild(gc, depth + 1))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -232,38 +295,7 @@ export function CategoriesManager() {
 
                     {isExpanded && children.length > 0 && (
                       <div className="ml-6 space-y-1">
-                        {children.map(child => (
-                          <div
-                            key={child.id}
-                            className="group flex items-center gap-2 py-1.5 px-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/50"
-                          >
-                            <div className="w-4" />
-                            <span className="flex-1 text-sm text-slate-700 dark:text-slate-300">
-                              {child.name}
-                              {child.isBusinessDefault && (
-                                <span className="ml-2 text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded">
-                                  BIZ
-                                </span>
-                              )}
-                            </span>
-                            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
-                              <button
-                                onClick={() => handleEdit(child)}
-                                className="p-1 text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"
-                                title="Edit"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => setDeleteCategoryId(child.id)}
-                                className="p-1 text-slate-600 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+                        {children.map(child => renderCategoryChild(child))}
                       </div>
                     )}
                   </div>
@@ -322,38 +354,7 @@ export function CategoriesManager() {
 
                     {isExpanded && children.length > 0 && (
                       <div className="ml-6 space-y-1">
-                        {children.map(child => (
-                          <div
-                            key={child.id}
-                            className="group flex items-center gap-2 py-1.5 px-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/50"
-                          >
-                            <div className="w-4" />
-                            <span className="flex-1 text-sm text-slate-700 dark:text-slate-300">
-                              {child.name}
-                              {child.isBusinessDefault && (
-                                <span className="ml-2 text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded">
-                                  BIZ
-                                </span>
-                              )}
-                            </span>
-                            <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
-                              <button
-                                onClick={() => handleEdit(child)}
-                                className="p-1 text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"
-                                title="Edit"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => setDeleteCategoryId(child.id)}
-                                className="p-1 text-slate-600 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded"
-                                title="Delete"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
+                        {children.map(child => renderCategoryChild(child))}
                       </div>
                     )}
                   </div>

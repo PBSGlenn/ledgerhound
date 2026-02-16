@@ -6,12 +6,18 @@ import { DateRangePicker } from './DateRangePicker';
 import { ProfitAndLossReport } from './ProfitAndLossReport';
 import { GSTSummaryReport } from './GSTSummaryReport';
 import { BASDraftReport } from './BASDraftReport';
+import { TagSummaryReport } from './TagSummaryReport';
+import { BalanceSheetReport } from './BalanceSheetReport';
+import { CashFlowReport } from './CashFlowReport';
 import { reportAPI } from '../../lib/api';
 import { generateCSV, downloadCSV, formatCurrencyForCSV } from '../../lib/utils/csvExport';
 import { useToast } from '../../hooks/useToast';
-import type { ProfitAndLoss, GSTSummary, BASDraft } from '../../types';
+import type { ProfitAndLoss, GSTSummary, BASDraft, TagSummary, BalanceSheet, CashFlowStatement } from '../../types';
 
-type ReportType = 'profit-loss' | 'gst-summary' | 'bas-draft';
+type ReportType = 'profit-loss' | 'gst-summary' | 'bas-draft' | 'tag-summary' | 'balance-sheet' | 'cash-flow';
+
+// Reports that use a single date instead of a date range
+const singleDateReports: ReportType[] = ['balance-sheet'];
 
 export function ReportsView() {
   const { showSuccess, showError } = useToast();
@@ -24,16 +30,22 @@ export function ReportsView() {
 
   const [startDate, setStartDate] = useState(`${fyYear - 1}-07-01`);
   const [endDate, setEndDate] = useState(`${fyYear}-06-30`);
+  const [asOfDate, setAsOfDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
   // Report data state
   const [profitLossData, setProfitLossData] = useState<ProfitAndLoss | null>(null);
   const [gstSummaryData, setGSTSummaryData] = useState<GSTSummary | null>(null);
   const [basDraftData, setBASDraftData] = useState<BASDraft | null>(null);
+  const [tagSummaryData, setTagSummaryData] = useState<TagSummary[] | null>(null);
+  const [balanceSheetData, setBalanceSheetData] = useState<BalanceSheet | null>(null);
+  const [cashFlowData, setCashFlowData] = useState<CashFlowStatement | null>(null);
 
   // Loading and filter states
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [businessOnly, setBusinessOnly] = useState(false);
+
+  const isSingleDate = singleDateReports.includes(activeTab);
 
   const generateReport = async () => {
     setLoading(true);
@@ -61,6 +73,23 @@ export function ReportsView() {
           const basData = await reportAPI.generateBASDraft(start, end);
           setBASDraftData(basData);
           break;
+
+        case 'tag-summary':
+          const tagData = await reportAPI.generateTagSummary(start, end, {
+            businessOnly: businessOnly || undefined,
+          });
+          setTagSummaryData(tagData);
+          break;
+
+        case 'balance-sheet':
+          const bsData = await reportAPI.generateBalanceSheet(new Date(asOfDate));
+          setBalanceSheetData(bsData);
+          break;
+
+        case 'cash-flow':
+          const cfData = await reportAPI.generateCashFlow(start, end);
+          setCashFlowData(cfData);
+          break;
       }
     } catch (err) {
       setError((err as Error).message);
@@ -76,8 +105,13 @@ export function ReportsView() {
     setProfitLossData(null);
     setGSTSummaryData(null);
     setBASDraftData(null);
+    setTagSummaryData(null);
+    setBalanceSheetData(null);
+    setCashFlowData(null);
     setError(null);
   };
+
+  const hasData = profitLossData || gstSummaryData || basDraftData || tagSummaryData || balanceSheetData || cashFlowData;
 
   const handleExportCSV = () => {
     try {
@@ -141,11 +175,97 @@ export function ReportsView() {
           downloadCSV(basCSV, `bas-draft-${today}.csv`);
           showSuccess('Export complete', 'BAS Draft exported to CSV');
           break;
+
+        case 'tag-summary':
+          if (!tagSummaryData) return;
+
+          const tagCSV = generateCSV(tagSummaryData, [
+            { header: 'Tag', accessor: (row) => row.tag },
+            { header: 'Income', accessor: (row) => formatCurrencyForCSV(row.income) },
+            { header: 'Expenses', accessor: (row) => formatCurrencyForCSV(row.expenses) },
+            { header: 'Net', accessor: (row) => formatCurrencyForCSV(row.net) },
+          ]);
+
+          downloadCSV(tagCSV, `tag-summary-${today}.csv`);
+          showSuccess('Export complete', 'Tag Summary exported to CSV');
+          break;
+
+        case 'balance-sheet':
+          if (!balanceSheetData) return;
+
+          const bsRows = [
+            ...balanceSheetData.assets.map((item) => ({
+              section: 'Assets',
+              account: item.accountName,
+              amount: item.balance,
+            })),
+            { section: 'Total Assets', account: '', amount: balanceSheetData.totalAssets },
+            { section: '', account: '', amount: 0 },
+            ...balanceSheetData.liabilities.map((item) => ({
+              section: 'Liabilities',
+              account: item.accountName,
+              amount: item.balance,
+            })),
+            { section: 'Total Liabilities', account: '', amount: balanceSheetData.totalLiabilities },
+            { section: '', account: '', amount: 0 },
+            ...balanceSheetData.equity.map((item) => ({
+              section: 'Equity',
+              account: item.accountName,
+              amount: item.balance,
+            })),
+            { section: 'Equity', account: 'Retained Earnings', amount: balanceSheetData.retainedEarnings },
+            { section: 'Total Equity', account: '', amount: balanceSheetData.totalEquity },
+          ];
+
+          const bsCSV = generateCSV(bsRows, [
+            { header: 'Section', accessor: (row) => row.section },
+            { header: 'Account', accessor: (row) => row.account },
+            { header: 'Amount', accessor: (row) => row.amount !== 0 ? formatCurrencyForCSV(row.amount) : '' },
+          ]);
+
+          downloadCSV(bsCSV, `balance-sheet-${today}.csv`);
+          showSuccess('Export complete', 'Balance Sheet exported to CSV');
+          break;
+
+        case 'cash-flow':
+          if (!cashFlowData) return;
+
+          const cfRows = [
+            { section: 'Opening Cash', description: '', amount: cashFlowData.openingCash },
+            { section: '', description: '', amount: 0 },
+            ...cashFlowData.operating.items.map((item) => ({
+              section: 'Operating',
+              description: item.categoryName,
+              amount: item.amount,
+            })),
+            { section: 'Net Operating', description: '', amount: cashFlowData.operating.total },
+            { section: '', description: '', amount: 0 },
+            ...cashFlowData.financing.items.map((item) => ({
+              section: 'Transfers',
+              description: item.description,
+              amount: item.amount,
+            })),
+            { section: '', description: '', amount: 0 },
+            { section: 'Net Cash Change', description: '', amount: cashFlowData.netCashChange },
+            { section: 'Closing Cash', description: '', amount: cashFlowData.closingCash },
+          ];
+
+          const cfCSV = generateCSV(cfRows, [
+            { header: 'Section', accessor: (row) => row.section },
+            { header: 'Description', accessor: (row) => row.description },
+            { header: 'Amount', accessor: (row) => row.amount !== 0 ? formatCurrencyForCSV(row.amount) : '' },
+          ]);
+
+          downloadCSV(cfCSV, `cash-flow-${today}.csv`);
+          showSuccess('Export complete', 'Cash Flow Statement exported to CSV');
+          break;
       }
     } catch (error) {
       showError('Export failed', (error as Error).message);
     }
   };
+
+  const tabTriggerClass = "px-4 py-2 rounded-md text-sm font-medium transition-colors data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=inactive]:bg-slate-100 data-[state=inactive]:text-slate-700 dark:data-[state=inactive]:bg-slate-700 dark:data-[state=inactive]:text-slate-300";
 
   return (
     <div className="h-full flex flex-col bg-slate-50 dark:bg-slate-900">
@@ -164,42 +284,58 @@ export function ReportsView() {
 
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-7xl mx-auto space-y-6">
-          {/* Date Range Picker */}
-          <DateRangePicker
-            startDate={startDate}
-            endDate={endDate}
-            onStartDateChange={setStartDate}
-            onEndDateChange={setEndDate}
-          />
+          {/* Date Picker - switches between range and single date */}
+          {isSingleDate ? (
+            <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
+              <div className="flex items-center gap-4">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  As of Date
+                </label>
+                <input
+                  type="date"
+                  value={asOfDate}
+                  onChange={(e) => setAsOfDate(e.target.value)}
+                  className="px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
+                />
+              </div>
+            </div>
+          ) : (
+            <DateRangePicker
+              startDate={startDate}
+              endDate={endDate}
+              onStartDateChange={setStartDate}
+              onEndDateChange={setEndDate}
+            />
+          )}
 
           {/* Report Type Tabs */}
           <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
             <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
-              <Tabs.List className="flex gap-2 mb-4">
-                <Tabs.Trigger
-                  value="profit-loss"
-                  className="px-4 py-2 rounded-md text-sm font-medium transition-colors data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=inactive]:bg-slate-100 data-[state=inactive]:text-slate-700 dark:data-[state=inactive]:bg-slate-700 dark:data-[state=inactive]:text-slate-300"
-                >
+              <Tabs.List className="flex flex-wrap gap-2 mb-4">
+                <Tabs.Trigger value="profit-loss" className={tabTriggerClass}>
                   Profit & Loss
                 </Tabs.Trigger>
-                <Tabs.Trigger
-                  value="gst-summary"
-                  className="px-4 py-2 rounded-md text-sm font-medium transition-colors data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=inactive]:bg-slate-100 data-[state=inactive]:text-slate-700 dark:data-[state=inactive]:bg-slate-700 dark:data-[state=inactive]:text-slate-300"
-                >
+                <Tabs.Trigger value="balance-sheet" className={tabTriggerClass}>
+                  Balance Sheet
+                </Tabs.Trigger>
+                <Tabs.Trigger value="cash-flow" className={tabTriggerClass}>
+                  Cash Flow
+                </Tabs.Trigger>
+                <Tabs.Trigger value="gst-summary" className={tabTriggerClass}>
                   GST Summary
                 </Tabs.Trigger>
-                <Tabs.Trigger
-                  value="bas-draft"
-                  className="px-4 py-2 rounded-md text-sm font-medium transition-colors data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=inactive]:bg-slate-100 data-[state=inactive]:text-slate-700 dark:data-[state=inactive]:bg-slate-700 dark:data-[state=inactive]:text-slate-300"
-                >
+                <Tabs.Trigger value="bas-draft" className={tabTriggerClass}>
                   BAS Draft
+                </Tabs.Trigger>
+                <Tabs.Trigger value="tag-summary" className={tabTriggerClass}>
+                  Tag Summary
                 </Tabs.Trigger>
               </Tabs.List>
 
               {/* Filters and Generate Button */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                  {activeTab === 'profit-loss' && (
+                  {(activeTab === 'profit-loss' || activeTab === 'tag-summary') && (
                     <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
                       <input
                         type="checkbox"
@@ -231,7 +367,7 @@ export function ReportsView() {
                     )}
                   </button>
 
-                  {(profitLossData || gstSummaryData || basDraftData) && (
+                  {hasData && (
                     <button
                       className="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-md font-medium flex items-center gap-2 transition-colors"
                       onClick={handleExportCSV}
@@ -266,6 +402,32 @@ export function ReportsView() {
               )}
             </Tabs.Content>
 
+            <Tabs.Content value="balance-sheet" className="focus:outline-none">
+              {balanceSheetData ? (
+                <BalanceSheetReport data={balanceSheetData} />
+              ) : (
+                <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+                  <FileText className="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
+                  <p className="text-slate-600 dark:text-slate-400">
+                    Click "Generate Report" to view your Balance Sheet
+                  </p>
+                </div>
+              )}
+            </Tabs.Content>
+
+            <Tabs.Content value="cash-flow" className="focus:outline-none">
+              {cashFlowData ? (
+                <CashFlowReport data={cashFlowData} />
+              ) : (
+                <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+                  <FileText className="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
+                  <p className="text-slate-600 dark:text-slate-400">
+                    Click "Generate Report" to view your Cash Flow Statement
+                  </p>
+                </div>
+              )}
+            </Tabs.Content>
+
             <Tabs.Content value="gst-summary" className="focus:outline-none">
               {gstSummaryData ? (
                 <GSTSummaryReport data={gstSummaryData} />
@@ -287,6 +449,19 @@ export function ReportsView() {
                   <FileText className="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
                   <p className="text-slate-600 dark:text-slate-400">
                     Click "Generate Report" to view your BAS draft
+                  </p>
+                </div>
+              )}
+            </Tabs.Content>
+
+            <Tabs.Content value="tag-summary" className="focus:outline-none">
+              {tagSummaryData ? (
+                <TagSummaryReport data={tagSummaryData} />
+              ) : (
+                <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+                  <FileText className="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
+                  <p className="text-slate-600 dark:text-slate-400">
+                    Click "Generate Report" to view your tag summary
                   </p>
                 </div>
               )}

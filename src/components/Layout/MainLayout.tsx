@@ -12,6 +12,7 @@ import type { AccountWithBalance } from '../../types';
 import type { Book } from '../../types/book';
 import { BankStatementImport } from '../Import/BankStatementImport';
 import { StripeImportWizard } from '../../features/import/StripeImportWizard';
+import { TransferMatchingModal } from '../Transfer/TransferMatchingModal';
 import { accountAPI } from '../../lib/api';
 
 type ViewType = 'dashboard' | 'register' | 'reports' | 'reconciliation' | 'settings';
@@ -32,6 +33,7 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
 
   const [isImporting, setIsImporting] = useState(false);
   const [isStripeImporting, setIsStripeImporting] = useState(false);
+  const [isMatchingTransfers, setIsMatchingTransfers] = useState(false);
   const [registerRefreshKey, setRegisterRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -120,6 +122,7 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
           onRefresh={handleTransactionSaved}
           onImportClick={() => setIsImporting(true)}
           onStripeImportClick={() => setIsStripeImporting(true)}
+          onMatchTransfersClick={() => setIsMatchingTransfers(true)}
           onReportsClick={() => setCurrentView('reports')}
           onReconcileClick={() => {
             if (selectedAccountId) {
@@ -180,6 +183,12 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
           }}
         />
       )}
+
+      <TransferMatchingModal
+        isOpen={isMatchingTransfers}
+        onClose={() => setIsMatchingTransfers(false)}
+        onComplete={handleTransactionSaved}
+      />
     </div>
   );
 }

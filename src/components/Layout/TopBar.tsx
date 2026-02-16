@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Upload, GitCompare, BarChart3, Settings, CreditCard, Home } from 'lucide-react';
+import { Plus, Upload, GitCompare, BarChart3, Settings, CreditCard, Home, ArrowLeftRight } from 'lucide-react';
 import type { AccountWithBalance } from '../../types';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
 
@@ -9,6 +9,7 @@ interface TopBarProps {
   onRefresh?: () => void | Promise<void>;
   onImportClick: () => void;
   onStripeImportClick?: () => void;
+  onMatchTransfersClick?: () => void;
   onReportsClick?: () => void;
   onReconcileClick?: () => void;
   onDashboardClick?: () => void;
@@ -21,6 +22,7 @@ export function TopBar({
   onRefresh,
   onImportClick,
   onStripeImportClick,
+  onMatchTransfersClick,
   onReportsClick,
   onReconcileClick,
   onDashboardClick,
@@ -132,6 +134,15 @@ export function TopBar({
             <Upload className="w-4 h-4" />
             Import CSV
           </button>
+          {onMatchTransfersClick && (
+            <button
+              onClick={onMatchTransfersClick}
+              className="px-3 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2"
+            >
+              <ArrowLeftRight className="w-4 h-4" />
+              Match Transfers
+            </button>
+          )}
           {selectedAccount?.name === 'Stripe' && onStripeImportClick && (
             <button
               onClick={onStripeImportClick}

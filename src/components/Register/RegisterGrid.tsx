@@ -5,6 +5,7 @@ import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import type { RegisterEntry, RegisterFilter, Account } from '../../types';
 import { transactionAPI } from '../../lib/api';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
+import { AccountSettingsModal } from '../Account/AccountSettingsModal';
 import { BankStatementImport } from '../Import/BankStatementImport';
 import { StripeImportModal } from '../Stripe/StripeImportModal';
 import { generateCSV, downloadCSV, formatDateForCSV, formatCurrencyForCSV } from '../../lib/utils/csvExport';
@@ -37,6 +38,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
   const [operationLoading, setOperationLoading] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showStripeImportModal, setShowStripeImportModal] = useState(false);
+  const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [account, setAccount] = useState<Account | null>(null);
 
   useEffect(() => {
@@ -248,8 +250,9 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
   };
 
   const handleRowClick = (transactionId: string, e: React.MouseEvent) => {
-    // Don't allow editing opening balance entry
+    // Open account settings to edit opening balance
     if (transactionId.startsWith('opening-')) {
+      setShowAccountSettings(true);
       return;
     }
 
@@ -760,6 +763,16 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
       <StripeImportModal
         isOpen={showStripeImportModal}
         onClose={() => setShowStripeImportModal(false)}
+        onSuccess={async () => {
+          await loadEntries();
+        }}
+      />
+
+      {/* Account Settings Modal (for editing opening balance) */}
+      <AccountSettingsModal
+        isOpen={showAccountSettings}
+        onClose={() => setShowAccountSettings(false)}
+        accountId={accountId}
         onSuccess={async () => {
           await loadEntries();
         }}

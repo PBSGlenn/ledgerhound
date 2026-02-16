@@ -3,6 +3,10 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import multer from 'multer';
+import { execSync } from 'child_process';
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
+import { join, dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import { accountService } from '../src/lib/services/accountService.js';
 import { Prisma, AccountType, AccountKind } from '@prisma/client';
 import {
@@ -21,6 +25,8 @@ import {
   updateTransactionSchema,
   reportDateRangeSchema,
   profitLossQuerySchema,
+  tagSummaryQuerySchema,
+  balanceSheetQuerySchema,
   startReconciliationSchema,
   reconcilePostingsSchema,
   importPreviewSchema,
@@ -37,6 +43,8 @@ import {
   stripeImportSchema,
   accountTypeSchema,
   accountKindSchema,
+  transferMatchPreviewSchema,
+  transferMatchCommitSchema,
 } from './validation.js';
 import { transactionService } from '../src/lib/services/transactionService.js';
 import { reportService } from '../src/lib/services/reportService.js';
@@ -49,6 +57,9 @@ import { settingsService } from '../src/lib/services/settingsService.js';
 import { stripeImportService } from '../src/lib/services/stripeImportService.js';
 import { PDFStatementService } from '../src/lib/services/pdfStatementService.js';
 import { ReconciliationMatchingService } from '../src/lib/services/reconciliationMatchingService.js';
+import { TransferMatchingService } from '../src/lib/services/transferMatchingService.js';
+import { seedDefaultCategories } from './seedCategories.js';
+import { getPrismaClient, switchDatabase, getCurrentDbUrl } from '../src/lib/db.js';
 
 const app = express();
 const PORT = 3001;
@@ -91,7 +102,7 @@ app.use(helmet({
 // Rate limiting - 100 requests per 15 minutes per IP
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Higher limit for development; reduce in production
+  max: 10000, // Higher limit for development; reduce in production
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -103,8 +114,10 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
   'http://localhost:5173',
   'http://localhost:1420',
   'http://localhost:3000',
+  'http://localhost:3001',
   'http://127.0.0.1:5173',
   'http://127.0.0.1:1420',
+  'http://127.0.0.1:3001',
 ];
 app.use(cors({
   origin: (origin, callback) => {
@@ -419,19 +432,12 @@ app.post('/api/categories/create', async (req, res) => {
 
 app.put('/api/categories/:id', async (req, res) => {
   try {
-    console.log('PUT /api/categories/:id - Request body:', req.body);
-    console.log('PUT /api/categories/:id - Params:', req.params);
-
     const data = validateBody(updateCategorySchema, req.body, res);
     if (!data) return;
 
-    console.log('PUT /api/categories/:id - Validated data:', data);
-
     const category = await categoryService.updateCategory(req.params.id, data);
-    console.log('PUT /api/categories/:id - Success:', category);
     res.json(category);
   } catch (error) {
-    console.error('PUT /api/categories/:id - Error:', error);
     const message = (error as Error).message;
     if (message.includes('not found')) {
       return sendNotFound(res, 'Category');
@@ -627,6 +633,53 @@ app.get('/api/reports/bas-draft', async (req, res) => {
     const endDate = new Date(queryData.endDate);
 
     const report = await reportService.generateBASDraft(startDate, endDate);
+    res.json(report);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.get('/api/reports/tag-summary', async (req, res) => {
+  try {
+    const queryData = validateQuery(tagSummaryQuerySchema, req.query, res);
+    if (!queryData) return;
+
+    const startDate = new Date(queryData.startDate);
+    const endDate = new Date(queryData.endDate);
+    const businessOnly = queryData.businessOnly === 'true';
+    const personalOnly = queryData.personalOnly === 'true';
+
+    const report = await reportService.getTagSummary(startDate, endDate, {
+      businessOnly: businessOnly || undefined,
+      personalOnly: personalOnly || undefined,
+    });
+    res.json(report);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.get('/api/reports/balance-sheet', async (req, res) => {
+  try {
+    const queryData = validateQuery(balanceSheetQuerySchema, req.query, res);
+    if (!queryData) return;
+
+    const asOfDate = new Date(queryData.asOfDate);
+    const report = await reportService.generateBalanceSheet(asOfDate);
+    res.json(report);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.get('/api/reports/cash-flow', async (req, res) => {
+  try {
+    const queryData = validateQuery(reportDateRangeSchema, req.query, res);
+    if (!queryData) return;
+
+    const startDate = new Date(queryData.startDate);
+    const endDate = new Date(queryData.endDate);
+    const report = await reportService.generateCashFlow(startDate, endDate);
     res.json(report);
   } catch (error) {
     return sendServerError(res, error);
@@ -930,7 +983,7 @@ app.post('/api/rules/:id/apply-to-existing', async (req, res) => {
     const result = await memorizedRuleService.applyRuleToExisting(req.params.id, transactionIds);
     res.json(result);
   } catch (error) {
-    sendServerError(res, error);
+    return sendServerError(res, error);
   }
 });
 
@@ -1102,6 +1155,9 @@ app.post('/api/stripe/test', async (req, res) => {
 
 app.post('/api/stripe/import', async (req, res) => {
   try {
+    const data = validateBody(stripeImportSchema, req.body || {}, res);
+    if (!data) return;
+
     // Get stored settings
     const settings = await settingsService.getStripeSettings();
     if (!settings) {
@@ -1111,12 +1167,10 @@ app.post('/api/stripe/import', async (req, res) => {
     // Initialize Stripe service
     await stripeImportService.initialize(settings);
 
-    // Parse date options
-    const { startDate, endDate, limit } = req.body;
     const options = {
-      startDate: startDate ? new Date(startDate) : undefined,
-      endDate: endDate ? new Date(endDate) : undefined,
-      limit: limit ? parseInt(limit) : undefined,
+      startDate: data.startDate ? new Date(data.startDate) : undefined,
+      endDate: data.endDate ? new Date(data.endDate) : undefined,
+      limit: data.limit,
     };
 
     // Import transactions
@@ -1143,12 +1197,269 @@ app.get('/api/stripe/balance', async (req, res) => {
 });
 
 // ============================================================================
+// SYSTEM ENDPOINTS
+// ============================================================================
+
+const getGitInfo = () => {
+  const run = (cmd: string) => {
+    try { return execSync(cmd, { encoding: 'utf-8' }).trim(); }
+    catch { return 'unknown'; }
+  };
+  return {
+    hash: run('git rev-parse --short HEAD'),
+    branch: run('git rev-parse --abbrev-ref HEAD'),
+    lastCommitDate: run('git log -1 --format=%ci'),
+    lastCommitMessage: run('git log -1 --format=%s'),
+  };
+};
+
+app.get('/api/system/version', (_req, res) => {
+  try {
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8'));
+    const git = getGitInfo();
+    res.json({
+      version: pkg.version,
+      gitHash: git.hash,
+      gitBranch: git.branch,
+      lastCommitDate: git.lastCommitDate,
+      lastCommitMessage: git.lastCommitMessage,
+      nodeVersion: process.version,
+      platform: process.platform,
+    });
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.get('/api/system/check-update', (_req, res) => {
+  try {
+    // Fetch latest from remote
+    execSync('git fetch origin main', { encoding: 'utf-8', timeout: 15000 });
+
+    const currentHash = execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim();
+    const remoteHash = execSync('git rev-parse origin/main', { encoding: 'utf-8' }).trim();
+
+    let behindBy = 0;
+    let latestCommitMessage = '';
+    if (currentHash !== remoteHash) {
+      const behindOutput = execSync('git rev-list --count HEAD..origin/main', { encoding: 'utf-8' }).trim();
+      behindBy = parseInt(behindOutput) || 0;
+      latestCommitMessage = execSync('git log origin/main -1 --format=%s', { encoding: 'utf-8' }).trim();
+    }
+
+    res.json({
+      updateAvailable: currentHash !== remoteHash,
+      currentHash: currentHash.substring(0, 7),
+      remoteHash: remoteHash.substring(0, 7),
+      behindBy,
+      latestCommitMessage,
+    });
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.post('/api/system/update', (_req, res) => {
+  try {
+    // Pull latest changes
+    const pullOutput = execSync('git pull origin main', { encoding: 'utf-8', timeout: 60000 });
+
+    // Install any new dependencies
+    let installOutput = '';
+    try {
+      installOutput = execSync('npm install --omit=dev', { encoding: 'utf-8', timeout: 120000 });
+    } catch (installError) {
+      installOutput = `npm install warning: ${(installError as Error).message}`;
+    }
+
+    // Get new version info
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8'));
+    const newHash = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
+
+    res.json({
+      success: true,
+      newVersion: pkg.version,
+      newHash,
+      pullOutput: pullOutput.substring(0, 500),
+      installOutput: installOutput.substring(0, 500),
+      restartRequired: true,
+    });
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+// ============================================================================
+// BOOK / DATABASE SWITCHING ENDPOINTS
+// ============================================================================
+
+const projectRoot = resolve(process.cwd());
+
+// Helper: resolve a book's database path to an absolute file: URL
+function resolveDbUrl(dbPath: string): string {
+  // If it's already an absolute path, use it; otherwise resolve relative to project root
+  const absPath = resolve(projectRoot, 'prisma', dbPath);
+  return `file:${absPath}`;
+}
+
+// Helper: run prisma migrate deploy for a specific database
+function runMigrationsForDb(dbUrl: string): void {
+  execSync('npx prisma migrate deploy', {
+    encoding: 'utf-8',
+    timeout: 30000,
+    env: { ...process.env, DATABASE_URL: dbUrl },
+    cwd: projectRoot,
+  });
+}
+
+const ACTIVE_DB_CONFIG = join(projectRoot, 'prisma', 'active-book.json');
+
+// Helper: save the active database path so it persists across restarts
+function saveActiveDbPath(databasePath: string): void {
+  writeFileSync(ACTIVE_DB_CONFIG, JSON.stringify({ databasePath }, null, 2));
+}
+
+// Helper: load the saved active database path
+function loadActiveDbPath(): string | null {
+  try {
+    if (existsSync(ACTIVE_DB_CONFIG)) {
+      const config = JSON.parse(readFileSync(ACTIVE_DB_CONFIG, 'utf-8'));
+      return config.databasePath || null;
+    }
+  } catch {}
+  return null;
+}
+
+// POST /api/books/switch — Switch to a different book's database
+app.post('/api/books/switch', async (req, res) => {
+  try {
+    const { databasePath } = req.body;
+    if (!databasePath || typeof databasePath !== 'string') {
+      return sendError(res, 400, 'databasePath is required');
+    }
+
+    const dbUrl = resolveDbUrl(databasePath);
+    const absDbPath = dbUrl.replace('file:', '');
+
+    // Create directory if it doesn't exist
+    const dbDir = dirname(absDbPath);
+    if (!existsSync(dbDir)) {
+      mkdirSync(dbDir, { recursive: true });
+    }
+
+    // Run migrations (creates the DB file if it doesn't exist)
+    const isNew = !existsSync(absDbPath);
+    runMigrationsForDb(dbUrl);
+
+    // Switch the Prisma client to the new database
+    await switchDatabase(dbUrl);
+
+    // Save as the active database for future server restarts
+    saveActiveDbPath(databasePath);
+
+    // Auto-seed categories if this is a brand new database
+    if (isNew) {
+      const prisma = getPrismaClient();
+      await seedDefaultCategories(prisma);
+    }
+
+    res.json({
+      success: true,
+      databasePath,
+      isNew,
+      currentDbUrl: dbUrl,
+    });
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+// ============================================================================
+// TRANSFER MATCHING ENDPOINTS
+// ============================================================================
+
+// POST /api/transfers/match-preview — Find and score transfer matches between two accounts
+app.post('/api/transfers/match-preview', async (req, res) => {
+  try {
+    const data = validateBody(transferMatchPreviewSchema, req.body, res);
+    if (!data) return;
+
+    const service = new TransferMatchingService(getPrismaClient());
+    const preview = await service.matchTransfers(
+      data.accountIdA,
+      data.accountIdB,
+      data.startDate ? new Date(data.startDate) : undefined,
+      data.endDate ? new Date(data.endDate) : undefined,
+    );
+
+    res.json(preview);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+// POST /api/transfers/commit — Merge selected transfer match pairs
+app.post('/api/transfers/commit', async (req, res) => {
+  try {
+    const data = validateBody(transferMatchCommitSchema, req.body, res);
+    if (!data) return;
+
+    const service = new TransferMatchingService(getPrismaClient());
+    const result = await service.commitMatches(data.pairs);
+
+    res.json(result);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+// GET /api/books/active-db — Get the current active database path
+app.get('/api/books/active-db', (_req, res) => {
+  res.json({
+    currentDbUrl: getCurrentDbUrl() || process.env.DATABASE_URL || 'file:./dev.db',
+  });
+});
+
+// ============================================================================
+// STATIC FILE SERVING (Production mode — serves built frontend)
+// ============================================================================
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const distPath = join(__dirname, '..', 'dist');
+
+if (existsSync(distPath)) {
+  app.use(express.static(distPath));
+
+  // SPA fallback: serve index.html for all non-API routes (Express 5 syntax)
+  app.get('/{*path}', (req, res) => {
+    if (!req.path.startsWith('/api/')) {
+      res.sendFile(join(distPath, 'index.html'));
+    }
+  });
+  console.log(`📂 Serving frontend from ${distPath}`);
+}
+
+// ============================================================================
 // START SERVER
 // ============================================================================
 
 app.listen(PORT, async () => {
   console.log(`🚀 Ledgerhound API server running at http://localhost:${PORT}`);
-  console.log(`📊 Database: SQLite via Prisma`);
+
+  // Restore active book database from last session
+  const savedDbPath = loadActiveDbPath();
+  if (savedDbPath) {
+    try {
+      const dbUrl = resolveDbUrl(savedDbPath);
+      await switchDatabase(dbUrl);
+      console.log(`📖 Loaded book database: ${savedDbPath}`);
+    } catch (error) {
+      console.error('⚠️  Failed to load saved database, using default:', (error as Error).message);
+    }
+  } else {
+    console.log(`📊 Database: default (prisma/dev.db)`);
+  }
 
   // Create automatic backup on startup
   try {
@@ -1156,5 +1467,13 @@ app.listen(PORT, async () => {
     console.log(`💾 Automatic backup created on startup`);
   } catch (error) {
     console.error('⚠️  Failed to create startup backup:', (error as Error).message);
+  }
+
+  // Auto-seed default categories on first launch (when DB is empty)
+  try {
+    const prisma = getPrismaClient();
+    await seedDefaultCategories(prisma);
+  } catch (error) {
+    console.error('⚠️  Failed to seed default categories:', (error as Error).message);
   }
 });

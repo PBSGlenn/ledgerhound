@@ -1,6 +1,6 @@
 import { getPrismaClient } from '../db';
-import type { GSTSummary, ProfitAndLoss, BASDraft } from '../../types';
-import { Prisma, AccountType, type PrismaClient } from '@prisma/client';
+import type { GSTSummary, ProfitAndLoss, BASDraft, BalanceSheet, CashFlowStatement } from '../../types';
+import { AccountType, type PrismaClient } from '@prisma/client';
 
 export class ReportService {
   private prisma: PrismaClient;
@@ -427,6 +427,233 @@ export class ReportService {
           value: round(netGST),
         },
       ],
+    };
+  }
+
+  /**
+   * Generate Balance Sheet (point-in-time)
+   * Assets = Liabilities + Equity + Retained Earnings
+   */
+  async generateBalanceSheet(asOfDate: Date): Promise<BalanceSheet> {
+    // Get all accounts
+    const allAccounts = await this.prisma.account.findMany({
+      where: { archived: false },
+    });
+
+    const assetAccounts = allAccounts.filter(a => a.type === AccountType.ASSET);
+    const liabilityAccounts = allAccounts.filter(a => a.type === AccountType.LIABILITY);
+    const equityAccounts = allAccounts.filter(a => a.type === AccountType.EQUITY);
+
+    // Helper to calculate account balance up to a date
+    const getBalance = async (accountId: string, openingBalance: number): Promise<number> => {
+      const result = await this.prisma.posting.aggregate({
+        where: {
+          accountId,
+          transaction: {
+            date: { lte: asOfDate },
+            status: 'NORMAL',
+          },
+        },
+        _sum: { amount: true },
+      });
+      return openingBalance + (result._sum.amount ?? 0);
+    };
+
+    // Calculate asset balances
+    const assets: Array<{ accountName: string; balance: number; isReal: boolean }> = [];
+    for (const account of assetAccounts) {
+      const balance = await getBalance(account.id, account.openingBalance);
+      if (Math.abs(balance) >= 0.01) {
+        assets.push({ accountName: account.name, balance, isReal: account.kind === 'TRANSFER' });
+      }
+    }
+
+    // Calculate liability balances (liabilities are negative in double-entry, show as positive)
+    const liabilities: Array<{ accountName: string; balance: number; isReal: boolean }> = [];
+    for (const account of liabilityAccounts) {
+      const balance = await getBalance(account.id, account.openingBalance);
+      if (Math.abs(balance) >= 0.01) {
+        liabilities.push({ accountName: account.name, balance: Math.abs(balance), isReal: account.kind === 'TRANSFER' });
+      }
+    }
+
+    // Calculate equity balances
+    const equity: Array<{ accountName: string; balance: number }> = [];
+    for (const account of equityAccounts) {
+      const balance = await getBalance(account.id, account.openingBalance);
+      if (Math.abs(balance) >= 0.01) {
+        equity.push({ accountName: account.name, balance: Math.abs(balance) });
+      }
+    }
+
+    // Calculate retained earnings (Income - Expenses from inception to asOfDate)
+    const incomeResult = await this.prisma.posting.aggregate({
+      where: {
+        account: { type: AccountType.INCOME },
+        transaction: {
+          date: { lte: asOfDate },
+          status: 'NORMAL',
+        },
+      },
+      _sum: { amount: true },
+    });
+
+    const expenseResult = await this.prisma.posting.aggregate({
+      where: {
+        account: { type: AccountType.EXPENSE },
+        transaction: {
+          date: { lte: asOfDate },
+          status: 'NORMAL',
+        },
+      },
+      _sum: { amount: true },
+    });
+
+    // Income postings are negative (credits), expenses are positive (debits)
+    const totalIncomeAmount = Math.abs(incomeResult._sum.amount ?? 0);
+    const totalExpenseAmount = expenseResult._sum.amount ?? 0;
+    const retainedEarnings = totalIncomeAmount - totalExpenseAmount;
+
+    const totalAssets = assets.reduce((sum, a) => sum + a.balance, 0);
+    const totalLiabilities = liabilities.reduce((sum, l) => sum + l.balance, 0);
+    const equityTotal = equity.reduce((sum, e) => sum + e.balance, 0);
+    const totalEquity = equityTotal + retainedEarnings;
+
+    // Check if balanced (within rounding tolerance)
+    const isBalanced = Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 0.01;
+
+    return {
+      asOfDate,
+      assets: assets.sort((a, b) => a.accountName.localeCompare(b.accountName)),
+      liabilities: liabilities.sort((a, b) => a.accountName.localeCompare(b.accountName)),
+      equity: equity.sort((a, b) => a.accountName.localeCompare(b.accountName)),
+      retainedEarnings,
+      totalAssets,
+      totalLiabilities,
+      totalEquity,
+      isBalanced,
+    };
+  }
+
+  /**
+   * Generate Cash Flow Statement (direct method)
+   * Shows actual cash movements through real accounts
+   */
+  async generateCashFlow(startDate: Date, endDate: Date): Promise<CashFlowStatement> {
+    // Get all real (bank/PSP) accounts
+    const realAccounts = await this.prisma.account.findMany({
+      where: { kind: 'TRANSFER', archived: false },
+    });
+    const realAccountIds = new Set(realAccounts.map(a => a.id));
+
+    // Calculate opening cash (sum of all real account balances before start date)
+    let openingCash = 0;
+    for (const account of realAccounts) {
+      const result = await this.prisma.posting.aggregate({
+        where: {
+          accountId: account.id,
+          transaction: {
+            date: { lt: startDate },
+            status: 'NORMAL',
+          },
+        },
+        _sum: { amount: true },
+      });
+      openingCash += account.openingBalance + (result._sum.amount ?? 0);
+    }
+
+    // Calculate closing cash
+    let closingCash = 0;
+    for (const account of realAccounts) {
+      const result = await this.prisma.posting.aggregate({
+        where: {
+          accountId: account.id,
+          transaction: {
+            date: { lte: endDate },
+            status: 'NORMAL',
+          },
+        },
+        _sum: { amount: true },
+      });
+      closingCash += account.openingBalance + (result._sum.amount ?? 0);
+    }
+
+    // Get all transactions in period that touch real accounts
+    const periodTransactions = await this.prisma.transaction.findMany({
+      where: {
+        date: { gte: startDate, lte: endDate },
+        status: 'NORMAL',
+        postings: {
+          some: { accountId: { in: Array.from(realAccountIds) } },
+        },
+      },
+      include: {
+        postings: {
+          include: { account: true },
+        },
+      },
+    });
+
+    // Categorize cash flows
+    const operatingByCategory = new Map<string, number>();
+    const financingItems: Array<{ description: string; amount: number }> = [];
+
+    for (const txn of periodTransactions) {
+      const realPostings = txn.postings.filter(p => realAccountIds.has(p.accountId));
+      const categoryPostings = txn.postings.filter(p => !realAccountIds.has(p.accountId));
+
+      if (categoryPostings.length > 0) {
+        // Operating: transactions with income/expense categories
+        for (const posting of categoryPostings) {
+          if (posting.account.type === AccountType.INCOME || posting.account.type === AccountType.EXPENSE) {
+            const categoryName = posting.account.name;
+            const cashImpact = realPostings.reduce((sum, p) => sum + p.amount, 0);
+            // Attribute proportionally if multiple categories, or use full amount
+            const existing = operatingByCategory.get(categoryName) ?? 0;
+            operatingByCategory.set(categoryName, existing + Math.abs(posting.amount) * Math.sign(cashImpact || posting.amount));
+          }
+        }
+      } else if (realPostings.length >= 2) {
+        // Financing: transfers between real accounts only
+        // Show as a single net movement description
+        const fromAccounts = realPostings.filter(p => p.amount < 0);
+        const toAccounts = realPostings.filter(p => p.amount > 0);
+        if (fromAccounts.length > 0 && toAccounts.length > 0) {
+          financingItems.push({
+            description: `${fromAccounts[0].account.name} → ${toAccounts[0].account.name}`,
+            amount: toAccounts[0].amount,
+          });
+        }
+      }
+    }
+
+    // Build operating items from the category map
+    // Income categories produce cash inflows (positive), expense categories produce outflows (negative)
+    const operatingItems = Array.from(operatingByCategory.entries())
+      .map(([categoryName, amount]) => ({ categoryName, amount }))
+      .filter(item => Math.abs(item.amount) >= 0.01)
+      .sort((a, b) => b.amount - a.amount);
+
+    const operatingTotal = operatingItems.reduce((sum, i) => sum + i.amount, 0);
+    const financingTotal = 0; // Transfers between own accounts net to zero in cash flow
+
+    return {
+      period: { start: startDate, end: endDate },
+      operating: {
+        items: operatingItems,
+        total: operatingTotal,
+      },
+      investing: {
+        items: [], // Placeholder for future capital asset tracking
+        total: 0,
+      },
+      financing: {
+        items: financingItems,
+        total: financingTotal,
+      },
+      netCashChange: closingCash - openingCash,
+      openingCash,
+      closingCash,
     };
   }
 

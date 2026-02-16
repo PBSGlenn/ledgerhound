@@ -13,6 +13,9 @@ import type {
   ProfitAndLoss,
   GSTSummary,
   BASDraft,
+  TagSummary,
+  BalanceSheet,
+  CashFlowStatement,
   Reconciliation,
   AccountType,
   AccountSubtype,
@@ -25,7 +28,8 @@ export interface ImportResult {
   importBatchId: string;
 }
 
-const API_BASE = 'http://localhost:3001/api';
+// In production (served from Express), use relative URL; in dev, use the API server port
+const API_BASE = import.meta.env.DEV ? 'http://localhost:3001/api' : '/api';
 
 type CategoryAccountPayload = {
   name: string;
@@ -551,6 +555,50 @@ export const reportAPI = {
     }
     return await response.json();
   },
+
+  async generateTagSummary(
+    startDate: Date,
+    endDate: Date,
+    options?: { businessOnly?: boolean; personalOnly?: boolean }
+  ): Promise<TagSummary[]> {
+    const params = new URLSearchParams();
+    params.set('startDate', startDate.toISOString());
+    params.set('endDate', endDate.toISOString());
+    if (options?.businessOnly) params.set('businessOnly', 'true');
+    if (options?.personalOnly) params.set('personalOnly', 'true');
+
+    const response = await fetch(`${API_BASE}/reports/tag-summary?${params}`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to generate tag summary');
+    }
+    return await response.json();
+  },
+
+  async generateBalanceSheet(asOfDate: Date): Promise<BalanceSheet> {
+    const params = new URLSearchParams();
+    params.set('asOfDate', asOfDate.toISOString());
+
+    const response = await fetch(`${API_BASE}/reports/balance-sheet?${params}`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to generate balance sheet');
+    }
+    return await response.json();
+  },
+
+  async generateCashFlow(startDate: Date, endDate: Date): Promise<CashFlowStatement> {
+    const params = new URLSearchParams();
+    params.set('startDate', startDate.toISOString());
+    params.set('endDate', endDate.toISOString());
+
+    const response = await fetch(`${API_BASE}/reports/cash-flow?${params}`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to generate cash flow statement');
+    }
+    return await response.json();
+  },
 };
 
 /**
@@ -862,6 +910,129 @@ export const backupAPI = {
 
   async exportToJSON(): Promise<void> {
     window.open(`${API_BASE}/backup/export-json`, '_blank');
+  },
+};
+
+export interface VersionInfo {
+  version: string;
+  gitHash: string;
+  gitBranch: string;
+  lastCommitDate: string;
+  lastCommitMessage: string;
+  nodeVersion: string;
+  platform: string;
+}
+
+export interface UpdateCheck {
+  updateAvailable: boolean;
+  currentHash: string;
+  remoteHash: string;
+  behindBy: number;
+  latestCommitMessage: string;
+}
+
+export interface UpdateResult {
+  success: boolean;
+  newVersion: string;
+  newHash: string;
+  pullOutput: string;
+  installOutput: string;
+  restartRequired: boolean;
+}
+
+export const systemAPI = {
+  async getVersion(): Promise<VersionInfo> {
+    const response = await fetch(`${API_BASE}/system/version`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to get version info');
+    }
+    return await response.json();
+  },
+
+  async checkUpdate(): Promise<UpdateCheck> {
+    const response = await fetch(`${API_BASE}/system/check-update`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to check for updates');
+    }
+    return await response.json();
+  },
+
+  async performUpdate(): Promise<UpdateResult> {
+    const response = await fetch(`${API_BASE}/system/update`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to perform update');
+    }
+    return await response.json();
+  },
+};
+
+/**
+ * Books API — server-side database switching
+ */
+export const booksAPI = {
+  async switchDatabase(databasePath: string): Promise<{ success: boolean; isNew: boolean }> {
+    const response = await fetch(`${API_BASE}/books/switch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ databasePath }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to switch database');
+    }
+    return await response.json();
+  },
+
+  async getActiveDb(): Promise<{ currentDbUrl: string }> {
+    const response = await fetch(`${API_BASE}/books/active-db`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to get active database');
+    }
+    return await response.json();
+  },
+};
+
+/**
+ * Transfer Matching API — find and merge duplicate transfers across accounts
+ */
+export const transferMatchingAPI = {
+  async previewMatches(
+    accountIdA: string,
+    accountIdB: string,
+    startDate?: string,
+    endDate?: string,
+  ) {
+    const response = await fetch(`${API_BASE}/transfers/match-preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountIdA, accountIdB, startDate, endDate }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to preview transfer matches');
+    }
+    return await response.json();
+  },
+
+  async commitMatches(
+    pairs: Array<{ candidateAId: string; candidateBId: string }>,
+  ) {
+    const response = await fetch(`${API_BASE}/transfers/commit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pairs }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to commit transfer matches');
+    }
+    return await response.json();
   },
 };
 

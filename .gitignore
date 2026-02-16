@@ -11,6 +11,13 @@ prisma/dev.db-journal
 prisma/dev.db-shm
 prisma/dev.db-wal
 prisma/backups/
+prisma/test.db
+prisma/test.db-journal
+prisma/active-book.json
+prisma/books/
+
+# Production build output
+dist/
 
 # Playwright test artifacts
 .playwright/

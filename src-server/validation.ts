@@ -229,6 +229,20 @@ export const reportDateRangeSchema = z.object({
   { message: 'Start date must be before or equal to end date', path: ['startDate'] }
 );
 
+export const tagSummaryQuerySchema = z.object({
+  startDate: dateStringSchema,
+  endDate: dateStringSchema,
+  businessOnly: z.enum(['true', 'false']).optional(),
+  personalOnly: z.enum(['true', 'false']).optional(),
+}).refine(
+  (data) => new Date(data.startDate) <= new Date(data.endDate),
+  { message: 'Start date must be before or equal to end date', path: ['startDate'] }
+);
+
+export const balanceSheetQuerySchema = z.object({
+  asOfDate: dateStringSchema,
+});
+
 // Note: Using separate schema since Zod v4 doesn't allow .extend() on refined schemas
 export const profitLossQuerySchema = z.object({
   startDate: dateStringSchema,
@@ -387,4 +401,22 @@ export const stripeImportSchema = z.object({
   startDate: dateStringSchema.optional(),
   endDate: dateStringSchema.optional(),
   limit: z.number().int().min(1).max(100).optional(),
+});
+
+// ============================================================================
+// TRANSFER MATCHING SCHEMAS
+// ============================================================================
+
+export const transferMatchPreviewSchema = z.object({
+  accountIdA: uuidSchema,
+  accountIdB: uuidSchema,
+  startDate: dateStringSchema.optional(),
+  endDate: dateStringSchema.optional(),
+});
+
+export const transferMatchCommitSchema = z.object({
+  pairs: z.array(z.object({
+    candidateAId: uuidSchema,
+    candidateBId: uuidSchema,
+  })).min(1, 'At least one match pair is required'),
 });

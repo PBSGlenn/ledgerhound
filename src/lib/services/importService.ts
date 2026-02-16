@@ -79,6 +79,8 @@ export class ImportService {
       'yyyy-MM-dd',
       'dd-MM-yyyy',
       'd-M-yyyy',
+      'dd MMM yyyy',   // Macquarie Bank: "31 Jan 2026"
+      'd MMM yyyy',    // Macquarie Bank: "1 Jan 2026"
     ];
 
     for (const format of formats) {

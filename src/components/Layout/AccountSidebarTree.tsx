@@ -349,6 +349,79 @@ export function AccountSidebarTree({
     }
   };
 
+  // Recursive account renderer - supports unlimited nesting depth
+  const renderAccountItem = (account: AccountWithBalance, indent: number): React.ReactNode => {
+    const hasSubcategories = accountHasChildren(account.id);
+    const isExpanded = expandedNodes.has(account.id);
+    const children = accounts.filter(child => child.parentId === account.id);
+
+    return (
+      <div key={`account-${account.id}`}>
+        <button
+          onClick={() => onSelectAccount(account.id)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setContextMenu({
+              x: e.clientX,
+              y: e.clientY,
+              accountId: account.id,
+              accountName: account.name,
+              isParentNode: false,
+            });
+          }}
+          className={`w-full text-left px-2 py-1 transition-all duration-150 group flex items-center gap-2 ${
+            selectedAccountId === account.id
+              ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white'
+              : 'hover:bg-slate-100 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-300'
+          }`}
+          style={{ paddingLeft: `${indent}px` }}
+        >
+          {hasSubcategories ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleNode(account.id);
+              }}
+              className="p-0.5 hover:bg-white/20 rounded transition-colors"
+            >
+              {isExpanded ? (
+                <ChevronDown className="w-4 h-4" />
+              ) : (
+                <ChevronRight className="w-4 h-4" />
+              )}
+            </button>
+          ) : getAccountIcon(account) ? null : (
+            <div className="w-5" />
+          )}
+
+          {getAccountIcon(account) && (
+            <div className={selectedAccountId === account.id ? 'text-white' : 'text-slate-400'}>
+              {getAccountIcon(account)}
+            </div>
+          )}
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium truncate">{account.name}</span>
+              <span className={`text-xs ml-2 ${
+                selectedAccountId === account.id ? 'text-white/80' : 'text-slate-500 dark:text-slate-400'
+              }`}>
+                {formatCurrency(account.currentBalance)}
+              </span>
+            </div>
+          </div>
+        </button>
+
+        {/* Recursively render children */}
+        {isExpanded && hasSubcategories && (
+          <div>
+            {children.map(child => renderAccountItem(child, indent + 20))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderTreeNode = (node: TreeNode, depth: number = 0): React.ReactNode => {
     const isExpanded = expandedNodes.has(node.id);
     const hasChildren = (node.children && node.children.length > 0) || (node.accounts && node.accounts.length > 0);
@@ -377,113 +450,7 @@ export function AccountSidebarTree({
         {/* Direct accounts in this node */}
         {isExpanded && node.accounts && node.accounts.length > 0 && (
           <div>
-            {node.accounts.map(account => {
-              const hasSubcategories = accountHasChildren(account.id);
-              const accountExpanded = expandedNodes.has(account.id);
-
-              return (
-                <div key={`${activeTab}-${node.id}-${account.id}`}>
-                  <button
-                    onClick={() => onSelectAccount(account.id)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setContextMenu({
-                        x: e.clientX,
-                        y: e.clientY,
-                        accountId: account.id,
-                        accountName: account.name,
-                        isParentNode: false,
-                      });
-                    }}
-                    className={`w-full text-left px-2 py-1 transition-all duration-150 group flex items-center gap-2 ${
-                      selectedAccountId === account.id
-                        ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white'
-                        : 'hover:bg-slate-100 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-300'
-                    }`}
-                    style={{ paddingLeft: `${paddingLeft + 32}px` }}
-                  >
-                    {/* Show chevron if has subcategories */}
-                    {hasSubcategories ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleNode(account.id);
-                        }}
-                        className="p-0.5 hover:bg-white/20 rounded transition-colors"
-                      >
-                        {accountExpanded ? (
-                          <ChevronDown className="w-4 h-4" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4" />
-                        )}
-                      </button>
-                    ) : getAccountIcon(account) ? null : (
-                      <div className="w-5" /> /* Spacer for alignment */
-                    )}
-
-                    {/* Show icon only for real accounts */}
-                    {getAccountIcon(account) && (
-                      <div className={selectedAccountId === account.id ? 'text-white' : 'text-slate-400'}>
-                        {getAccountIcon(account)}
-                      </div>
-                    )}
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium truncate">{account.name}</span>
-                        <span className={`text-xs ml-2 ${
-                          selectedAccountId === account.id ? 'text-white/80' : 'text-slate-500 dark:text-slate-400'
-                        }`}>
-                          {formatCurrency(account.currentBalance)}
-                        </span>
-                      </div>
-                    </div>
-                  </button>
-
-                  {/* Render subcategories when expanded */}
-                  {accountExpanded && hasSubcategories && (
-                    <div>
-                      {accounts
-                        .filter(child => child.parentId === account.id)
-                        .map(child => (
-                          <button
-                            key={`${activeTab}-${node.id}-${child.id}`}
-                            onClick={() => onSelectAccount(child.id)}
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              setContextMenu({
-                                x: e.clientX,
-                                y: e.clientY,
-                                accountId: child.id,
-                                accountName: child.name,
-                                isParentNode: false,
-                              });
-                            }}
-                            className={`w-full text-left px-2 py-1 transition-all duration-150 group flex items-center gap-2 ${
-                              selectedAccountId === child.id
-                                ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white'
-                                : 'hover:bg-slate-100 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-300'
-                            }`}
-                            style={{ paddingLeft: `${paddingLeft + 56}px` }}
-                          >
-                            <div className="w-5" /> {/* Spacer */}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between">
-                                <span className="text-sm font-medium truncate">{child.name}</span>
-                                <span className={`text-xs ml-2 ${
-                                  selectedAccountId === child.id ? 'text-white/80' : 'text-slate-500 dark:text-slate-400'
-                                }`}>
-                                  {formatCurrency(child.currentBalance)}
-                                </span>
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {node.accounts.map(account => renderAccountItem(account, paddingLeft + 32))}
           </div>
         )}
 

@@ -159,6 +159,46 @@ export interface BASDraft {
   }>;
 }
 
+export interface BalanceSheet {
+  asOfDate: Date;
+  assets: Array<{ accountName: string; balance: number; isReal: boolean }>;
+  liabilities: Array<{ accountName: string; balance: number; isReal: boolean }>;
+  equity: Array<{ accountName: string; balance: number }>;
+  retainedEarnings: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  totalEquity: number;
+  isBalanced: boolean;
+}
+
+export interface CashFlowStatement {
+  period: { start: Date; end: Date };
+  operating: {
+    items: Array<{ categoryName: string; amount: number }>;
+    total: number;
+  };
+  investing: {
+    items: Array<{ description: string; amount: number }>;
+    total: number;
+  };
+  financing: {
+    items: Array<{ description: string; amount: number }>;
+    total: number;
+  };
+  netCashChange: number;
+  openingCash: number;
+  closingCash: number;
+}
+
+export interface TagSummary {
+  tag: string;
+  income: number;
+  expenses: number;
+  net: number;
+  businessAmount?: number;
+  personalAmount?: number;
+}
+
 // Filter types
 export interface RegisterFilter {
   dateFrom?: Date;
