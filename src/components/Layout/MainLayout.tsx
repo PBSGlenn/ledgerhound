@@ -147,7 +147,14 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
               account={accounts.find((a) => a.id === selectedAccountId)!}
             />
           ) : selectedAccountId ? (
-            <RegisterView key={registerRefreshKey} accountId={selectedAccountId} />
+            <RegisterView
+              key={registerRefreshKey}
+              accountId={selectedAccountId}
+              onNavigateToAccount={(id) => {
+                setSelectedAccountId(id);
+                setCurrentView('register');
+              }}
+            />
           ) : (
             <DashboardView
               accounts={accounts}

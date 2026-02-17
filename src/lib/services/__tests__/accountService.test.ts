@@ -101,7 +101,7 @@ describe('AccountService', () => {
           name: 'Checking',
           type: AccountType.ASSET,
         })
-      ).rejects.toThrow('Account "Checking" already exists');
+      ).rejects.toThrow('Account "Checking" already exists under this parent');
     });
 
     it('should allow same name in different types', async () => {
@@ -272,7 +272,7 @@ describe('AccountService', () => {
         accountService.updateAccount(accountB.id, {
           name: 'Account A',
         })
-      ).rejects.toThrow('Account "Account A" already exists');
+      ).rejects.toThrow('Account "Account A" already exists under this parent');
     });
 
     it('should update kind when type changes', async () => {

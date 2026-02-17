@@ -27,7 +27,7 @@ interface TransactionFormModalProps {
   accountId?: string; // Pre-select account if opening from register
   transactionId?: string; // For editing existing transaction
   initialData?: InitialTransactionData; // Pre-populate form for new transactions
-  onSuccess?: () => void | Promise<void>;
+  onSuccess?: (savedTransactionId?: string) => void | Promise<void>;
 }
 
 export function TransactionFormModal({
@@ -43,6 +43,7 @@ export function TransactionFormModal({
   const [originalPayee, setOriginalPayee] = useState(''); // Track original payee for rule suggestion
   const [showRuleSuggestion, setShowRuleSuggestion] = useState(false);
   const [suggestedRuleData, setSuggestedRuleData] = useState<{originalPayee: string; newPayee: string; matchValue: string} | null>(null);
+  const [pendingSavedId, setPendingSavedId] = useState<string | null>(null);
   const [transactionType, setTransactionType] = useState<'expense' | 'transfer-out' | 'transfer-in'>('expense');
   const [totalAmount, setTotalAmount] = useState('');
   const [memo, setMemo] = useState('');
@@ -489,10 +490,13 @@ export function TransactionFormModal({
         ],
       };
 
+      let savedId: string;
       if (transactionId) {
-        await transactionAPI.updateTransaction({ id: transactionId, ...transactionData });
+        const result = await transactionAPI.updateTransaction({ id: transactionId, ...transactionData });
+        savedId = result.id;
       } else {
-        await transactionAPI.createTransaction(transactionData as CreateTransactionDTO);
+        const result = await transactionAPI.createTransaction(transactionData as CreateTransactionDTO);
+        savedId = result.id;
       }
 
       // Check if payee was changed during edit - suggest creating a rule
@@ -507,12 +511,13 @@ export function TransactionFormModal({
         console.log('Payee changed! Showing rule suggestion dialog');
         setSuggestedRuleData({ originalPayee, newPayee: payee, matchValue: originalPayee });
         setShowRuleSuggestion(true);
-        // Don't close yet - let the rule suggestion dialog handle closing
-        // Don't call onSuccess yet - call it when the rule dialog closes
+        // Don't call onSuccess yet - calling loadEntries sets loading=true which unmounts this modal.
+        // Store the savedId and pass it when the rule dialog closes.
+        setPendingSavedId(savedId);
       } else {
         // Success! Call onSuccess and close
         if (onSuccess) {
-          await onSuccess();
+          await onSuccess(savedId);
         }
         onClose();
       }
@@ -564,8 +569,9 @@ export function TransactionFormModal({
       setShowRuleSuggestion(false);
       setSuggestedRuleData(null);
       if (onSuccess) {
-        await onSuccess();
+        await onSuccess(pendingSavedId || undefined);
       }
+      setPendingSavedId(null);
       onClose();
     } catch (error) {
       console.error('Failed to create memorized rule:', error);
@@ -577,8 +583,9 @@ export function TransactionFormModal({
     setShowRuleSuggestion(false);
     setSuggestedRuleData(null);
     if (onSuccess) {
-      await onSuccess();
+      await onSuccess(pendingSavedId || undefined);
     }
+    setPendingSavedId(null);
     onClose();
   };
 

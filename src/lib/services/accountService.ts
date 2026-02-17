@@ -84,16 +84,17 @@ export class AccountService {
     currency?: string;
     sortOrder?: number;
   }): Promise<Account> {
-    // Check for duplicate name within the same type
+    // Check for duplicate name within the same type and parent
     const existing = await this.prisma.account.findFirst({
       where: {
         name: data.name,
         type: data.type,
+        parentId: data.parentId ?? null,
       },
     });
 
     if (existing) {
-      throw new Error(`Account "${data.name}" already exists for type ${data.type}`);
+      throw new Error(`Account "${data.name}" already exists under this parent`);
     }
 
     return this.prisma.account.create({
@@ -132,15 +133,14 @@ export class AccountService {
         where: {
           name: data.name ?? current.name,
           type: data.type ?? current.type,
+          parentId: data.parentId !== undefined ? data.parentId : current.parentId,
           id: { not: id },
         },
       });
 
       if (existing) {
         throw new Error(
-          `Account "${data.name ?? current.name}" already exists for type ${
-            data.type ?? current.type
-          }`
+          `Account "${data.name ?? current.name}" already exists under this parent`
         );
       }
     }

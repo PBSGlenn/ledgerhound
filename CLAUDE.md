@@ -258,6 +258,7 @@ All business logic is in TypeScript services (not Rust):
 - **User documentation**: Setup guide, workflow docs, screenshots
 - **Multi-book support**: bookManager service complete (43 tests), needs UI implementation
 - **Tauri desktop packaging**: Currently web-based, packaging planned
+- **Vehicle logbook tracking**: ATO logbook method (12-week diary) and cents-per-km method for business vehicle expense claims
 
 ### ✅ UX Issues (All Resolved)
 All previously identified UX issues have been fixed:
@@ -355,6 +356,7 @@ Comprehensive 5-phase code review and improvement:
   - API endpoints: `POST /api/transfers/match-preview` and `POST /api/transfers/commit`
 
 ### 🎉 Recent Fixes (February 2026)
+- **Duplicate Category Name Bug** (2026-02-17) - Fixed overly restrictive uniqueness validation in `accountService.ts` that prevented same-name categories under different parents (e.g., "Fuel" under both Personal/Transportation and Business/Motor Vehicle). Updated `createAccount` and `updateAccount` to include `parentId` in uniqueness check, now only blocking duplicates within the same parent.
 - **Subcategory Creation Bug** - Fixed missing `parentId` and `defaultHasGst` fields in `accountService.createAccount`, categories created via "Add Subcategory" context menu now properly save parent relationship
 - **Reconciliation Timezone Bug** - Added ±1 day date buffer to `reconciliationService.getReconciliationStatus` to handle AEST dates stored as prior-day UTC (same fix already applied to matching service)
 - **ReconciliationSession UX** - Replaced native browser dialogs with toast notifications and styled `ConfirmDialog` component for better user experience

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { format } from 'date-fns';
-import { Check, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle, Download, Upload } from 'lucide-react';
+import { Check, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle, Download, Upload, ArrowLeftRight, ExternalLink } from 'lucide-react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import type { RegisterEntry, RegisterFilter, Account } from '../../types';
 import { transactionAPI } from '../../lib/api';
@@ -15,9 +15,16 @@ import { useDebounce } from '../../hooks/useDebounce';
 
 interface RegisterGridProps {
   accountId: string;
+  onNavigateToAccount?: (accountId: string) => void;
 }
 
-export function RegisterGrid({ accountId }: RegisterGridProps) {
+interface ContextMenuState {
+  x: number;
+  y: number;
+  entry: RegisterEntry;
+}
+
+export function RegisterGrid({ accountId, onNavigateToAccount }: RegisterGridProps) {
   const { showSuccess, showError } = useToast();
   const [entries, setEntries] = useState<RegisterEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +33,8 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
   const lastRowRef = useRef<HTMLTableRowElement>(null);
+  const selectedRowRef = useRef<HTMLTableRowElement>(null);
+  const [scrollToSelected, setScrollToSelected] = useState(false);
 
   useEffect(() => {
     setFilter(prev => ({ ...prev, searchText: debouncedSearchTerm }));
@@ -40,6 +49,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
   const [showStripeImportModal, setShowStripeImportModal] = useState(false);
   const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [account, setAccount] = useState<Account | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
   useEffect(() => {
     loadEntries();
@@ -61,15 +71,25 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
     loadAccount();
   }, [accountId]);
 
-  // Auto-scroll to most recent transaction (bottom of list) when entries load
+  // Auto-scroll to most recent transaction (bottom of list) when entries first load
   useEffect(() => {
-    if (!loading && entries.length > 0 && lastRowRef.current) {
+    if (!loading && entries.length > 0 && !scrollToSelected && lastRowRef.current) {
       // Use a small delay to ensure DOM is fully rendered
       setTimeout(() => {
         lastRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
       }, 100);
     }
   }, [loading, entries.length]);
+
+  // Scroll to the selected/saved transaction after entries reload
+  useEffect(() => {
+    if (!loading && scrollToSelected && selectedRowRef.current) {
+      setTimeout(() => {
+        selectedRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+      setScrollToSelected(false);
+    }
+  }, [loading, scrollToSelected, entries]);
 
   const loadEntries = async () => {
     setLoading(true);
@@ -95,14 +115,18 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
   };
 
   const getRowClassName = (entry: RegisterEntry, idx: number) => {
+    const isSelected = selectedTransactionId === entry.id;
     const baseClasses = 'transition-colors cursor-pointer';
     const focusClasses = focusedIndex === idx ? 'ring-2 ring-blue-500 ring-inset' : '';
-    const selectionClasses = selectedTransactionId === entry.id ? 'bg-blue-100 dark:bg-blue-900/20' : '';
-    const hoverClasses = 'hover:bg-slate-100 dark:hover:bg-slate-700/50';
-    const zebraClasses = idx % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-slate-50/50 dark:bg-slate-900/30';
-    const loadingClasses = operationLoading === 'edit' && selectedTransactionId === entry.id ? 'opacity-50' : '';
-    
-    return `${baseClasses} ${focusClasses} ${selectionClasses} ${hoverClasses} ${zebraClasses} ${loadingClasses}`;
+    const bgClasses = isSelected
+      ? 'bg-emerald-100 dark:bg-emerald-900/30'
+      : idx % 2 === 0
+        ? 'bg-white dark:bg-slate-800'
+        : 'bg-slate-50/50 dark:bg-slate-900/30';
+    const hoverClasses = isSelected ? '' : 'hover:bg-slate-100 dark:hover:bg-slate-700/50';
+    const loadingClasses = operationLoading === 'edit' && isSelected ? 'opacity-50' : '';
+
+    return `${baseClasses} ${focusClasses} ${bgClasses} ${hoverClasses} ${loadingClasses}`;
   };
 
   const toggleSelection = (id: string) => {
@@ -223,7 +247,7 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
   const handleModalClose = () => {
     setEditingTransactionId(null);
     setIsCreateMode(false);
-    setSelectedTransactionId(null);
+    // Keep selectedTransactionId so the row stays highlighted after modal close
   };
 
   const handleExportCSV = () => {
@@ -273,6 +297,37 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
     handleEditTransaction(transactionId);
   };
 
+  const handleContextMenu = (entry: RegisterEntry, e: React.MouseEvent) => {
+    if (entry.id.startsWith('opening-')) return;
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, entry });
+  };
+
+  // Close context menu on click-outside or Escape
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handleClick = () => setContextMenu(null);
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null);
+    };
+    document.addEventListener('click', handleClick);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('click', handleClick);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [contextMenu]);
+
+  /**
+   * For a given register entry, find the other TRANSFER-kind account
+   * (i.e. the other side of a bank-to-bank transfer).
+   */
+  const getOtherTransferAccount = (entry: RegisterEntry) => {
+    return entry.postings.find(
+      (p) => p.accountId !== accountId && p.account.kind === 'TRANSFER'
+    );
+  };
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -314,32 +369,128 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [entries, focusedIndex]);
 
+  // Modals rendered unconditionally so they survive loading/empty state re-renders
+  const modals = (
+    <>
+      {/* Edit Transaction Modal */}
+      {(editingTransactionId || isCreateMode) && (
+        <TransactionFormModal
+          isOpen={true}
+          onClose={handleModalClose}
+          accountId={accountId}
+          transactionId={editingTransactionId || undefined}
+          onSuccess={async (savedTransactionId?: string) => {
+            if (savedTransactionId) {
+              setSelectedTransactionId(savedTransactionId);
+              setScrollToSelected(true);
+            }
+            await loadEntries();
+          }}
+        />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog.Root open={!!deletingTransactionId} onOpenChange={(open) => !open && setDeletingTransactionId(null)}>
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
+          <AlertDialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md border border-slate-200 dark:border-slate-700">
+            <div className="flex items-start gap-4">
+              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+              </div>
+              <div className="flex-1">
+                <AlertDialog.Title className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+                  Delete Transaction
+                </AlertDialog.Title>
+                <AlertDialog.Description className="text-sm text-slate-600 dark:text-slate-400 mb-6">
+                  Are you sure you want to delete this transaction? This action cannot be undone.
+                </AlertDialog.Description>
+                <div className="flex items-center gap-3 justify-end">
+                  <AlertDialog.Cancel asChild>
+                    <button className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
+                      Cancel
+                    </button>
+                  </AlertDialog.Cancel>
+                  <AlertDialog.Action asChild>
+                    <button
+                      onClick={() => deletingTransactionId && handleDeleteTransaction(deletingTransactionId)}
+                      className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </button>
+                  </AlertDialog.Action>
+                </div>
+              </div>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
+
+      {/* Import CSV Modal */}
+      <BankStatementImport
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        accountId={accountId}
+        accountName={account?.name || "Account"}
+        onImportComplete={async () => {
+          await loadEntries();
+        }}
+      />
+
+      {/* Stripe Import Modal */}
+      <StripeImportModal
+        isOpen={showStripeImportModal}
+        onClose={() => setShowStripeImportModal(false)}
+        onSuccess={async () => {
+          await loadEntries();
+        }}
+      />
+
+      {/* Account Settings Modal (for editing opening balance) */}
+      <AccountSettingsModal
+        isOpen={showAccountSettings}
+        onClose={() => setShowAccountSettings(false)}
+        accountId={accountId}
+        onSuccess={async () => {
+          await loadEntries();
+        }}
+      />
+    </>
+  );
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
-          <div className="text-slate-600 dark:text-slate-400">Loading transactions...</div>
+      <>
+        <div className="flex items-center justify-center h-64">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+            <div className="text-slate-600 dark:text-slate-400">Loading transactions...</div>
+          </div>
         </div>
-      </div>
+        {modals}
+      </>
     );
   }
 
   if (entries.length === 0) {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-12">
-        <div className="text-center max-w-sm mx-auto">
-          <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Briefcase className="w-8 h-8 text-slate-400" />
+      <>
+        <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-12">
+          <div className="text-center max-w-sm mx-auto">
+            <div className="w-16 h-16 bg-slate-100 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Briefcase className="w-8 h-8 text-slate-400" />
+            </div>
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+              No transactions yet
+            </h3>
+            <p className="text-slate-600 dark:text-slate-400 mb-6">
+              Get started by adding your first transaction to this account.
+            </p>
           </div>
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
-            No transactions yet
-          </h3>
-          <p className="text-slate-600 dark:text-slate-400 mb-6">
-            Get started by adding your first transaction to this account.
-          </p>
         </div>
-      </div>
+        {modals}
+      </>
     );
   }
 
@@ -555,8 +706,12 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
             {entries.map((entry, idx) => (
               <tr
                 key={entry.id}
-                ref={idx === entries.length - 1 ? lastRowRef : null}
+                ref={(el) => {
+                  if (idx === entries.length - 1) (lastRowRef as React.MutableRefObject<HTMLTableRowElement | null>).current = el;
+                  if (selectedTransactionId === entry.id) (selectedRowRef as React.MutableRefObject<HTMLTableRowElement | null>).current = el;
+                }}
                 onClick={(e) => handleRowClick(entry.id, e)}
+                onContextMenu={(e) => handleContextMenu(entry, e)}
                 onMouseEnter={() => setFocusedIndex(idx)}
                 className={getRowClassName(entry, idx)}
                 data-selected={selectedTransactionId === entry.id}
@@ -696,87 +851,54 @@ export function RegisterGrid({ accountId }: RegisterGridProps) {
         Keyboard shortcuts: <kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded">E</kbd> Edit, <kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded">D</kbd> Delete, <kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded">C</kbd> Select, <kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded">↑</kbd><kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-700 rounded">↓</kbd> Navigate
       </div>
 
-      {/* Edit Transaction Modal */}
-      {(editingTransactionId || isCreateMode) && (
-        <TransactionFormModal
-          isOpen={true}
-          onClose={handleModalClose}
-          accountId={accountId}
-          transactionId={editingTransactionId || undefined}
-          onSuccess={async () => {
-            await loadEntries();
+      {modals}
+
+      {/* Right-click context menu */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 bg-white dark:bg-slate-800 rounded-lg shadow-xl border border-slate-200 dark:border-slate-700 py-1 min-w-[180px]"
+          style={{
+            left: Math.min(contextMenu.x, window.innerWidth - 200),
+            top: Math.min(contextMenu.y, window.innerHeight - 200),
           }}
-        />
+        >
+          {(() => {
+            const otherTransfer = getOtherTransferAccount(contextMenu.entry);
+            return otherTransfer && onNavigateToAccount ? (
+              <button
+                onClick={() => {
+                  onNavigateToAccount(otherTransfer.accountId);
+                  setContextMenu(null);
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors"
+              >
+                <ArrowLeftRight className="w-4 h-4 text-indigo-500" />
+                Go to {otherTransfer.account.name}
+              </button>
+            ) : null;
+          })()}
+          <button
+            onClick={() => {
+              handleEditTransaction(contextMenu.entry.id);
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors"
+          >
+            <Edit2 className="w-4 h-4 text-slate-500" />
+            Edit Transaction
+          </button>
+          <button
+            onClick={() => {
+              setDeletingTransactionId(contextMenu.entry.id);
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete Transaction
+          </button>
+        </div>
       )}
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog.Root open={!!deletingTransactionId} onOpenChange={(open) => !open && setDeletingTransactionId(null)}>
-        <AlertDialog.Portal>
-          <AlertDialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
-          <AlertDialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 rounded-xl shadow-xl p-6 w-full max-w-md border border-slate-200 dark:border-slate-700">
-            <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
-              </div>
-              <div className="flex-1">
-                <AlertDialog.Title className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
-                  Delete Transaction
-                </AlertDialog.Title>
-                <AlertDialog.Description className="text-sm text-slate-600 dark:text-slate-400 mb-6">
-                  Are you sure you want to delete this transaction? This action cannot be undone.
-                </AlertDialog.Description>
-                <div className="flex items-center gap-3 justify-end">
-                  <AlertDialog.Cancel asChild>
-                    <button className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
-                      Cancel
-                    </button>
-                  </AlertDialog.Cancel>
-                  <AlertDialog.Action asChild>
-                    <button
-                      onClick={() => deletingTransactionId && handleDeleteTransaction(deletingTransactionId)}
-                      className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors flex items-center gap-2"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Delete
-                    </button>
-                  </AlertDialog.Action>
-                </div>
-              </div>
-            </div>
-          </AlertDialog.Content>
-        </AlertDialog.Portal>
-      </AlertDialog.Root>
-
-      {/* Import CSV Modal */}
-      <BankStatementImport
-        isOpen={showImportModal}
-        onClose={() => setShowImportModal(false)}
-        accountId={accountId}
-        accountName={account?.name || "Account"}
-        onImportComplete={async () => {
-          await loadEntries();
-          // Note: BankStatementImport calls handleClose() after onImportComplete
-        }}
-      />
-
-      {/* Stripe Import Modal */}
-      <StripeImportModal
-        isOpen={showStripeImportModal}
-        onClose={() => setShowStripeImportModal(false)}
-        onSuccess={async () => {
-          await loadEntries();
-        }}
-      />
-
-      {/* Account Settings Modal (for editing opening balance) */}
-      <AccountSettingsModal
-        isOpen={showAccountSettings}
-        onClose={() => setShowAccountSettings(false)}
-        accountId={accountId}
-        onSuccess={async () => {
-          await loadEntries();
-        }}
-      />
     </div>
   );
 }
