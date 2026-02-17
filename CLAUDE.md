@@ -20,7 +20,8 @@ ledgerhound/
 │   │   ├── Dashboard/         # Dashboard view
 │   │   ├── Reports/           # P&L, GST, BAS reports
 │   │   ├── Settings/          # Settings and configuration
-│   │   └── Import/            # CSV import wizard
+│   │   ├── Import/            # CSV import wizard
+│   │   └── Search/            # Global transaction search
 │   ├── lib/
 │   │   ├── db.ts              # Prisma client singleton
 │   │   ├── api.ts             # API client (HTTP wrapper)
@@ -41,7 +42,7 @@ ledgerhound/
 │   ├── App.tsx                # Main app
 │   └── main.tsx
 ├── src-server/                # Express API server (port 3001)
-│   └── api.ts                 # 60+ REST endpoints
+│   └── api.ts                 # 100+ REST endpoints
 ├── e2e/                       # Playwright E2E tests
 │   ├── global-setup.ts        # Test environment setup (DB, localStorage)
 │   ├── 01-account-creation.spec.ts
@@ -130,7 +131,7 @@ See [STRIPE_ACCOUNTING_EXPLAINED.md](./STRIPE_ACCOUNTING_EXPLAINED.md) for detai
 All business logic is in TypeScript services (not Rust):
 - **accountService**: CRUD, balances, archiving, hierarchies
 - **categoryService**: Hierarchical category management with unlimited nesting, tree operations, path traversal
-- **transactionService**: Create/update/delete, double-entry validation, GST validation, register views, bulk operations
+- **transactionService**: Create/update/delete, double-entry validation, GST validation, register views, search, bulk operations
 - **stripeImportService**: Stripe Balance Transaction API integration, auto-creates GST categories, 5-way split accounting, fee GST extraction
 - **importService**: CSV parsing with column mapping, templates, deduplication, memorized rule application
 - **reconciliationService**: Session management, posting reconciliation, balance calculations, lock/unlock
@@ -185,7 +186,7 @@ All business logic is in TypeScript services (not Rust):
 - **Services Layer** (15 services, all core functionality complete):
   - Account service (CRUD, balances, archiving, hierarchies)
   - Category service (hierarchical management, unlimited nesting, tree operations)
-  - Transaction service (double-entry + GST validation + bulk operations)
+  - Transaction service (double-entry + GST validation + search + bulk operations)
   - Import service (CSV parsing, column mapping, deduplication)
   - Reconciliation service (sessions, balance calculations, lock/unlock)
   - Report service (P&L, GST Summary, BAS Draft)
@@ -199,7 +200,7 @@ All business logic is in TypeScript services (not Rust):
 - **API Server** (100+ REST endpoints):
   - Account endpoints (CRUD, balance)
   - Category hierarchy endpoints (tree, leaf, path, context, search) - 9 endpoints
-  - Transaction endpoints (register, CRUD, bulk operations)
+  - Transaction endpoints (register, CRUD, search, bulk operations)
   - Report endpoints (P&L, GST, BAS)
   - Import endpoints (preview, execute, mappings)
   - Reconciliation endpoints (start, status, lock/unlock, PDF parsing)
@@ -213,6 +214,7 @@ All business logic is in TypeScript services (not Rust):
   - **Category**: Category selector, category management, category form modal (quick create)
   - **Transaction**: Transaction form modal with splits, register grid with bulk select/delete
   - **Transfer**: Transfer matching wizard (3-step: select accounts, preview matches, results)
+  - **Search**: Global transaction search modal with filters (date, payee, amount, category), batch operations, navigate-to-transaction
   - **Dashboard**: Net worth summary, cash flow, GST liability, recent transactions
   - **Reports**: P&L report, GST summary report, BAS draft report, date range picker
   - **Import**: CSV import wizard with column mapping and preview
@@ -346,6 +348,14 @@ Comprehensive 5-phase code review and improvement:
 - `e2e/*.spec.ts` - Improved test stability
 
 ### 🎉 Recent Additions (February 2026)
+- **Global Transaction Search** (NEW - 2026-02-17):
+  - Search across all accounts or within specific account
+  - Filters: date range, payee/payer text, amount min/max, category
+  - Results modal with sortable table
+  - Double-click result to navigate to transaction in register (highlight with pulse animation)
+  - Batch operations from search: Change Payee, Change Category, Delete
+  - Ctrl+F keyboard shortcut to open search from anywhere
+  - API endpoints: `POST /api/transactions/search` and `POST /api/transactions/bulk-update`
 - **Transfer Matching** (NEW - 2026-02-16):
   - Finds and merges duplicate transfer transactions after CSV import
   - Hungarian algorithm (munkres-js) for optimal 1:1 matching
@@ -500,6 +510,7 @@ Comprehensive 5-phase code review and improvement:
 - ✅ Memorized rules for auto-categorization
 - ✅ PDF reconciliation with upload, parsing, and auto-populate
 - ✅ Smart transaction matching with confidence scoring
+- ✅ Global transaction search with filters and batch operations
 - ✅ Professional UI with 30+ components
 - ✅ 100+ REST API endpoints
 - ✅ 15 business logic services

@@ -19,6 +19,9 @@ import type {
   Reconciliation,
   AccountType,
   AccountSubtype,
+  SearchFilter,
+  SearchResponse,
+  BulkUpdateDTO,
 } from '../types';
 
 export interface ImportResult {
@@ -374,6 +377,43 @@ export const transactionAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to mark as cleared');
     }
+  },
+
+  async searchTransactions(filter: SearchFilter): Promise<SearchResponse> {
+    const body: any = { scope: filter.scope };
+    if (filter.dateFrom) body.dateFrom = filter.dateFrom instanceof Date ? filter.dateFrom.toISOString() : filter.dateFrom;
+    if (filter.dateTo) body.dateTo = filter.dateTo instanceof Date ? filter.dateTo.toISOString() : filter.dateTo;
+    if (filter.payee) body.payee = filter.payee;
+    if (filter.amountMin !== undefined) body.amountMin = filter.amountMin;
+    if (filter.amountMax !== undefined) body.amountMax = filter.amountMax;
+    if (filter.categoryId) body.categoryId = filter.categoryId;
+    if (filter.businessOnly) body.businessOnly = filter.businessOnly;
+    if (filter.personalOnly) body.personalOnly = filter.personalOnly;
+    if (filter.limit) body.limit = filter.limit;
+
+    const response = await fetch(`${API_BASE}/transactions/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to search transactions');
+    }
+    return await response.json();
+  },
+
+  async bulkUpdateTransactions(data: BulkUpdateDTO): Promise<{ updatedCount: number }> {
+    const response = await fetch(`${API_BASE}/transactions/bulk-update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to bulk update transactions');
+    }
+    return await response.json();
   },
 };
 

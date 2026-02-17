@@ -420,3 +420,32 @@ export const transferMatchCommitSchema = z.object({
     candidateBId: uuidSchema,
   })).min(1, 'At least one match pair is required'),
 });
+
+// ============================================================================
+// SEARCH SCHEMAS
+// ============================================================================
+
+export const searchTransactionsSchema = z.object({
+  scope: z.string().min(1, 'Scope is required (use "global" or an account ID)'),
+  dateFrom: dateStringSchema.optional(),
+  dateTo: dateStringSchema.optional(),
+  payee: z.string().optional(),
+  amountMin: z.number().min(0).optional(),
+  amountMax: z.number().min(0).optional(),
+  categoryId: uuidSchema.optional(),
+  businessOnly: z.boolean().optional(),
+  personalOnly: z.boolean().optional(),
+  limit: z.number().int().min(1).max(2000).optional(),
+});
+
+export const bulkUpdateTransactionsSchema = z.object({
+  transactionIds: z.array(uuidSchema).min(1, 'At least one transaction ID is required'),
+  updates: z.object({
+    payee: z.string().min(1).optional(),
+    categoryId: uuidSchema.optional(),
+    tags: z.array(z.string()).optional(),
+  }).refine(
+    (data) => data.payee !== undefined || data.categoryId !== undefined || data.tags !== undefined,
+    { message: 'At least one update field is required' }
+  ),
+});

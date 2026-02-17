@@ -252,3 +252,45 @@ export interface UpdateTransactionDTO {
   metadata?: Record<string, any>;
   postings?: CreatePostingDTO[];
 }
+
+// Search types
+export interface SearchFilter {
+  scope: 'global' | string;   // 'global' or an accountId
+  dateFrom?: Date;
+  dateTo?: Date;
+  payee?: string;              // text search (contains, case-insensitive)
+  amountMin?: number;
+  amountMax?: number;
+  categoryId?: string;         // filter by category account
+  businessOnly?: boolean;
+  personalOnly?: boolean;
+  limit?: number;
+}
+
+export interface SearchResult {
+  transactionId: string;
+  date: Date;
+  payee: string;
+  memo?: string;
+  amount: number;              // posting amount in the real account
+  accountId: string;           // the real (transfer) account
+  accountName: string;
+  categoryId?: string;
+  categoryName?: string;
+  isBusiness: boolean;
+  tags?: string[];
+}
+
+export interface SearchResponse {
+  results: SearchResult[];
+  totalCount: number;
+}
+
+export interface BulkUpdateDTO {
+  transactionIds: string[];
+  updates: {
+    payee?: string;
+    categoryId?: string;       // reassign category posting
+    tags?: string[];           // replace tags
+  };
+}

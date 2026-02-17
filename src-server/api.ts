@@ -45,6 +45,8 @@ import {
   accountKindSchema,
   transferMatchPreviewSchema,
   transferMatchCommitSchema,
+  searchTransactionsSchema,
+  bulkUpdateTransactionsSchema,
 } from './validation.js';
 import { transactionService } from '../src/lib/services/transactionService.js';
 import { reportService } from '../src/lib/services/reportService.js';
@@ -566,6 +568,46 @@ app.post('/api/transactions/mark-cleared', async (req, res) => {
     res.status(204).send();
   } catch (error) {
     return sendError(res, 400, (error as Error).message);
+  }
+});
+
+app.post('/api/transactions/search', async (req, res) => {
+  try {
+    const data = validateBody(searchTransactionsSchema, req.body, res);
+    if (!data) return;
+
+    const filter = {
+      scope: data.scope,
+      dateFrom: data.dateFrom ? new Date(data.dateFrom) : undefined,
+      dateTo: data.dateTo ? new Date(data.dateTo) : undefined,
+      payee: data.payee,
+      amountMin: data.amountMin,
+      amountMax: data.amountMax,
+      categoryId: data.categoryId,
+      businessOnly: data.businessOnly,
+      personalOnly: data.personalOnly,
+      limit: data.limit,
+    };
+
+    const result = await transactionService.searchTransactions(filter);
+    res.json(result);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.post('/api/transactions/bulk-update', async (req, res) => {
+  try {
+    const data = validateBody(bulkUpdateTransactionsSchema, req.body, res);
+    if (!data) return;
+
+    const result = await transactionService.bulkUpdateTransactions(
+      data.transactionIds,
+      data.updates
+    );
+    res.json(result);
+  } catch (error) {
+    return sendServerError(res, error);
   }
 });
 

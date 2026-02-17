@@ -12,6 +12,9 @@ import type {
   TransactionWithPostings,
   RegisterEntry,
   RegisterFilter,
+  SearchFilter,
+  SearchResult,
+  SearchResponse,
 } from '../../types';
 
 export class TransactionService {
@@ -394,6 +397,176 @@ export class TransactionService {
         });
       })
     );
+  }
+
+  /**
+   * Search transactions across all accounts or within a specific account.
+   * Returns results from the perspective of real (TRANSFER) accounts.
+   */
+  async searchTransactions(filter: SearchFilter): Promise<SearchResponse> {
+    const limit = filter.limit ?? 500;
+
+    // Build the Prisma where clause for postings on real accounts
+    const where: any = {
+      account: {
+        kind: 'TRANSFER', // Only real accounts (banks, credit cards, etc.)
+      },
+      transaction: {
+        status: 'NORMAL',
+      },
+    };
+
+    // Scope: specific account or global
+    if (filter.scope !== 'global') {
+      where.accountId = filter.scope;
+    }
+
+    // Date range
+    if (filter.dateFrom || filter.dateTo) {
+      where.transaction.date = {};
+      if (filter.dateFrom) where.transaction.date.gte = filter.dateFrom;
+      if (filter.dateTo) where.transaction.date.lte = filter.dateTo;
+    }
+
+    // Payee text search
+    if (filter.payee) {
+      where.transaction.payee = { contains: filter.payee, mode: 'insensitive' };
+    }
+
+    // Business/personal filter
+    if (filter.businessOnly) {
+      where.isBusiness = true;
+    } else if (filter.personalOnly) {
+      where.isBusiness = false;
+    }
+
+    // Query postings on real accounts with transaction + account data
+    const postings = await this.prisma.posting.findMany({
+      where,
+      include: {
+        transaction: {
+          include: {
+            postings: {
+              include: { account: true },
+            },
+          },
+        },
+        account: true,
+      },
+      orderBy: [{ transaction: { date: 'desc' } }],
+      take: limit * 2, // Over-fetch to account for post-query filters
+    });
+
+    // Post-query filters: amount range and category
+    let filtered = postings;
+
+    // Amount filter (on absolute value of posting amount)
+    if (filter.amountMin !== undefined || filter.amountMax !== undefined) {
+      filtered = filtered.filter((p) => {
+        const absAmount = Math.abs(p.amount);
+        if (filter.amountMin !== undefined && absAmount < filter.amountMin) return false;
+        if (filter.amountMax !== undefined && absAmount > filter.amountMax) return false;
+        return true;
+      });
+    }
+
+    // Category filter: check if any sibling posting is in the given category
+    if (filter.categoryId) {
+      filtered = filtered.filter((p) =>
+        p.transaction.postings.some(
+          (sibling) => sibling.accountId === filter.categoryId && sibling.id !== p.id
+        )
+      );
+    }
+
+    // Limit results
+    const limited = filtered.slice(0, limit);
+
+    // Map to SearchResult
+    const results: SearchResult[] = limited.map((p) => {
+      // Find the category posting (CATEGORY kind, not this posting's account)
+      const categoryPosting = p.transaction.postings.find(
+        (sibling) => sibling.account.kind === 'CATEGORY' && sibling.id !== p.id
+      );
+
+      return {
+        transactionId: p.transaction.id,
+        date: p.transaction.date,
+        payee: p.transaction.payee,
+        memo: p.transaction.memo ?? undefined,
+        amount: p.amount,
+        accountId: p.accountId,
+        accountName: p.account.name,
+        categoryId: categoryPosting?.accountId,
+        categoryName: categoryPosting?.account.name,
+        isBusiness: p.isBusiness,
+        tags: p.transaction.tags ? JSON.parse(p.transaction.tags) : undefined,
+      };
+    });
+
+    return {
+      results,
+      totalCount: filtered.length,
+    };
+  }
+
+  /**
+   * Bulk update transactions (payee, category, tags).
+   * Category change reassigns the category-side posting to a new account.
+   */
+  async bulkUpdateTransactions(
+    transactionIds: string[],
+    updates: { payee?: string; categoryId?: string; tags?: string[] }
+  ): Promise<{ updatedCount: number }> {
+    let updatedCount = 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const txId of transactionIds) {
+        const ops: any = {};
+
+        if (updates.payee !== undefined) {
+          ops.payee = updates.payee;
+        }
+        if (updates.tags !== undefined) {
+          ops.tags = JSON.stringify(updates.tags);
+        }
+
+        // Update transaction-level fields
+        if (Object.keys(ops).length > 0) {
+          await tx.transaction.update({
+            where: { id: txId },
+            data: ops,
+          });
+        }
+
+        // Reassign category posting
+        if (updates.categoryId) {
+          // Find existing category posting(s) for this transaction
+          const categoryPostings = await tx.posting.findMany({
+            where: {
+              transactionId: txId,
+              account: { kind: 'CATEGORY' },
+            },
+          });
+
+          // Update the first non-GST category posting
+          const mainCategoryPosting = categoryPostings.find(
+            (p) => !p.gstCode || p.gstCode === 'GST_FREE'
+          ) ?? categoryPostings[0];
+
+          if (mainCategoryPosting) {
+            await tx.posting.update({
+              where: { id: mainCategoryPosting.id },
+              data: { accountId: updates.categoryId },
+            });
+          }
+        }
+
+        updatedCount++;
+      }
+    });
+
+    return { updatedCount };
   }
 }
 

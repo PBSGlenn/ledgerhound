@@ -15,6 +15,7 @@ import { useDebounce } from '../../hooks/useDebounce';
 
 interface RegisterGridProps {
   accountId: string;
+  highlightTransactionId?: string | null;
   onNavigateToAccount?: (accountId: string) => void;
 }
 
@@ -24,7 +25,7 @@ interface ContextMenuState {
   entry: RegisterEntry;
 }
 
-export function RegisterGrid({ accountId, onNavigateToAccount }: RegisterGridProps) {
+export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAccount }: RegisterGridProps) {
   const { showSuccess, showError } = useToast();
   const [entries, setEntries] = useState<RegisterEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,7 +35,9 @@ export function RegisterGrid({ accountId, onNavigateToAccount }: RegisterGridPro
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
   const lastRowRef = useRef<HTMLTableRowElement>(null);
   const selectedRowRef = useRef<HTMLTableRowElement>(null);
+  const highlightRowRef = useRef<HTMLTableRowElement>(null);
   const [scrollToSelected, setScrollToSelected] = useState(false);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   useEffect(() => {
     setFilter(prev => ({ ...prev, searchText: debouncedSearchTerm }));
@@ -90,6 +93,20 @@ export function RegisterGrid({ accountId, onNavigateToAccount }: RegisterGridPro
       setScrollToSelected(false);
     }
   }, [loading, scrollToSelected, entries]);
+
+  // Highlight and scroll to a transaction navigated from search
+  useEffect(() => {
+    if (!loading && highlightTransactionId && entries.length > 0) {
+      setHighlightedId(highlightTransactionId);
+      // Scroll to highlighted row after DOM renders
+      setTimeout(() => {
+        highlightRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 150);
+      // Clear highlight after 3 seconds
+      const timer = setTimeout(() => setHighlightedId(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, highlightTransactionId, entries]);
 
   const loadEntries = async () => {
     setLoading(true);
@@ -709,11 +726,12 @@ export function RegisterGrid({ accountId, onNavigateToAccount }: RegisterGridPro
                 ref={(el) => {
                   if (idx === entries.length - 1) (lastRowRef as React.MutableRefObject<HTMLTableRowElement | null>).current = el;
                   if (selectedTransactionId === entry.id) (selectedRowRef as React.MutableRefObject<HTMLTableRowElement | null>).current = el;
+                  if (highlightedId === entry.id) (highlightRowRef as React.MutableRefObject<HTMLTableRowElement | null>).current = el;
                 }}
                 onClick={(e) => handleRowClick(entry.id, e)}
                 onContextMenu={(e) => handleContextMenu(entry, e)}
                 onMouseEnter={() => setFocusedIndex(idx)}
-                className={getRowClassName(entry, idx)}
+                className={`${getRowClassName(entry, idx)}${highlightedId === entry.id ? ' ring-2 ring-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 animate-pulse' : ''}`}
                 data-selected={selectedTransactionId === entry.id}
                 data-focused={focusedIndex === idx}
                 data-loading={operationLoading}

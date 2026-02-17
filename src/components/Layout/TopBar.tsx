@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Upload, GitCompare, BarChart3, Settings, CreditCard, Home, ArrowLeftRight } from 'lucide-react';
+import { Plus, Upload, GitCompare, BarChart3, Settings, CreditCard, Home, ArrowLeftRight, Search } from 'lucide-react';
 import type { AccountWithBalance } from '../../types';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
 
@@ -14,6 +14,7 @@ interface TopBarProps {
   onReconcileClick?: () => void;
   onDashboardClick?: () => void;
   onSettingsClick?: () => void;
+  onSearchClick?: () => void;
 }
 
 export function TopBar({
@@ -27,6 +28,7 @@ export function TopBar({
   onReconcileClick,
   onDashboardClick,
   onSettingsClick,
+  onSearchClick,
 }: TopBarProps) {
   const [showTransactionForm, setShowTransactionForm] = useState(false);
 
@@ -125,6 +127,14 @@ export function TopBar({
           >
             <Plus className="w-4 h-4" />
             New Transaction
+          </button>
+          <button
+            onClick={onSearchClick}
+            className="px-3 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-all duration-150 flex items-center gap-2"
+            title="Search transactions (Ctrl+F)"
+          >
+            <Search className="w-4 h-4" />
+            Search
           </button>
           <button
             onClick={onImportClick}

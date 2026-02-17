@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AccountSidebarTree } from './AccountSidebarTree';
 import { TopBar } from './TopBar';
 import { RegisterView } from '../Register/RegisterView';
@@ -13,6 +13,7 @@ import type { Book } from '../../types/book';
 import { BankStatementImport } from '../Import/BankStatementImport';
 import { StripeImportWizard } from '../../features/import/StripeImportWizard';
 import { TransferMatchingModal } from '../Transfer/TransferMatchingModal';
+import { SearchModal } from '../Search/SearchModal';
 import { accountAPI } from '../../lib/api';
 
 type ViewType = 'dashboard' | 'register' | 'reports' | 'reconciliation' | 'settings';
@@ -34,6 +35,8 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
   const [isImporting, setIsImporting] = useState(false);
   const [isStripeImporting, setIsStripeImporting] = useState(false);
   const [isMatchingTransfers, setIsMatchingTransfers] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [highlightTransactionId, setHighlightTransactionId] = useState<string | null>(null);
   const [registerRefreshKey, setRegisterRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -71,6 +74,31 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
     setShowNewBookWizard(false);
     onSwitchBook(bookId);
   };
+
+  // Navigate from search results to a specific transaction in the register
+  const handleNavigateToTransaction = useCallback((accountId: string, transactionId: string) => {
+    setSelectedAccountId(accountId);
+    setCurrentView('register');
+    setHighlightTransactionId(transactionId);
+    setRegisterRefreshKey(prev => prev + 1);
+  }, []);
+
+  // Ctrl+F keyboard shortcut to open search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        // Only intercept if not in an input/textarea
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+          return;
+        }
+        e.preventDefault();
+        setIsSearching(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   if (showNewBookWizard) {
     return (
@@ -134,6 +162,7 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
             setSelectedAccountId(null);
           }}
           onSettingsClick={() => setCurrentView('settings')}
+          onSearchClick={() => setIsSearching(true)}
         />
 
         {/* Content */}
@@ -150,6 +179,7 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
             <RegisterView
               key={registerRefreshKey}
               accountId={selectedAccountId}
+              highlightTransactionId={highlightTransactionId}
               onNavigateToAccount={(id) => {
                 setSelectedAccountId(id);
                 setCurrentView('register');
@@ -195,6 +225,15 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
         isOpen={isMatchingTransfers}
         onClose={() => setIsMatchingTransfers(false)}
         onComplete={handleTransactionSaved}
+      />
+
+      <SearchModal
+        isOpen={isSearching}
+        onClose={() => setIsSearching(false)}
+        accounts={accounts}
+        initialAccountId={selectedAccountId}
+        onNavigateToTransaction={handleNavigateToTransaction}
+        onTransactionsChanged={handleTransactionSaved}
       />
     </div>
   );
