@@ -329,8 +329,9 @@ export class TransferMatchingService {
 
   /**
    * Commit selected match pairs — merge each pair into a single transfer transaction.
-   * For each pair: keep Transaction A, replace its category posting with Account B,
-   * delete Transaction B. All within a Prisma transaction for atomicity.
+   * For each pair: keep Transaction A, replace its category posting with Account B's
+   * real posting (preserving B's original amount), delete Transaction B.
+   * All within a Prisma transaction for atomicity.
    */
   async commitMatches(
     pairs: Array<{ candidateAId: string; candidateBId: string }>
@@ -363,36 +364,53 @@ export class TransferMatchingService {
             throw new Error('Cannot identify transfer postings');
           }
 
+          // Safety: accounts must be different (no self-transfers)
+          if (aRealPosting.accountId === bRealPosting.accountId) {
+            throw new Error('Both transactions post to the same account');
+          }
+
           // Safety: skip reconciled postings
           if (aRealPosting.reconciled || bRealPosting.reconciled) {
             throw new Error('Cannot merge reconciled transactions');
           }
 
+          // Use B's real posting amount (preserves the sign from B's CSV import).
+          // Adjust A's posting to balance if needed (double-entry: sum must be zero).
+          const bAmount = bRealPosting.amount;
+          const aAmount = -bAmount; // Ensure double-entry balance
+
           // Delete the category posting from Transaction A
           await tx.posting.delete({ where: { id: aCategoryPosting.id } });
+
+          // Update Transaction A's real posting amount to ensure balance
+          await tx.posting.update({
+            where: { id: aRealPosting.id },
+            data: { amount: aAmount },
+          });
 
           // Create new posting on Transaction A for Account B's real account
           await tx.posting.create({
             data: {
               transactionId: txA.id,
               accountId: bRealPosting.accountId,
-              amount: -aRealPosting.amount, // Opposite sign to balance
-              isBusiness: false,
+              amount: bAmount, // Preserve B's original amount and sign
+              isBusiness: bRealPosting.isBusiness,
               cleared: bRealPosting.cleared,
             },
           });
 
-          // Update Transaction A with merge metadata and use the earlier date
+          // Update Transaction A with merge metadata, preserve both payees, use earlier date
           const existingMeta = txA.metadata ? JSON.parse(txA.metadata) : {};
           await tx.transaction.update({
             where: { id: txA.id },
             data: {
               date: new Date(Math.min(new Date(txA.date).getTime(), new Date(txB.date).getTime())),
-              payee: txA.payee || 'Transfer',
+              payee: txA.payee || txB.payee || 'Transfer',
               metadata: JSON.stringify({
                 ...existingMeta,
                 transferMatched: true,
                 mergedTransactionId: txB.id,
+                mergedPayee: txB.payee, // Preserve B's payee for reference
                 mergedAt: new Date().toISOString(),
               }),
             },

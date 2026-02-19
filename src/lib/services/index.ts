@@ -16,6 +16,9 @@ export * from './pdfStatementService';
 export * from './reportService';
 export * from './memorizedRuleService';
 
+// Reporting and tax
+export * from './taxService';
+
 // System services
 export * from './settingsService';
 export * from './backupService';

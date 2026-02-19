@@ -47,6 +47,10 @@ import {
   transferMatchCommitSchema,
   searchTransactionsSchema,
   bulkUpdateTransactionsSchema,
+  financialYearSchema,
+  taxTablesConfigSchema,
+  paygConfigSchema,
+  spendingAnalysisSchema,
 } from './validation.js';
 import { transactionService } from '../src/lib/services/transactionService.js';
 import { reportService } from '../src/lib/services/reportService.js';
@@ -60,6 +64,7 @@ import { stripeImportService } from '../src/lib/services/stripeImportService.js'
 import { PDFStatementService } from '../src/lib/services/pdfStatementService.js';
 import { ReconciliationMatchingService } from '../src/lib/services/reconciliationMatchingService.js';
 import { TransferMatchingService } from '../src/lib/services/transferMatchingService.js';
+import { taxService } from '../src/lib/services/taxService.js';
 import { seedDefaultCategories } from './seedCategories.js';
 import { getPrismaClient, switchDatabase, getCurrentDbUrl } from '../src/lib/db.js';
 
@@ -723,6 +728,118 @@ app.get('/api/reports/cash-flow', async (req, res) => {
     const endDate = new Date(queryData.endDate);
     const report = await reportService.generateCashFlow(startDate, endDate);
     res.json(report);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.post('/api/reports/spending-analysis', async (req, res) => {
+  try {
+    const data = validateBody(spendingAnalysisSchema, req.body, res);
+    if (!data) return;
+
+    const startDate = new Date(data.startDate);
+    const endDate = new Date(data.endDate);
+
+    const report = await reportService.generateSpendingAnalysis(startDate, endDate, {
+      categoryIds: data.categoryIds,
+      payees: data.payees,
+      granularity: data.granularity,
+      businessOnly: data.businessOnly,
+      personalOnly: data.personalOnly,
+      includeIncome: data.includeIncome,
+    });
+
+    res.json(report);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+// ============================================================================
+// TAX ENDPOINTS
+// ============================================================================
+
+app.get('/api/tax/estimation', async (req, res) => {
+  try {
+    const queryData = validateQuery(reportDateRangeSchema, req.query, res);
+    if (!queryData) return;
+
+    const startDate = new Date(queryData.startDate);
+    const endDate = new Date(queryData.endDate);
+    const report = await taxService.generateTaxEstimation(startDate, endDate);
+    res.json(report);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.get('/api/tax/summary', async (req, res) => {
+  try {
+    const queryData = validateQuery(reportDateRangeSchema, req.query, res);
+    if (!queryData) return;
+
+    const startDate = new Date(queryData.startDate);
+    const endDate = new Date(queryData.endDate);
+    const report = await taxService.generateTaxSummary(startDate, endDate);
+    res.json(report);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.get('/api/tax/tables', async (_req, res) => {
+  try {
+    const years = await taxService.getAvailableFinancialYears();
+    res.json(years);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.get('/api/tax/tables/:financialYear', async (req, res) => {
+  try {
+    const fy = financialYearSchema.safeParse(req.params.financialYear);
+    if (!fy.success) return sendError(res, 400, 'Invalid financial year format');
+
+    const tables = await taxService.getTaxTables(fy.data);
+    res.json(tables);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.put('/api/tax/tables/:financialYear', async (req, res) => {
+  try {
+    const data = validateBody(taxTablesConfigSchema, req.body, res);
+    if (!data) return;
+
+    await taxService.saveTaxTables(data);
+    res.json({ status: 'success' });
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.get('/api/tax/payg/:financialYear', async (req, res) => {
+  try {
+    const fy = financialYearSchema.safeParse(req.params.financialYear);
+    if (!fy.success) return sendError(res, 400, 'Invalid financial year format');
+
+    const config = await taxService.getPAYGConfig(fy.data);
+    res.json(config);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.put('/api/tax/payg/:financialYear', async (req, res) => {
+  try {
+    const data = validateBody(paygConfigSchema, req.body, res);
+    if (!data) return;
+
+    await taxService.savePAYGConfig(data);
+    res.json({ status: 'success' });
   } catch (error) {
     return sendServerError(res, error);
   }

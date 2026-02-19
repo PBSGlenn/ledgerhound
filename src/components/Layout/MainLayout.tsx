@@ -36,6 +36,7 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
   const [isStripeImporting, setIsStripeImporting] = useState(false);
   const [isMatchingTransfers, setIsMatchingTransfers] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchPayee, setSearchPayee] = useState<string | null>(null);
   const [highlightTransactionId, setHighlightTransactionId] = useState<string | null>(null);
   const [registerRefreshKey, setRegisterRefreshKey] = useState(0);
 
@@ -75,6 +76,12 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
     onSwitchBook(bookId);
   };
 
+  // Open search modal pre-filled with a payee (from register context menu)
+  const handleSearchPayee = useCallback((payee: string) => {
+    setSearchPayee(payee);
+    setIsSearching(true);
+  }, []);
+
   // Navigate from search results to a specific transaction in the register
   const handleNavigateToTransaction = useCallback((accountId: string, transactionId: string) => {
     setSelectedAccountId(accountId);
@@ -93,6 +100,7 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
           return;
         }
         e.preventDefault();
+        setSearchPayee(null);
         setIsSearching(true);
       }
     };
@@ -162,7 +170,7 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
             setSelectedAccountId(null);
           }}
           onSettingsClick={() => setCurrentView('settings')}
-          onSearchClick={() => setIsSearching(true)}
+          onSearchClick={() => { setSearchPayee(null); setIsSearching(true); }}
         />
 
         {/* Content */}
@@ -180,10 +188,13 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
               key={registerRefreshKey}
               accountId={selectedAccountId}
               highlightTransactionId={highlightTransactionId}
-              onNavigateToAccount={(id) => {
+              onNavigateToAccount={(id, transactionId) => {
                 setSelectedAccountId(id);
                 setCurrentView('register');
+                setHighlightTransactionId(transactionId);
+                setRegisterRefreshKey(prev => prev + 1);
               }}
+              onSearchPayee={handleSearchPayee}
             />
           ) : (
             <DashboardView
@@ -229,9 +240,10 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
 
       <SearchModal
         isOpen={isSearching}
-        onClose={() => setIsSearching(false)}
+        onClose={() => { setIsSearching(false); setSearchPayee(null); }}
         accounts={accounts}
         initialAccountId={selectedAccountId}
+        initialPayee={searchPayee}
         onNavigateToTransaction={handleNavigateToTransaction}
         onTransactionsChanged={handleTransactionSaved}
       />

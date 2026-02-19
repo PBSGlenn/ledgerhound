@@ -294,3 +294,216 @@ export interface BulkUpdateDTO {
     tags?: string[];           // replace tags
   };
 }
+
+// --- Income Tax Types ---
+
+export interface TaxBracket {
+  min: number;
+  max: number | null; // null = no upper limit
+  rate: number;       // e.g. 0.16 for 16%
+  baseTax: number;    // cumulative tax at bracket start
+}
+
+export interface MedicareLevyConfig {
+  rate: number;                // 0.02
+  lowIncomeThreshold: number;  // 27222
+  shadeInThreshold: number;    // 34027
+  shadeInRate: number;         // 0.10 (10c per $1 over threshold)
+  familyThreshold: number;     // 45907
+  familyChildExtra: number;    // 3760
+}
+
+export interface LITOConfig {
+  maxOffset: number;           // 700
+  fullThreshold: number;       // 37500
+  phaseOut1Rate: number;       // 0.05
+  phaseOut1Threshold: number;  // 45000
+  phaseOut1Amount: number;     // 325 (offset remaining at phaseOut1Threshold)
+  phaseOut2Rate: number;       // 0.015
+  zeroThreshold: number;       // 66667
+}
+
+export interface SmallBusinessOffsetConfig {
+  rate: number;                // 0.16
+  cap: number;                 // 1000
+  turnoverThreshold: number;   // 5000000
+}
+
+export interface TaxTablesConfig {
+  financialYear: string;       // "2025-26"
+  brackets: TaxBracket[];
+  medicareLevyConfig: MedicareLevyConfig;
+  litoConfig: LITOConfig;
+  smallBusinessOffset: SmallBusinessOffsetConfig;
+  superGuaranteeRate: number;  // 0.12
+}
+
+export type ATOLabel =
+  // Business schedule (sole trader)
+  | 'BUS_INCOME'         // Gross business income
+  | 'BUS_COGS'           // Cost of goods sold
+  | 'BUS_EXPENSE'        // Business expenses (default for business categories)
+  // Other income items
+  | 'INCOME_INTEREST'    // Item 10: Interest
+  | 'INCOME_DIVIDENDS'   // Item 11: Dividends
+  | 'INCOME_RENT'        // Item 20: Rent
+  | 'INCOME_FOREIGN'     // Item 19: Foreign source income
+  | 'INCOME_OTHER'       // Item 24: Other income
+  // Personal deductions (D1-D15)
+  | 'D1_CAR'             // Work-related car expenses
+  | 'D2_TRAVEL'          // Work-related travel
+  | 'D3_CLOTHING'        // Work-related clothing/laundry
+  | 'D4_SELF_ED'         // Work-related self-education
+  | 'D5_OTHER_WORK'      // Other work-related expenses
+  | 'D7_INTEREST'        // Interest deductions
+  | 'D9_GIFTS'           // Gifts/donations
+  | 'D10_TAX_AFFAIRS'    // Cost of managing tax affairs
+  | 'D12_SUPER'          // Personal superannuation contributions
+  | 'D15_OTHER';         // Other deductions
+
+export const ATO_LABEL_DESCRIPTIONS: Record<ATOLabel, string> = {
+  BUS_INCOME: 'Gross Business Income',
+  BUS_COGS: 'Cost of Goods Sold',
+  BUS_EXPENSE: 'Business Expenses',
+  INCOME_INTEREST: 'Item 10: Interest',
+  INCOME_DIVIDENDS: 'Item 11: Dividends',
+  INCOME_RENT: 'Item 20: Rental Income',
+  INCOME_FOREIGN: 'Item 19: Foreign Source Income',
+  INCOME_OTHER: 'Item 24: Other Income',
+  D1_CAR: 'D1: Work-Related Car Expenses',
+  D2_TRAVEL: 'D2: Work-Related Travel',
+  D3_CLOTHING: 'D3: Work-Related Clothing/Laundry',
+  D4_SELF_ED: 'D4: Work-Related Self-Education',
+  D5_OTHER_WORK: 'D5: Other Work-Related Expenses',
+  D7_INTEREST: 'D7: Interest Deductions',
+  D9_GIFTS: 'D9: Gifts/Donations',
+  D10_TAX_AFFAIRS: 'D10: Cost of Managing Tax Affairs',
+  D12_SUPER: 'D12: Personal Super Contributions',
+  D15_OTHER: 'D15: Other Deductions',
+};
+
+export interface TaxEstimation {
+  financialYear: string;
+  period: { start: Date; end: Date };
+  // Income breakdown
+  grossBusinessIncome: number;
+  businessExpenses: number;
+  netBusinessIncome: number;
+  otherIncome: { label: string; amount: number }[];
+  totalOtherIncome: number;
+  // Deductions
+  personalDeductions: { label: string; atoLabel: string; amount: number }[];
+  totalPersonalDeductions: number;
+  // Tax calculation
+  taxableIncome: number;
+  incomeTax: number;
+  medicareLevy: number;
+  lito: number;
+  smallBusinessOffset: number;
+  totalTaxPayable: number;
+  effectiveRate: number;
+  // PAYG context
+  paygPaid: number;
+  estimatedBalance: number; // positive = owing, negative = refund
+}
+
+export interface TaxSummaryItem {
+  atoLabel: ATOLabel;
+  atoLabelDescription: string;
+  categories: { name: string; amount: number }[];
+  total: number;
+}
+
+export interface TaxSummary {
+  financialYear: string;
+  period: { start: Date; end: Date };
+  businessSchedule: TaxSummaryItem[];
+  otherIncome: TaxSummaryItem[];
+  personalDeductions: TaxSummaryItem[];
+  totalBusinessIncome: number;
+  totalBusinessExpenses: number;
+  netBusinessIncome: number;
+  totalOtherIncome: number;
+  totalPersonalDeductions: number;
+  taxableIncome: number;
+}
+
+export interface PAYGInstallment {
+  id: string;
+  quarter: string;          // "Q1", "Q2", "Q3", "Q4"
+  financialYear: string;    // "2025-26"
+  periodStart: string;      // ISO date
+  periodEnd: string;        // ISO date
+  dueDate: string;          // ISO date
+  method: 'amount' | 'rate';
+  rate?: number;
+  assessedAmount?: number;
+  calculatedAmount?: number;
+  paidAmount?: number;
+  paidDate?: string;
+  status: 'upcoming' | 'due' | 'overdue' | 'paid';
+  notes?: string;
+}
+
+export interface PAYGConfig {
+  financialYear: string;
+  method: 'amount' | 'rate';
+  annualRate?: number;
+  annualAmount?: number;
+  installments: PAYGInstallment[];
+}
+
+// === Spending Analysis Types ===
+
+export type SpendingGranularity = 'weekly' | 'monthly';
+
+export interface SpendingAnalysisRequest {
+  startDate: string;
+  endDate: string;
+  categoryIds?: string[];
+  payees?: string[];
+  granularity: SpendingGranularity;
+  businessOnly?: boolean;
+  personalOnly?: boolean;
+  includeIncome?: boolean;
+}
+
+export interface SpendingByCategoryItem {
+  categoryId: string;
+  categoryName: string;
+  categoryFullPath: string | null;
+  total: number;
+  percentage: number;
+}
+
+export interface SpendingByPayeeItem {
+  payee: string;
+  total: number;
+  percentage: number;
+  categoryBreakdown: Array<{
+    categoryId: string;
+    categoryName: string;
+    amount: number;
+  }>;
+}
+
+export interface SpendingTimeBucket {
+  bucketStart: string;
+  bucketLabel: string;
+  total: number;
+  byCategory: Record<string, number>;
+  byPayee: Record<string, number>;
+}
+
+export interface SpendingAnalysisResponse {
+  period: { start: Date; end: Date };
+  granularity: SpendingGranularity;
+  grandTotal: number;
+  transactionCount: number;
+  byCategory: SpendingByCategoryItem[];
+  byPayee: SpendingByPayeeItem[];
+  timeSeries: SpendingTimeBucket[];
+  averagePerBucket: number;
+  highestBucket: { label: string; amount: number };
+  lowestBucket: { label: string; amount: number };
+}

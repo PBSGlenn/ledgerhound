@@ -21,6 +21,7 @@ interface SearchModalProps {
   onClose: () => void;
   accounts: AccountWithBalance[];
   initialAccountId?: string | null;
+  initialPayee?: string | null;
   onNavigateToTransaction: (accountId: string, transactionId: string) => void;
   onTransactionsChanged: () => Promise<void>;
 }
@@ -30,6 +31,7 @@ export function SearchModal({
   onClose,
   accounts,
   initialAccountId,
+  initialPayee,
   onNavigateToTransaction,
   onTransactionsChanged,
 }: SearchModalProps) {
@@ -63,11 +65,14 @@ export function SearchModal({
 
   const payeeInputRef = useRef<HTMLInputElement>(null);
 
+  // Track whether we need to auto-search on open
+  const autoSearchRef = useRef(false);
+
   // Reset state when modal opens
   useEffect(() => {
     if (isOpen) {
       setScope(initialAccountId || 'global');
-      setPayeeText('');
+      setPayeeText(initialPayee || '');
       setDateFrom('');
       setDateTo('');
       setAmountMin('');
@@ -80,10 +85,15 @@ export function SearchModal({
       setShowBatchPayee(false);
       setShowBatchCategory(false);
 
-      // Focus payee input after a short delay
-      setTimeout(() => payeeInputRef.current?.focus(), 100);
+      if (initialPayee) {
+        // Auto-search will be triggered after state settles
+        autoSearchRef.current = true;
+      } else {
+        // Focus payee input after a short delay
+        setTimeout(() => payeeInputRef.current?.focus(), 100);
+      }
     }
-  }, [isOpen, initialAccountId]);
+  }, [isOpen, initialAccountId, initialPayee]);
 
   // Transfer accounts only (for scope dropdown)
   const transferAccounts = accounts.filter((a) => a.kind === 'TRANSFER');
@@ -113,6 +123,14 @@ export function SearchModal({
       setLoading(false);
     }
   }, [scope, payeeText, dateFrom, dateTo, amountMin, amountMax, categoryId, showError]);
+
+  // Auto-search when opened with initialPayee (must be after handleSearch declaration)
+  useEffect(() => {
+    if (autoSearchRef.current && isOpen && payeeText) {
+      autoSearchRef.current = false;
+      handleSearch();
+    }
+  }, [isOpen, payeeText, handleSearch]);
 
   const handleClearFilters = () => {
     setScope('global');

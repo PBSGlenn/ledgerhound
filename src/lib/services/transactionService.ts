@@ -428,9 +428,9 @@ export class TransactionService {
       if (filter.dateTo) where.transaction.date.lte = filter.dateTo;
     }
 
-    // Payee text search
+    // Payee text search (SQLite LIKE is case-insensitive for ASCII by default)
     if (filter.payee) {
-      where.transaction.payee = { contains: filter.payee, mode: 'insensitive' };
+      where.transaction.payee = { contains: filter.payee };
     }
 
     // Business/personal filter

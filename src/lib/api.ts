@@ -22,6 +22,12 @@ import type {
   SearchFilter,
   SearchResponse,
   BulkUpdateDTO,
+  TaxEstimation,
+  TaxSummary,
+  TaxTablesConfig,
+  PAYGConfig,
+  SpendingAnalysisRequest,
+  SpendingAnalysisResponse,
 } from '../types';
 
 export interface ImportResult {
@@ -228,6 +234,7 @@ export const accountAPI = {
     parentId?: string | null;
     isBusinessDefault?: boolean;
     defaultHasGst?: boolean;
+    atoLabel?: string | null;
   }): Promise<Account> {
     const response = await fetch(`${API_BASE}/categories/${categoryId}`, {
       method: 'PUT',
@@ -638,6 +645,101 @@ export const reportAPI = {
       throw new Error(error.error || 'Failed to generate cash flow statement');
     }
     return await response.json();
+  },
+
+  async generateSpendingAnalysis(request: SpendingAnalysisRequest): Promise<SpendingAnalysisResponse> {
+    const response = await fetch(`${API_BASE}/reports/spending-analysis`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to generate spending analysis');
+    }
+    return await response.json();
+  },
+};
+
+/**
+ * Tax API
+ */
+export const taxAPI = {
+  async generateTaxEstimation(startDate: Date, endDate: Date): Promise<TaxEstimation> {
+    const params = new URLSearchParams();
+    params.set('startDate', startDate.toISOString());
+    params.set('endDate', endDate.toISOString());
+
+    const response = await fetch(`${API_BASE}/tax/estimation?${params}`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to generate tax estimation');
+    }
+    return await response.json();
+  },
+
+  async generateTaxSummary(startDate: Date, endDate: Date): Promise<TaxSummary> {
+    const params = new URLSearchParams();
+    params.set('startDate', startDate.toISOString());
+    params.set('endDate', endDate.toISOString());
+
+    const response = await fetch(`${API_BASE}/tax/summary?${params}`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to generate tax summary');
+    }
+    return await response.json();
+  },
+
+  async getAvailableYears(): Promise<string[]> {
+    const response = await fetch(`${API_BASE}/tax/tables`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to get available years');
+    }
+    return await response.json();
+  },
+
+  async getTaxTables(financialYear: string): Promise<TaxTablesConfig> {
+    const response = await fetch(`${API_BASE}/tax/tables/${financialYear}`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to get tax tables');
+    }
+    return await response.json();
+  },
+
+  async saveTaxTables(config: TaxTablesConfig): Promise<void> {
+    const response = await fetch(`${API_BASE}/tax/tables/${config.financialYear}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to save tax tables');
+    }
+  },
+
+  async getPAYGConfig(financialYear: string): Promise<PAYGConfig | null> {
+    const response = await fetch(`${API_BASE}/tax/payg/${financialYear}`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to get PAYG config');
+    }
+    return await response.json();
+  },
+
+  async savePAYGConfig(config: PAYGConfig): Promise<void> {
+    const response = await fetch(`${API_BASE}/tax/payg/${config.financialYear}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to save PAYG config');
+    }
   },
 };
 

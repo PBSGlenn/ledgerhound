@@ -9,15 +9,22 @@ import { BASDraftReport } from './BASDraftReport';
 import { TagSummaryReport } from './TagSummaryReport';
 import { BalanceSheetReport } from './BalanceSheetReport';
 import { CashFlowReport } from './CashFlowReport';
-import { reportAPI } from '../../lib/api';
+import { TaxEstimationReport } from './TaxEstimationReport';
+import { TaxSummaryReport } from './TaxSummaryReport';
+import { PAYGTracker } from './PAYGTracker';
+import { SpendingAnalysisReport } from './SpendingAnalysisReport';
+import { reportAPI, taxAPI } from '../../lib/api';
 import { generateCSV, downloadCSV, formatCurrencyForCSV } from '../../lib/utils/csvExport';
 import { useToast } from '../../hooks/useToast';
-import type { ProfitAndLoss, GSTSummary, BASDraft, TagSummary, BalanceSheet, CashFlowStatement } from '../../types';
+import type { ProfitAndLoss, GSTSummary, BASDraft, TagSummary, BalanceSheet, CashFlowStatement, TaxEstimation, TaxSummary } from '../../types';
 
-type ReportType = 'profit-loss' | 'gst-summary' | 'bas-draft' | 'tag-summary' | 'balance-sheet' | 'cash-flow';
+type ReportType = 'profit-loss' | 'gst-summary' | 'bas-draft' | 'tag-summary' | 'balance-sheet' | 'cash-flow' | 'tax-estimation' | 'tax-summary' | 'payg-tracker' | 'spending-analysis';
 
 // Reports that use a single date instead of a date range
 const singleDateReports: ReportType[] = ['balance-sheet'];
+
+// Reports that are self-contained (no date picker / generate button needed)
+const selfContainedReports: ReportType[] = ['payg-tracker', 'spending-analysis'];
 
 export function ReportsView() {
   const { showSuccess, showError } = useToast();
@@ -39,6 +46,8 @@ export function ReportsView() {
   const [tagSummaryData, setTagSummaryData] = useState<TagSummary[] | null>(null);
   const [balanceSheetData, setBalanceSheetData] = useState<BalanceSheet | null>(null);
   const [cashFlowData, setCashFlowData] = useState<CashFlowStatement | null>(null);
+  const [taxEstimationData, setTaxEstimationData] = useState<TaxEstimation | null>(null);
+  const [taxSummaryData, setTaxSummaryData] = useState<TaxSummary | null>(null);
 
   // Loading and filter states
   const [loading, setLoading] = useState(false);
@@ -46,6 +55,7 @@ export function ReportsView() {
   const [businessOnly, setBusinessOnly] = useState(false);
 
   const isSingleDate = singleDateReports.includes(activeTab);
+  const isSelfContained = selfContainedReports.includes(activeTab);
 
   const generateReport = async () => {
     setLoading(true);
@@ -90,6 +100,16 @@ export function ReportsView() {
           const cfData = await reportAPI.generateCashFlow(start, end);
           setCashFlowData(cfData);
           break;
+
+        case 'tax-estimation':
+          const teData = await taxAPI.generateTaxEstimation(start, end);
+          setTaxEstimationData(teData);
+          break;
+
+        case 'tax-summary':
+          const tsData = await taxAPI.generateTaxSummary(start, end);
+          setTaxSummaryData(tsData);
+          break;
       }
     } catch (err) {
       setError((err as Error).message);
@@ -108,10 +128,12 @@ export function ReportsView() {
     setTagSummaryData(null);
     setBalanceSheetData(null);
     setCashFlowData(null);
+    setTaxEstimationData(null);
+    setTaxSummaryData(null);
     setError(null);
   };
 
-  const hasData = profitLossData || gstSummaryData || basDraftData || tagSummaryData || balanceSheetData || cashFlowData;
+  const hasData = profitLossData || gstSummaryData || basDraftData || tagSummaryData || balanceSheetData || cashFlowData || taxEstimationData || taxSummaryData;
 
   const handleExportCSV = () => {
     try {
@@ -259,6 +281,67 @@ export function ReportsView() {
           downloadCSV(cfCSV, `cash-flow-${today}.csv`);
           showSuccess('Export complete', 'Cash Flow Statement exported to CSV');
           break;
+
+        case 'tax-estimation':
+          if (!taxEstimationData) return;
+
+          const teRows = [
+            { item: 'Gross Business Income', amount: taxEstimationData.grossBusinessIncome },
+            { item: 'Business Expenses', amount: -taxEstimationData.businessExpenses },
+            { item: 'Net Business Income', amount: taxEstimationData.netBusinessIncome },
+            ...taxEstimationData.otherIncome.map((i) => ({ item: `Other: ${i.label}`, amount: i.amount })),
+            { item: 'Total Other Income', amount: taxEstimationData.totalOtherIncome },
+            ...taxEstimationData.personalDeductions.map((d) => ({ item: `Deduction: ${d.label}`, amount: -d.amount })),
+            { item: 'Total Deductions', amount: -taxEstimationData.totalPersonalDeductions },
+            { item: '', amount: 0 },
+            { item: 'Taxable Income', amount: taxEstimationData.taxableIncome },
+            { item: 'Income Tax', amount: taxEstimationData.incomeTax },
+            { item: 'Medicare Levy', amount: taxEstimationData.medicareLevy },
+            { item: 'LITO', amount: -taxEstimationData.lito },
+            { item: 'Small Business Offset', amount: -taxEstimationData.smallBusinessOffset },
+            { item: 'Total Tax Payable', amount: taxEstimationData.totalTaxPayable },
+            { item: 'PAYG Paid', amount: -taxEstimationData.paygPaid },
+            { item: 'Estimated Balance', amount: taxEstimationData.estimatedBalance },
+          ];
+
+          const teCSV = generateCSV(teRows, [
+            { header: 'Item', accessor: (row) => row.item },
+            { header: 'Amount', accessor: (row) => row.amount !== 0 ? formatCurrencyForCSV(row.amount) : '' },
+          ]);
+
+          downloadCSV(teCSV, `tax-estimation-${today}.csv`);
+          showSuccess('Export complete', 'Tax Estimation exported to CSV');
+          break;
+
+        case 'tax-summary':
+          if (!taxSummaryData) return;
+
+          const tsRows = [
+            ...taxSummaryData.businessSchedule.flatMap((item) => [
+              ...item.categories.map((c) => ({ section: item.atoLabelDescription, category: c.name, amount: c.amount })),
+              { section: `Total: ${item.atoLabelDescription}`, category: '', amount: item.total },
+            ]),
+            ...taxSummaryData.otherIncome.flatMap((item) => [
+              ...item.categories.map((c) => ({ section: item.atoLabelDescription, category: c.name, amount: c.amount })),
+              { section: `Total: ${item.atoLabelDescription}`, category: '', amount: item.total },
+            ]),
+            ...taxSummaryData.personalDeductions.flatMap((item) => [
+              ...item.categories.map((c) => ({ section: item.atoLabelDescription, category: c.name, amount: c.amount })),
+              { section: `Total: ${item.atoLabelDescription}`, category: '', amount: item.total },
+            ]),
+            { section: '', category: '', amount: 0 },
+            { section: 'Taxable Income', category: '', amount: taxSummaryData.taxableIncome },
+          ];
+
+          const tsCSV = generateCSV(tsRows, [
+            { header: 'ATO Label', accessor: (row) => row.section },
+            { header: 'Category', accessor: (row) => row.category },
+            { header: 'Amount', accessor: (row) => row.amount !== 0 ? formatCurrencyForCSV(row.amount) : '' },
+          ]);
+
+          downloadCSV(tsCSV, `tax-summary-${today}.csv`);
+          showSuccess('Export complete', 'Tax Summary exported to CSV');
+          break;
       }
     } catch (error) {
       showError('Export failed', (error as Error).message);
@@ -284,8 +367,8 @@ export function ReportsView() {
 
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-7xl mx-auto space-y-6">
-          {/* Date Picker - switches between range and single date */}
-          {isSingleDate ? (
+          {/* Date Picker - switches between range and single date (hidden for self-contained reports) */}
+          {isSelfContained ? null : isSingleDate ? (
             <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
               <div className="flex items-center gap-4">
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -321,6 +404,9 @@ export function ReportsView() {
                 <Tabs.Trigger value="cash-flow" className={tabTriggerClass}>
                   Cash Flow
                 </Tabs.Trigger>
+                <Tabs.Trigger value="spending-analysis" className={tabTriggerClass}>
+                  Spending Analysis
+                </Tabs.Trigger>
                 <Tabs.Trigger value="gst-summary" className={tabTriggerClass}>
                   GST Summary
                 </Tabs.Trigger>
@@ -330,10 +416,20 @@ export function ReportsView() {
                 <Tabs.Trigger value="tag-summary" className={tabTriggerClass}>
                   Tag Summary
                 </Tabs.Trigger>
+                <span className="w-px h-6 bg-slate-300 dark:bg-slate-600 mx-1 self-center" />
+                <Tabs.Trigger value="tax-estimation" className={tabTriggerClass}>
+                  Tax Estimation
+                </Tabs.Trigger>
+                <Tabs.Trigger value="tax-summary" className={tabTriggerClass}>
+                  Tax Summary
+                </Tabs.Trigger>
+                <Tabs.Trigger value="payg-tracker" className={tabTriggerClass}>
+                  PAYG Tracker
+                </Tabs.Trigger>
               </Tabs.List>
 
-              {/* Filters and Generate Button */}
-              <div className="flex items-center justify-between">
+              {/* Filters and Generate Button (hidden for self-contained reports) */}
+              {!isSelfContained && <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   {(activeTab === 'profit-loss' || activeTab === 'tag-summary') && (
                     <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
@@ -377,7 +473,7 @@ export function ReportsView() {
                     </button>
                   )}
                 </div>
-              </div>
+              </div>}
             </div>
 
             {/* Error Message */}
@@ -428,6 +524,10 @@ export function ReportsView() {
               )}
             </Tabs.Content>
 
+            <Tabs.Content value="spending-analysis" className="focus:outline-none">
+              <SpendingAnalysisReport />
+            </Tabs.Content>
+
             <Tabs.Content value="gst-summary" className="focus:outline-none">
               {gstSummaryData ? (
                 <GSTSummaryReport data={gstSummaryData} />
@@ -465,6 +565,36 @@ export function ReportsView() {
                   </p>
                 </div>
               )}
+            </Tabs.Content>
+
+            <Tabs.Content value="tax-estimation" className="focus:outline-none">
+              {taxEstimationData ? (
+                <TaxEstimationReport data={taxEstimationData} />
+              ) : (
+                <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+                  <FileText className="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
+                  <p className="text-slate-600 dark:text-slate-400">
+                    Click "Generate Report" to estimate your income tax for the selected period
+                  </p>
+                </div>
+              )}
+            </Tabs.Content>
+
+            <Tabs.Content value="tax-summary" className="focus:outline-none">
+              {taxSummaryData ? (
+                <TaxSummaryReport data={taxSummaryData} />
+              ) : (
+                <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-12 text-center">
+                  <FileText className="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
+                  <p className="text-slate-600 dark:text-slate-400">
+                    Click "Generate Report" to view your tax summary grouped by ATO return labels
+                  </p>
+                </div>
+              )}
+            </Tabs.Content>
+
+            <Tabs.Content value="payg-tracker" className="focus:outline-none">
+              <PAYGTracker financialYear={`${fyYear - 1}-${String(fyYear).slice(2)}`} />
             </Tabs.Content>
           </Tabs.Root>
         </div>

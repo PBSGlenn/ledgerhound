@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, Briefcase, DollarSign, Calendar, Hash, FolderTree } from 'lucide-react';
-import type { AccountWithBalance, AccountType, AccountSubtype } from '../../types';
+import type { AccountWithBalance, AccountType, AccountSubtype, ATOLabel } from '../../types';
+import { ATO_LABEL_DESCRIPTIONS } from '../../types';
 import { accountAPI, categoryAPI } from '../../lib/api';
 
 interface AccountSettingsModalProps {
@@ -31,6 +32,7 @@ export function AccountSettingsModal({
   const [openingDate, setOpeningDate] = useState(new Date().toISOString().split('T')[0]);
   const [currency, setCurrency] = useState('AUD');
   const [sortOrder, setSortOrder] = useState('0');
+  const [atoLabel, setAtoLabel] = useState<string>('');
 
   useEffect(() => {
     if (isOpen && accountId) {
@@ -53,6 +55,7 @@ export function AccountSettingsModal({
         setOpeningDate(acc.openingDate ? new Date(acc.openingDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
         setCurrency(acc.currency || 'AUD');
         setSortOrder(acc.sortOrder?.toString() || '0');
+        setAtoLabel((acc as any).atoLabel || '');
 
         // Load available parent categories (same type, excluding self and descendants)
         if (acc.kind === 'CATEGORY') {
@@ -103,6 +106,7 @@ export function AccountSettingsModal({
           parentId: parentId || null,
           isBusinessDefault,
           defaultHasGst,
+          atoLabel: atoLabel || null,
         });
       } else {
         await accountAPI.updateAccount(accountId, {
@@ -244,6 +248,41 @@ export function AccountSettingsModal({
                         </label>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* ATO Tax Return Label - Only for INCOME/EXPENSE CATEGORY accounts */}
+                {account.kind === 'CATEGORY' && (account.type === 'INCOME' || account.type === 'EXPENSE') && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                      ATO Tax Return Label
+                    </label>
+                    <select
+                      value={atoLabel}
+                      onChange={(e) => setAtoLabel(e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+                    >
+                      <option value="">None (auto-detect for business)</option>
+                      <optgroup label="Business Schedule">
+                        {(['BUS_INCOME', 'BUS_COGS', 'BUS_EXPENSE'] as ATOLabel[]).map(label => (
+                          <option key={label} value={label}>{ATO_LABEL_DESCRIPTIONS[label]}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Other Income">
+                        {(['INCOME_INTEREST', 'INCOME_DIVIDENDS', 'INCOME_RENT', 'INCOME_FOREIGN', 'INCOME_OTHER'] as ATOLabel[]).map(label => (
+                          <option key={label} value={label}>{ATO_LABEL_DESCRIPTIONS[label]}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Personal Deductions">
+                        {(['D1_CAR', 'D2_TRAVEL', 'D3_CLOTHING', 'D4_SELF_ED', 'D5_OTHER_WORK', 'D7_INTEREST', 'D9_GIFTS', 'D10_TAX_AFFAIRS', 'D12_SUPER', 'D15_OTHER'] as ATOLabel[]).map(label => (
+                          <option key={label} value={label}>{ATO_LABEL_DESCRIPTIONS[label]}</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      Maps this category to a specific ATO tax return item for the Tax Summary report.
+                      Business categories without a label auto-detect as Business Income/Expense.
+                    </p>
                   </div>
                 )}
 

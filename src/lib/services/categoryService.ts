@@ -441,6 +441,7 @@ export class CategoryService {
       parentId?: string | null;
       isBusinessDefault?: boolean;
       defaultHasGst?: boolean;
+      atoLabel?: string | null;
     }
   ): Promise<CategoryNode> {
     const current = await this.prisma.account.findUnique({
@@ -465,6 +466,10 @@ export class CategoryService {
 
     if (data.defaultHasGst !== undefined) {
       updateData.defaultHasGst = data.defaultHasGst;
+    }
+
+    if (data.atoLabel !== undefined) {
+      updateData.atoLabel = data.atoLabel;
     }
 
     if (data.parentId !== undefined) {

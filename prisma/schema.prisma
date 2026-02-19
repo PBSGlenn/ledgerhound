@@ -75,6 +75,7 @@ model Account {
   openingBalance      Float           @default(0) @map("opening_balance")
   openingDate         DateTime        @default(now()) @map("opening_date")
   currency            String          @default("AUD")
+  atoLabel            String?         @map("ato_label")  // ATO tax return label (e.g., "D1_CAR", "BUS_INCOME")
   archived            Boolean         @default(false)
   sortOrder           Int             @default(0) @map("sort_order")
   createdAt           DateTime        @default(now()) @map("created_at")

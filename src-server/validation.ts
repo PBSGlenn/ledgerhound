@@ -41,7 +41,7 @@ export function sendError(
  */
 export function sendValidationError(res: Response, error: z.ZodError): Response {
   const details: Record<string, string[]> = {};
-  error.errors.forEach((err) => {
+  error.issues.forEach((err) => {
     const path = err.path.join('.');
     if (!details[path]) {
       details[path] = [];
@@ -184,6 +184,7 @@ export const updateCategorySchema = z.object({
   isBusinessDefault: z.boolean().optional(),
   defaultHasGst: z.boolean().optional(),
   sortOrder: z.number().optional(),
+  atoLabel: z.string().nullable().optional(),
 });
 
 // ============================================================================
@@ -448,4 +449,87 @@ export const bulkUpdateTransactionsSchema = z.object({
     (data) => data.payee !== undefined || data.categoryId !== undefined || data.tags !== undefined,
     { message: 'At least one update field is required' }
   ),
+});
+
+// ============================================================================
+// SPENDING ANALYSIS SCHEMAS
+// ============================================================================
+
+export const spendingAnalysisSchema = z.object({
+  startDate: dateStringSchema,
+  endDate: dateStringSchema,
+  categoryIds: z.array(uuidSchema).optional(),
+  payees: z.array(z.string().min(1)).optional(),
+  granularity: z.enum(['weekly', 'monthly']),
+  businessOnly: z.boolean().optional(),
+  personalOnly: z.boolean().optional(),
+  includeIncome: z.boolean().optional(),
+}).refine(
+  (data) => new Date(data.startDate) <= new Date(data.endDate),
+  { message: 'Start date must be before or equal to end date', path: ['startDate'] }
+);
+
+// ============================================================================
+// TAX SCHEMAS
+// ============================================================================
+
+export const financialYearSchema = z.string().regex(
+  /^\d{4}-\d{2}$/,
+  'Financial year must be in format YYYY-YY (e.g., 2025-26)'
+);
+
+export const taxTablesConfigSchema = z.object({
+  financialYear: financialYearSchema,
+  brackets: z.array(z.object({
+    min: z.number().min(0),
+    max: z.number().nullable(),
+    rate: z.number().min(0).max(1),
+    baseTax: z.number().min(0),
+  })).min(1, 'At least one tax bracket is required'),
+  medicareLevyConfig: z.object({
+    rate: z.number().min(0).max(1),
+    lowIncomeThreshold: z.number().min(0),
+    shadeInThreshold: z.number().min(0),
+    shadeInRate: z.number().min(0).max(1),
+    familyThreshold: z.number().min(0),
+    familyChildExtra: z.number().min(0),
+  }),
+  litoConfig: z.object({
+    maxOffset: z.number().min(0),
+    fullThreshold: z.number().min(0),
+    phaseOut1Rate: z.number().min(0).max(1),
+    phaseOut1Threshold: z.number().min(0),
+    phaseOut1Amount: z.number().min(0),
+    phaseOut2Rate: z.number().min(0).max(1),
+    zeroThreshold: z.number().min(0),
+  }),
+  smallBusinessOffset: z.object({
+    rate: z.number().min(0).max(1),
+    cap: z.number().min(0),
+    turnoverThreshold: z.number().min(0),
+  }),
+  superGuaranteeRate: z.number().min(0).max(1),
+});
+
+export const paygConfigSchema = z.object({
+  financialYear: financialYearSchema,
+  method: z.enum(['amount', 'rate']),
+  annualRate: z.number().min(0).max(1).optional(),
+  annualAmount: z.number().min(0).optional(),
+  installments: z.array(z.object({
+    id: z.string(),
+    quarter: z.enum(['Q1', 'Q2', 'Q3', 'Q4']),
+    financialYear: financialYearSchema,
+    periodStart: dateStringSchema,
+    periodEnd: dateStringSchema,
+    dueDate: dateStringSchema,
+    method: z.enum(['amount', 'rate']),
+    rate: z.number().optional(),
+    assessedAmount: z.number().optional(),
+    calculatedAmount: z.number().optional(),
+    paidAmount: z.number().optional(),
+    paidDate: dateStringSchema.optional(),
+    status: z.enum(['upcoming', 'due', 'overdue', 'paid']),
+    notes: z.string().optional(),
+  })),
 });

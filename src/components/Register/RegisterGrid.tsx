@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { format } from 'date-fns';
-import { Check, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle, Download, Upload, ArrowLeftRight, ExternalLink } from 'lucide-react';
+import { Check, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle, Download, Upload, ArrowLeftRight, ExternalLink, Search } from 'lucide-react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import type { RegisterEntry, RegisterFilter, Account } from '../../types';
 import { transactionAPI } from '../../lib/api';
@@ -16,7 +16,8 @@ import { useDebounce } from '../../hooks/useDebounce';
 interface RegisterGridProps {
   accountId: string;
   highlightTransactionId?: string | null;
-  onNavigateToAccount?: (accountId: string) => void;
+  onNavigateToAccount?: (accountId: string, transactionId: string) => void;
+  onSearchPayee?: (payee: string) => void;
 }
 
 interface ContextMenuState {
@@ -25,7 +26,7 @@ interface ContextMenuState {
   entry: RegisterEntry;
 }
 
-export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAccount }: RegisterGridProps) {
+export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAccount, onSearchPayee }: RegisterGridProps) {
   const { showSuccess, showError } = useToast();
   const [entries, setEntries] = useState<RegisterEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,14 +76,15 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
   }, [accountId]);
 
   // Auto-scroll to most recent transaction (bottom of list) when entries first load
+  // Skip when there's a highlight target (let the highlight scroll handle it)
   useEffect(() => {
-    if (!loading && entries.length > 0 && !scrollToSelected && lastRowRef.current) {
+    if (!loading && entries.length > 0 && !scrollToSelected && !highlightTransactionId && lastRowRef.current) {
       // Use a small delay to ensure DOM is fully rendered
       setTimeout(() => {
         lastRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
       }, 100);
     }
-  }, [loading, entries.length]);
+  }, [loading, entries.length, highlightTransactionId]);
 
   // Scroll to the selected/saved transaction after entries reload
   useEffect(() => {
@@ -94,19 +96,30 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
     }
   }, [loading, scrollToSelected, entries]);
 
-  // Highlight and scroll to a transaction navigated from search
+  // Step 1: Set highlighted ID when data finishes loading
   useEffect(() => {
     if (!loading && highlightTransactionId && entries.length > 0) {
+      const found = entries.some(e => e.id === highlightTransactionId);
+      console.log('[Highlight] Setting highlight:', highlightTransactionId, 'found in entries:', found, 'entries count:', entries.length);
       setHighlightedId(highlightTransactionId);
-      // Scroll to highlighted row after DOM renders
-      setTimeout(() => {
-        highlightRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 150);
-      // Clear highlight after 3 seconds
-      const timer = setTimeout(() => setHighlightedId(null), 3000);
-      return () => clearTimeout(timer);
     }
   }, [loading, highlightTransactionId, entries]);
+
+  // Step 2: Scroll to the highlighted row once it renders, then clear after 3s
+  useEffect(() => {
+    if (!highlightedId) return;
+    // Refs are assigned during commit phase (before this effect runs),
+    // but use a short delay for layout to stabilize after data load
+    const scrollTimer = setTimeout(() => {
+      console.log('[Highlight] Scrolling to ref:', highlightRowRef.current ? 'found' : 'NULL');
+      highlightRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 200);
+    const clearTimer = setTimeout(() => setHighlightedId(null), 3000);
+    return () => {
+      clearTimeout(scrollTimer);
+      clearTimeout(clearTimer);
+    };
+  }, [highlightedId]);
 
   const loadEntries = async () => {
     setLoading(true);
@@ -885,7 +898,7 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
             return otherTransfer && onNavigateToAccount ? (
               <button
                 onClick={() => {
-                  onNavigateToAccount(otherTransfer.accountId);
+                  onNavigateToAccount(otherTransfer.accountId, contextMenu.entry.id);
                   setContextMenu(null);
                 }}
                 className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors"
@@ -895,6 +908,18 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
               </button>
             ) : null;
           })()}
+          {onSearchPayee && contextMenu.entry.payee && (
+            <button
+              onClick={() => {
+                onSearchPayee(contextMenu.entry.payee);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors"
+            >
+              <Search className="w-4 h-4 text-indigo-500" />
+              Search for &ldquo;{contextMenu.entry.payee}&rdquo;
+            </button>
+          )}
           <button
             onClick={() => {
               handleEditTransaction(contextMenu.entry.id);

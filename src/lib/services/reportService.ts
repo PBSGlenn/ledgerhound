@@ -1,5 +1,5 @@
 import { getPrismaClient } from '../db';
-import type { GSTSummary, ProfitAndLoss, BASDraft, BalanceSheet, CashFlowStatement } from '../../types';
+import type { GSTSummary, ProfitAndLoss, BASDraft, BalanceSheet, CashFlowStatement, SpendingAnalysisResponse, SpendingByCategoryItem, SpendingByPayeeItem, SpendingTimeBucket } from '../../types';
 import { AccountType, type PrismaClient } from '@prisma/client';
 
 export class ReportService {
@@ -655,6 +655,280 @@ export class ReportService {
       openingCash,
       closingCash,
     };
+  }
+
+  /**
+   * Generate Spending Analysis report
+   * Aggregates spending by category, payee, and time period
+   */
+  async generateSpendingAnalysis(
+    startDate: Date,
+    endDate: Date,
+    options: {
+      categoryIds?: string[];
+      payees?: string[];
+      granularity: 'weekly' | 'monthly';
+      businessOnly?: boolean;
+      personalOnly?: boolean;
+      includeIncome?: boolean;
+    }
+  ): Promise<SpendingAnalysisResponse> {
+    // Resolve category IDs (if parent selected, expand to all descendants)
+    let resolvedCategoryIds: string[] | undefined;
+    if (options.categoryIds && options.categoryIds.length > 0) {
+      resolvedCategoryIds = await this.resolveCategoryDescendants(options.categoryIds);
+    }
+
+    // Build business/personal filter
+    const businessFilter = options.businessOnly
+      ? { isBusiness: true }
+      : options.personalOnly
+        ? { isBusiness: false }
+        : {};
+
+    // Build account type filter
+    const typeFilter = options.includeIncome
+      ? { type: { in: [AccountType.EXPENSE, AccountType.INCOME] } }
+      : { type: AccountType.EXPENSE };
+
+    // Build accountId filter (for category restriction)
+    const accountFilter = resolvedCategoryIds
+      ? { accountId: { in: resolvedCategoryIds } }
+      : {};
+
+    // Build payee filter
+    const payeeFilter = options.payees && options.payees.length > 0
+      ? { OR: options.payees.map(p => ({ payee: { contains: p } })) }
+      : {};
+
+    // Query postings
+    const postings = await this.prisma.posting.findMany({
+      where: {
+        ...businessFilter,
+        ...accountFilter,
+        account: {
+          ...typeFilter,
+          kind: 'CATEGORY',
+        },
+        transaction: {
+          date: { gte: startDate, lte: endDate },
+          status: 'NORMAL',
+          ...payeeFilter,
+        },
+      },
+      select: {
+        amount: true,
+        accountId: true,
+        account: {
+          select: { id: true, name: true, fullPath: true, type: true },
+        },
+        transaction: {
+          select: { id: true, date: true, payee: true },
+        },
+      },
+    });
+
+    // Aggregate by category
+    const categoryMap = new Map<string, { name: string; fullPath: string | null; total: number }>();
+    // Aggregate by payee
+    const payeeMap = new Map<string, { total: number; categories: Map<string, { name: string; amount: number }> }>();
+    // Aggregate by time bucket
+    const bucketMap = new Map<string, SpendingTimeBucket>();
+
+    let grandTotal = 0;
+    const txnIds = new Set<string>();
+
+    for (const posting of postings) {
+      const amount = Math.abs(posting.amount);
+      const catId = posting.accountId;
+      const catName = posting.account.name;
+      const catPath = posting.account.fullPath;
+      const payee = posting.transaction.payee;
+      const date = new Date(posting.transaction.date);
+
+      grandTotal += amount;
+      txnIds.add(posting.transaction.id);
+
+      // Category aggregation
+      const existing = categoryMap.get(catId) || { name: catName, fullPath: catPath, total: 0 };
+      existing.total += amount;
+      categoryMap.set(catId, existing);
+
+      // Payee aggregation
+      const payeeData = payeeMap.get(payee) || { total: 0, categories: new Map() };
+      payeeData.total += amount;
+      const catInPayee = payeeData.categories.get(catId) || { name: catName, amount: 0 };
+      catInPayee.amount += amount;
+      payeeData.categories.set(catId, catInPayee);
+      payeeMap.set(payee, payeeData);
+
+      // Time bucket aggregation
+      const bucketKey = this.getBucketKey(date, options.granularity);
+      const bucketLabel = this.getBucketLabel(date, options.granularity);
+      const bucket = bucketMap.get(bucketKey) || {
+        bucketStart: bucketKey,
+        bucketLabel,
+        total: 0,
+        byCategory: {},
+        byPayee: {},
+      };
+      bucket.total += amount;
+      bucket.byCategory[catId] = (bucket.byCategory[catId] || 0) + amount;
+      bucket.byPayee[payee] = (bucket.byPayee[payee] || 0) + amount;
+      bucketMap.set(bucketKey, bucket);
+    }
+
+    // Build response arrays
+    const byCategory: SpendingByCategoryItem[] = Array.from(categoryMap.entries())
+      .map(([id, data]) => ({
+        categoryId: id,
+        categoryName: data.name,
+        categoryFullPath: data.fullPath,
+        total: data.total,
+        percentage: grandTotal > 0 ? (data.total / grandTotal) * 100 : 0,
+      }))
+      .sort((a, b) => b.total - a.total);
+
+    const byPayee: SpendingByPayeeItem[] = Array.from(payeeMap.entries())
+      .map(([payee, data]) => ({
+        payee,
+        total: data.total,
+        percentage: grandTotal > 0 ? (data.total / grandTotal) * 100 : 0,
+        categoryBreakdown: Array.from(data.categories.entries())
+          .map(([catId, catData]) => ({
+            categoryId: catId,
+            categoryName: catData.name,
+            amount: catData.amount,
+          }))
+          .sort((a, b) => b.amount - a.amount),
+      }))
+      .sort((a, b) => b.total - a.total);
+
+    const timeSeries = Array.from(bucketMap.values())
+      .sort((a, b) => a.bucketStart.localeCompare(b.bucketStart));
+
+    // Fill gaps in timeSeries (months/weeks with zero spend)
+    const filledTimeSeries = this.fillTimeBucketGaps(timeSeries, startDate, endDate, options.granularity);
+
+    const bucketAmounts = filledTimeSeries.map(b => b.total);
+    const maxAmount = Math.max(...bucketAmounts, 0);
+    const minAmount = Math.min(...bucketAmounts, 0);
+    const highIdx = bucketAmounts.indexOf(maxAmount);
+    const lowIdx = bucketAmounts.indexOf(minAmount);
+
+    return {
+      period: { start: startDate, end: endDate },
+      granularity: options.granularity,
+      grandTotal,
+      transactionCount: txnIds.size,
+      byCategory,
+      byPayee,
+      timeSeries: filledTimeSeries,
+      averagePerBucket: filledTimeSeries.length > 0 ? grandTotal / filledTimeSeries.length : 0,
+      highestBucket: filledTimeSeries.length > 0
+        ? { label: filledTimeSeries[highIdx].bucketLabel, amount: filledTimeSeries[highIdx].total }
+        : { label: '', amount: 0 },
+      lowestBucket: filledTimeSeries.length > 0
+        ? { label: filledTimeSeries[lowIdx].bucketLabel, amount: filledTimeSeries[lowIdx].total }
+        : { label: '', amount: 0 },
+    };
+  }
+
+  /**
+   * Resolve category IDs including all descendants.
+   * If a parent category is selected, all its children (recursively) are included.
+   */
+  private async resolveCategoryDescendants(categoryIds: string[]): Promise<string[]> {
+    const allCategories = await this.prisma.account.findMany({
+      where: { kind: 'CATEGORY', archived: false },
+      select: { id: true, parentId: true },
+    });
+
+    const childMap = new Map<string, string[]>();
+    for (const cat of allCategories) {
+      if (cat.parentId) {
+        const children = childMap.get(cat.parentId) || [];
+        children.push(cat.id);
+        childMap.set(cat.parentId, children);
+      }
+    }
+
+    const result = new Set<string>();
+    const queue = [...categoryIds];
+    while (queue.length > 0) {
+      const id = queue.pop()!;
+      result.add(id);
+      const children = childMap.get(id);
+      if (children) {
+        queue.push(...children);
+      }
+    }
+
+    return Array.from(result);
+  }
+
+  private getBucketKey(date: Date, granularity: 'weekly' | 'monthly'): string {
+    if (granularity === 'monthly') {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      return `${y}-${m}-01`;
+    } else {
+      // ISO week: Monday-based week start
+      const d = new Date(date);
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      d.setDate(diff);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+  }
+
+  private getBucketLabel(date: Date, granularity: 'weekly' | 'monthly'): string {
+    if (granularity === 'monthly') {
+      return date.toLocaleDateString('en-AU', { month: 'short', year: 'numeric' });
+    } else {
+      const weekStart = new Date(this.getBucketKey(date, 'weekly'));
+      const day = weekStart.getDate();
+      const month = weekStart.toLocaleDateString('en-AU', { month: 'short' });
+      return `${day} ${month}`;
+    }
+  }
+
+  private fillTimeBucketGaps(
+    buckets: SpendingTimeBucket[],
+    startDate: Date,
+    endDate: Date,
+    granularity: 'weekly' | 'monthly'
+  ): SpendingTimeBucket[] {
+    if (buckets.length === 0 && startDate > endDate) return [];
+
+    const bucketMap = new Map(buckets.map(b => [b.bucketStart, b]));
+    const result: SpendingTimeBucket[] = [];
+    const current = new Date(this.getBucketKey(startDate, granularity));
+    const end = new Date(endDate);
+
+    while (current <= end) {
+      const key = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
+      const existing = bucketMap.get(key);
+      if (existing) {
+        result.push(existing);
+      } else {
+        result.push({
+          bucketStart: key,
+          bucketLabel: this.getBucketLabel(current, granularity),
+          total: 0,
+          byCategory: {},
+          byPayee: {},
+        });
+      }
+
+      if (granularity === 'monthly') {
+        current.setMonth(current.getMonth() + 1);
+      } else {
+        current.setDate(current.getDate() + 7);
+      }
+    }
+
+    return result;
   }
 
   /**
