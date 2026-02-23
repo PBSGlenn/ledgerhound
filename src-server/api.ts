@@ -47,6 +47,7 @@ import {
   transferMatchCommitSchema,
   searchTransactionsSchema,
   bulkUpdateTransactionsSchema,
+  bulkRecategorizeSchema,
   financialYearSchema,
   taxTablesConfigSchema,
   paygConfigSchema,
@@ -500,6 +501,87 @@ app.get('/api/transactions/register/:accountId', async (req, res) => {
   }
 });
 
+app.get('/api/transactions/uncategorized-summary', async (req, res) => {
+  try {
+    const prisma = getPrismaClient();
+    const accountId = req.query.accountId as string | undefined;
+
+    // Find the Uncategorized account - use provided ID or fall back to name search
+    let uncategorizedAccount;
+    if (accountId) {
+      uncategorizedAccount = await prisma.account.findUnique({
+        where: { id: accountId },
+      });
+    } else {
+      uncategorizedAccount = await prisma.account.findFirst({
+        where: { name: 'Uncategorized', type: 'EXPENSE' },
+      });
+    }
+
+    if (!uncategorizedAccount) {
+      return res.json({ payees: [], totalCount: 0 });
+    }
+
+    // Find all transactions with postings to Uncategorized
+    const postings = await prisma.posting.findMany({
+      where: {
+        accountId: uncategorizedAccount.id,
+        transaction: { status: 'NORMAL' },
+      },
+      include: {
+        transaction: {
+          select: { id: true, date: true, payee: true },
+        },
+      },
+    });
+
+    // Group by payee
+    const byPayee = new Map<string, {
+      payee: string;
+      count: number;
+      totalAmount: number;
+      earliestDate: string;
+      latestDate: string;
+      transactionIds: string[];
+    }>();
+
+    for (const posting of postings) {
+      const payee = posting.transaction.payee;
+      const existing = byPayee.get(payee);
+      const dateStr = posting.transaction.date.toISOString().substring(0, 10);
+      const amount = Math.abs(posting.amount);
+
+      if (existing) {
+        existing.count++;
+        existing.totalAmount += amount;
+        if (dateStr < existing.earliestDate) existing.earliestDate = dateStr;
+        if (dateStr > existing.latestDate) existing.latestDate = dateStr;
+        existing.transactionIds.push(posting.transaction.id);
+      } else {
+        byPayee.set(payee, {
+          payee,
+          count: 1,
+          totalAmount: amount,
+          earliestDate: dateStr,
+          latestDate: dateStr,
+          transactionIds: [posting.transaction.id],
+        });
+      }
+    }
+
+    const payees = Array.from(byPayee.values())
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+
+    res.json({
+      payees,
+      totalCount: postings.length,
+      uncategorizedAccountId: uncategorizedAccount.id,
+    });
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
 app.get('/api/transactions/:id', async (req, res) => {
   try {
     const transaction = await transactionService.getTransactionById(req.params.id);
@@ -626,6 +708,190 @@ app.delete('/api/transactions/:id', async (req, res) => {
       return sendNotFound(res, 'Transaction');
     }
     return sendError(res, 400, message);
+  }
+});
+
+// ============================================================================
+// BULK RECATEGORIZE ENDPOINTS
+// ============================================================================
+
+app.post('/api/transactions/bulk-recategorize', async (req, res) => {
+  try {
+    const data = validateBody(bulkRecategorizeSchema, req.body, res);
+    if (!data) return;
+
+    const prisma = getPrismaClient();
+
+    // Find the Uncategorized account - use provided ID or fall back to name search
+    let uncategorizedAccount;
+    if (data.uncategorizedAccountId) {
+      uncategorizedAccount = await prisma.account.findUnique({
+        where: { id: data.uncategorizedAccountId },
+      });
+    } else {
+      uncategorizedAccount = await prisma.account.findFirst({
+        where: { name: 'Uncategorized', type: 'EXPENSE' },
+      });
+    }
+
+    if (!uncategorizedAccount) {
+      return sendError(res, 404, 'Uncategorized account not found');
+    }
+
+    // Find GST Paid account for potential GST postings
+    const gstPaidAccount = await prisma.account.findFirst({
+      where: { name: 'GST Paid', type: 'ASSET', kind: 'CATEGORY' },
+    });
+
+    let totalUpdated = 0;
+    let rulesCreated = 0;
+
+    for (const assignment of data.assignments) {
+      // Look up the target category
+      const targetCategory = await prisma.account.findUnique({
+        where: { id: assignment.categoryId },
+      });
+
+      if (!targetCategory || targetCategory.kind !== 'CATEGORY') {
+        continue; // Skip invalid categories
+      }
+
+      const isBusiness = targetCategory.isBusinessDefault ?? false;
+      const hasGst = isBusiness && targetCategory.defaultHasGst !== false;
+
+      // Find all Uncategorized postings for this payee
+      const postings = await prisma.posting.findMany({
+        where: {
+          accountId: uncategorizedAccount.id,
+          transaction: {
+            payee: assignment.payee,
+            status: 'NORMAL',
+          },
+        },
+        include: {
+          transaction: true,
+        },
+      });
+
+      for (const posting of postings) {
+        if (hasGst && gstPaidAccount) {
+          // Need to split: update existing posting to GST-exclusive, create GST posting
+          const amount = posting.amount; // Already signed correctly
+          const gstRate = 0.1;
+          const gstAmount = amount * gstRate / (1 + gstRate);
+          const gstExclusive = amount - gstAmount;
+
+          await prisma.$transaction([
+            // Update existing posting to new category with GST-exclusive amount
+            prisma.posting.update({
+              where: { id: posting.id },
+              data: {
+                accountId: assignment.categoryId,
+                amount: gstExclusive,
+                isBusiness: true,
+                gstCode: 'GST',
+                gstRate: gstRate,
+                gstAmount: -gstAmount, // gstAmount sign convention
+              },
+            }),
+            // Create GST Paid posting
+            prisma.posting.create({
+              data: {
+                transactionId: posting.transactionId,
+                accountId: gstPaidAccount.id,
+                amount: gstAmount,
+                isBusiness: false,
+              },
+            }),
+          ]);
+        } else {
+          // Simple update - just change the account and business flag
+          await prisma.posting.update({
+            where: { id: posting.id },
+            data: {
+              accountId: assignment.categoryId,
+              isBusiness,
+            },
+          });
+        }
+
+        totalUpdated++;
+      }
+
+      // Create memorized rule if requested
+      if (assignment.createRule) {
+        const existingRule = await prisma.memorizedRule.findFirst({
+          where: { matchValue: assignment.payee },
+        });
+
+        if (!existingRule) {
+          const maxOrder = await prisma.memorizedRule.aggregate({
+            _max: { priority: true },
+          });
+
+          await prisma.memorizedRule.create({
+            data: {
+              name: assignment.payee,
+              matchType: 'CONTAINS',
+              matchValue: assignment.payee,
+              defaultAccount: { connect: { id: assignment.categoryId } },
+              defaultPayee: assignment.payee,
+              priority: (maxOrder._max.priority ?? 0) + 1,
+            },
+          });
+          rulesCreated++;
+        }
+      }
+    }
+
+    res.json({ updated: totalUpdated, rulesCreated });
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.post('/api/transactions/:id/recategorize', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { oldAccountId, newAccountId } = req.body;
+
+    if (!oldAccountId || !newAccountId) {
+      return sendError(res, 400, 'oldAccountId and newAccountId are required');
+    }
+
+    const prisma = getPrismaClient();
+
+    // Find the posting to update
+    const posting = await prisma.posting.findFirst({
+      where: { transactionId: id, accountId: oldAccountId },
+    });
+
+    if (!posting) {
+      return sendError(res, 404, 'Posting not found');
+    }
+
+    // Look up the target category for business/GST defaults
+    const targetCategory = await prisma.account.findUnique({
+      where: { id: newAccountId },
+    });
+
+    if (!targetCategory) {
+      return sendError(res, 404, 'Target category not found');
+    }
+
+    const isBusiness = targetCategory.isBusinessDefault ?? false;
+
+    await prisma.posting.update({
+      where: { id: posting.id },
+      data: {
+        accountId: newAccountId,
+        isBusiness,
+      },
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    return sendServerError(res, error);
   }
 });
 

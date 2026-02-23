@@ -153,12 +153,32 @@ export class ReportService {
 
   /**
    * Generate GST Summary (business transactions only)
+   * Handles two GST recording patterns:
+   *   1. gstCode/gstAmount fields on income/expense postings (manual/CSV)
+   *   2. Separate postings to GST Collected/Paid accounts (Stripe imports)
    */
   async generateGSTSummary(
     startDate: Date,
     endDate: Date
   ): Promise<GSTSummary> {
-    // Get all business postings with GST
+    let gstCollected = 0;
+    let gstPaid = 0;
+
+    const byCategory = new Map<string, {
+      sales: number;
+      purchases: number;
+      gstCollected: number;
+      gstPaid: number;
+    }>();
+
+    const byPayee = new Map<string, {
+      gstCollected: number;
+      gstPaid: number;
+    }>();
+
+    const processedTransactionIds = new Set<string>();
+
+    // --- Pattern 1: gstCode/gstAmount on business postings (manual/CSV) ---
     const businessPostings = await this.prisma.posting.findMany({
       where: {
         isBusiness: true,
@@ -174,41 +194,19 @@ export class ReportService {
       },
     });
 
-    let gstCollected = 0; // GST on sales (income)
-    let gstPaid = 0; // GST on purchases (expenses)
-
-    const byCategory = new Map<string, {
-      sales: number;
-      purchases: number;
-      gstCollected: number;
-      gstPaid: number;
-    }>();
-
-    const byPayee = new Map<string, {
-      gstCollected: number;
-      gstPaid: number;
-    }>();
-
     for (const posting of businessPostings) {
       const isIncome = posting.account.type === AccountType.INCOME;
       const gstAmount = Math.abs(posting.gstAmount ?? 0);
       const amount = Math.abs(posting.amount);
 
-            if (isIncome) {
+      if (isIncome) {
         gstCollected += gstAmount;
       } else if (posting.account.type === AccountType.EXPENSE) {
         gstPaid += gstAmount;
       }
 
-      // By category
       const categoryName = posting.account.name;
-      const catData = byCategory.get(categoryName) || {
-        sales: 0,
-        purchases: 0,
-        gstCollected: 0,
-        gstPaid: 0,
-      };
-
+      const catData = byCategory.get(categoryName) || { sales: 0, purchases: 0, gstCollected: 0, gstPaid: 0 };
       if (isIncome) {
         catData.sales += amount;
         catData.gstCollected += gstAmount;
@@ -216,23 +214,89 @@ export class ReportService {
         catData.purchases += amount;
         catData.gstPaid += gstAmount;
       }
-
       byCategory.set(categoryName, catData);
 
-      // By payee
       const payee = posting.transaction.payee;
-      const payeeData = byPayee.get(payee) || {
-        gstCollected: 0,
-        gstPaid: 0,
-      };
-
+      const payeeData = byPayee.get(payee) || { gstCollected: 0, gstPaid: 0 };
       if (isIncome) {
         payeeData.gstCollected += gstAmount;
       } else {
         payeeData.gstPaid += gstAmount;
       }
-
       byPayee.set(payee, payeeData);
+
+      processedTransactionIds.add(posting.transactionId);
+    }
+
+    // --- Pattern 2: GST account postings (Stripe imports) ---
+    // Only process transactions NOT already covered by pattern 1
+    const gstCollectedAccount = await this.prisma.account.findFirst({
+      where: { name: 'GST Collected', type: AccountType.LIABILITY, kind: 'CATEGORY' },
+    });
+    const gstPaidAccount = await this.prisma.account.findFirst({
+      where: { name: 'GST Paid', type: AccountType.ASSET, kind: 'CATEGORY' },
+    });
+
+    const gstAccountIds = [gstCollectedAccount?.id, gstPaidAccount?.id].filter(Boolean) as string[];
+
+    if (gstAccountIds.length > 0) {
+      const transactionsWithGstPostings = await this.prisma.transaction.findMany({
+        where: {
+          date: { gte: startDate, lte: endDate },
+          status: 'NORMAL',
+          id: { notIn: Array.from(processedTransactionIds) },
+          postings: {
+            some: { accountId: { in: gstAccountIds } },
+          },
+        },
+        include: {
+          postings: { include: { account: true } },
+        },
+      });
+
+      for (const txn of transactionsWithGstPostings) {
+        const gstCollectedPosting = txn.postings.find(p => p.accountId === gstCollectedAccount?.id);
+        const gstPaidPosting = txn.postings.find(p => p.accountId === gstPaidAccount?.id);
+        const incomePosting = txn.postings.find(p => p.account.type === AccountType.INCOME);
+        const expensePostings = txn.postings.filter(p => p.account.type === AccountType.EXPENSE);
+
+        if (gstCollectedPosting) {
+          const gstAmt = Math.abs(gstCollectedPosting.amount);
+          gstCollected += gstAmt;
+
+          if (incomePosting) {
+            const categoryName = incomePosting.account.name;
+            const salesAmount = Math.abs(incomePosting.amount) + gstAmt;
+            const catData = byCategory.get(categoryName) || { sales: 0, purchases: 0, gstCollected: 0, gstPaid: 0 };
+            catData.sales += salesAmount;
+            catData.gstCollected += gstAmt;
+            byCategory.set(categoryName, catData);
+
+            const payeeData = byPayee.get(txn.payee) || { gstCollected: 0, gstPaid: 0 };
+            payeeData.gstCollected += gstAmt;
+            byPayee.set(txn.payee, payeeData);
+          }
+        }
+
+        if (gstPaidPosting) {
+          const gstAmt = Math.abs(gstPaidPosting.amount);
+          gstPaid += gstAmt;
+
+          const expensePosting = expensePostings[0];
+          if (expensePosting) {
+            const categoryName = expensePosting.account.name;
+            const purchaseAmount = Math.abs(expensePosting.amount) + gstAmt;
+            const catData = byCategory.get(categoryName) || { sales: 0, purchases: 0, gstCollected: 0, gstPaid: 0 };
+            catData.purchases += purchaseAmount;
+            catData.gstPaid += gstAmt;
+            byCategory.set(categoryName, catData);
+
+            const payeeData = byPayee.get(txn.payee) || { gstCollected: 0, gstPaid: 0 };
+            payeeData.gstPaid += gstAmt;
+            byPayee.set(txn.payee, payeeData);
+          }
+        }
+      }
     }
 
     const netGST = gstCollected - gstPaid;
@@ -256,69 +320,25 @@ export class ReportService {
   /**
    * Generate BAS Draft (Australian Business Activity Statement)
    * Cash basis, rounded to whole dollars
-   * Uses GST Collected and GST Paid accounts for accurate 1A/1B reporting
+   * Handles two GST recording patterns:
+   *   1. gstCode/gstAmount fields on income/expense postings (manual/CSV)
+   *   2. Separate postings to GST Collected/Paid accounts (Stripe imports)
    */
   async generateBASDraft(
     startDate: Date,
     endDate: Date
   ): Promise<BASDraft> {
-    // Find the GST Collected and GST Paid accounts
-    const gstCollectedAccount = await this.prisma.account.findFirst({
-      where: {
-        name: 'GST Collected',
-        type: AccountType.LIABILITY,
-        kind: 'CATEGORY',
-      },
-    });
+    let oneAGSTOnSales = 0;
+    let oneBGSTOnPurchases = 0;
+    let g1TotalSales = 0;
+    let g2ExportSales = 0;
+    let g3OtherGSTFree = 0;
+    let g10CapitalPurchases = 0;
+    let g11NonCapitalPurchases = 0;
 
-    const gstPaidAccount = await this.prisma.account.findFirst({
-      where: {
-        name: 'GST Paid',
-        type: AccountType.ASSET,
-        kind: 'CATEGORY',
-      },
-    });
+    const processedTransactionIds = new Set<string>();
 
-    if (!gstCollectedAccount || !gstPaidAccount) {
-      throw new Error('GST Collected and GST Paid accounts must exist for BAS reporting');
-    }
-
-    // Get all postings to GST Collected account (1A: GST on Sales)
-    const gstCollectedPostings = await this.prisma.posting.findMany({
-      where: {
-        accountId: gstCollectedAccount.id,
-        transaction: {
-          date: { gte: startDate, lte: endDate },
-          status: 'NORMAL',
-        },
-      },
-    });
-
-    // Get all postings to GST Paid account (1B: GST on Purchases)
-    const gstPaidPostings = await this.prisma.posting.findMany({
-      where: {
-        accountId: gstPaidAccount.id,
-        transaction: {
-          date: { gte: startDate, lte: endDate },
-          status: 'NORMAL',
-        },
-      },
-    });
-
-    // Calculate 1A and 1B from account postings
-    // GST Collected is a LIABILITY, so credits (negative amounts) increase the liability
-    // We want the absolute value of GST collected
-    const oneAGSTOnSales = Math.abs(
-      gstCollectedPostings.reduce((sum, p) => sum + p.amount, 0)
-    );
-
-    // GST Paid is an ASSET, so debits (positive amounts) increase the asset
-    // We want the absolute value of GST paid
-    const oneBGSTOnPurchases = Math.abs(
-      gstPaidPostings.reduce((sum, p) => sum + p.amount, 0)
-    );
-
-    // Get all business postings for sales and purchases calculations
+    // --- Pattern 1: gstCode/gstAmount on business postings ---
     const businessPostings = await this.prisma.posting.findMany({
       where: {
         isBusiness: true,
@@ -332,12 +352,6 @@ export class ReportService {
       },
     });
 
-    let g1TotalSales = 0; // Total sales (GST-exclusive)
-    let g2ExportSales = 0; // Export sales
-    let g3OtherGSTFree = 0; // Other GST-free sales
-    let g10CapitalPurchases = 0; // Capital purchases (GST-exclusive)
-    let g11NonCapitalPurchases = 0; // Non-capital purchases (GST-exclusive)
-
     for (const posting of businessPostings) {
       const isIncome = posting.account.type === AccountType.INCOME;
       const isExpense = posting.account.type === AccountType.EXPENSE;
@@ -346,8 +360,10 @@ export class ReportService {
       const amount = Math.abs(posting.amount);
       const gstExclusive = amount - gstAmount;
 
-      if (isIncome) {
-        // Sales
+      if (isIncome && gstCode) {
+        oneAGSTOnSales += gstAmount;
+        processedTransactionIds.add(posting.transactionId);
+
         if (gstCode === 'GST') {
           g1TotalSales += gstExclusive;
         } else if (gstCode === 'EXPORT') {
@@ -357,8 +373,10 @@ export class ReportService {
           g1TotalSales += amount;
           g3OtherGSTFree += amount;
         }
-      } else if (isExpense) {
-        // Purchases
+      } else if (isExpense && gstCode) {
+        oneBGSTOnPurchases += gstAmount;
+        processedTransactionIds.add(posting.transactionId);
+
         const isCapital = posting.account.name.toLowerCase().includes('capital') ||
                           posting.account.name.toLowerCase().includes('asset');
 
@@ -373,6 +391,66 @@ export class ReportService {
             g10CapitalPurchases += amount;
           } else {
             g11NonCapitalPurchases += amount;
+          }
+        }
+      }
+    }
+
+    // --- Pattern 2: GST account postings (Stripe imports) ---
+    const gstCollectedAccount = await this.prisma.account.findFirst({
+      where: { name: 'GST Collected', type: AccountType.LIABILITY, kind: 'CATEGORY' },
+    });
+    const gstPaidAccount = await this.prisma.account.findFirst({
+      where: { name: 'GST Paid', type: AccountType.ASSET, kind: 'CATEGORY' },
+    });
+
+    const gstAccountIds = [gstCollectedAccount?.id, gstPaidAccount?.id].filter(Boolean) as string[];
+
+    if (gstAccountIds.length > 0) {
+      const transactionsWithGstPostings = await this.prisma.transaction.findMany({
+        where: {
+          date: { gte: startDate, lte: endDate },
+          status: 'NORMAL',
+          id: { notIn: Array.from(processedTransactionIds) },
+          postings: {
+            some: { accountId: { in: gstAccountIds } },
+          },
+        },
+        include: {
+          postings: { include: { account: true } },
+        },
+      });
+
+      for (const txn of transactionsWithGstPostings) {
+        const gstCollectedPosting = txn.postings.find(p => p.accountId === gstCollectedAccount?.id);
+        const gstPaidPosting = txn.postings.find(p => p.accountId === gstPaidAccount?.id);
+        const incomePosting = txn.postings.find(p => p.account.type === AccountType.INCOME);
+        const expensePostings = txn.postings.filter(p => p.account.type === AccountType.EXPENSE);
+
+        if (gstCollectedPosting) {
+          const gstAmt = Math.abs(gstCollectedPosting.amount);
+          oneAGSTOnSales += gstAmt;
+
+          // Income posting amount is already GST-exclusive in Stripe pattern
+          if (incomePosting) {
+            g1TotalSales += Math.abs(incomePosting.amount);
+          }
+        }
+
+        if (gstPaidPosting) {
+          const gstAmt = Math.abs(gstPaidPosting.amount);
+          oneBGSTOnPurchases += gstAmt;
+
+          // Expense posting amount is already GST-exclusive in Stripe pattern
+          const expensePosting = expensePostings[0];
+          if (expensePosting) {
+            const isCapital = expensePosting.account.name.toLowerCase().includes('capital') ||
+                              expensePosting.account.name.toLowerCase().includes('asset');
+            if (isCapital) {
+              g10CapitalPurchases += Math.abs(expensePosting.amount);
+            } else {
+              g11NonCapitalPurchases += Math.abs(expensePosting.amount);
+            }
           }
         }
       }

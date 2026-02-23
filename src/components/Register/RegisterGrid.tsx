@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { format } from 'date-fns';
-import { Check, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle, Download, Upload, ArrowLeftRight, ExternalLink, Search } from 'lucide-react';
+import { Check, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle, Download, Upload, ArrowLeftRight, ExternalLink, Search, FolderInput } from 'lucide-react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import type { RegisterEntry, RegisterFilter, Account } from '../../types';
 import { transactionAPI } from '../../lib/api';
@@ -8,6 +8,9 @@ import { TransactionFormModal } from '../Transaction/TransactionFormModal';
 import { AccountSettingsModal } from '../Account/AccountSettingsModal';
 import { BankStatementImport } from '../Import/BankStatementImport';
 import { StripeImportModal } from '../Stripe/StripeImportModal';
+import { BulkCategorizeModal } from '../Transaction/BulkCategorizeModal';
+import { CategorySelector } from '../Category/CategorySelector';
+import * as Dialog from '@radix-ui/react-dialog';
 import { generateCSV, downloadCSV, formatDateForCSV, formatCurrencyForCSV } from '../../lib/utils/csvExport';
 import { useToast } from '../../hooks/useToast';
 
@@ -51,9 +54,12 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
   const [operationLoading, setOperationLoading] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [showStripeImportModal, setShowStripeImportModal] = useState(false);
+  const [showBulkCategorize, setShowBulkCategorize] = useState(false);
   const [showAccountSettings, setShowAccountSettings] = useState(false);
   const [account, setAccount] = useState<Account | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [recategorizingEntry, setRecategorizingEntry] = useState<RegisterEntry | null>(null);
+  const [recategorizeCategory, setRecategorizeCategory] = useState<string | null>(null);
 
   useEffect(() => {
     loadEntries();
@@ -348,6 +354,34 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
     };
   }, [contextMenu]);
 
+  const handleRecategorize = (entry: RegisterEntry) => {
+    // Pre-select the current category if there is one
+    const categoryPosting = entry.postings.find(p => p.accountId !== accountId && p.account.kind === 'CATEGORY');
+    setRecategorizeCategory(categoryPosting?.accountId ?? null);
+    setRecategorizingEntry(entry);
+  };
+
+  const handleRecategorizeSubmit = async () => {
+    if (!recategorizingEntry || !recategorizeCategory) return;
+
+    // Find the posting to change (the non-current-account posting)
+    const oldPosting = recategorizingEntry.postings.find(p => p.accountId !== accountId);
+    if (!oldPosting) return;
+
+    try {
+      setOperationLoading('recategorize');
+      await transactionAPI.recategorize(recategorizingEntry.id, oldPosting.accountId, recategorizeCategory);
+      showSuccess('Transaction recategorized');
+      setRecategorizingEntry(null);
+      setRecategorizeCategory(null);
+      await loadEntries();
+    } catch (error) {
+      showError((error as Error).message);
+    } finally {
+      setOperationLoading(null);
+    }
+  };
+
   /**
    * For a given register entry, find the other TRANSFER-kind account
    * (i.e. the other side of a bank-to-bank transfer).
@@ -486,6 +520,62 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
           await loadEntries();
         }}
       />
+
+      {/* Bulk Categorize Modal */}
+      <BulkCategorizeModal
+        isOpen={showBulkCategorize}
+        onClose={() => setShowBulkCategorize(false)}
+        onComplete={async () => {
+          await loadEntries();
+        }}
+        accountId={account?.id}
+      />
+
+      {/* Recategorize Dialog */}
+      <Dialog.Root open={!!recategorizingEntry} onOpenChange={(open) => {
+        if (!open) {
+          setRecategorizingEntry(null);
+          setRecategorizeCategory(null);
+        }
+      }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" />
+          <Dialog.Content className="fixed top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] bg-white dark:bg-slate-900 rounded-xl shadow-xl z-50 w-[95vw] max-w-md p-5">
+            <Dialog.Title className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-1">
+              <FolderInput className="w-5 h-5 text-amber-500" />
+              Recategorize
+            </Dialog.Title>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+              {recategorizingEntry?.payee}
+              {recategorizingEntry?.debit ? ` — ${formatCurrency(recategorizingEntry.debit)} debit` : ''}
+              {recategorizingEntry?.credit ? ` — ${formatCurrency(recategorizingEntry.credit)} credit` : ''}
+            </p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Category</label>
+              <CategorySelector
+                value={recategorizeCategory}
+                onChange={setRecategorizeCategory}
+                placeholder="Select new category..."
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => { setRecategorizingEntry(null); setRecategorizeCategory(null); }}
+                className="px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRecategorizeSubmit}
+                disabled={!recategorizeCategory || operationLoading === 'recategorize'}
+                className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg"
+              >
+                {operationLoading === 'recategorize' ? 'Saving...' : 'Apply'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
     </>
   );
 
@@ -647,6 +737,15 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
             >
               <Download className="w-4 h-4" />
               Sync from Stripe
+            </button>
+          )}
+          {account?.name === 'Uncategorized' && (
+            <button
+              onClick={() => setShowBulkCategorize(true)}
+              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5"
+            >
+              <Tag className="w-4 h-4" />
+              Bulk Categorize
             </button>
           )}
           <button
@@ -920,6 +1019,16 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
               Search for &ldquo;{contextMenu.entry.payee}&rdquo;
             </button>
           )}
+          <button
+            onClick={() => {
+              handleRecategorize(contextMenu.entry);
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors"
+          >
+            <FolderInput className="w-4 h-4 text-amber-500" />
+            Recategorize
+          </button>
           <button
             onClick={() => {
               handleEditTransaction(contextMenu.entry.id);

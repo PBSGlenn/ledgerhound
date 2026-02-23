@@ -452,6 +452,19 @@ export const bulkUpdateTransactionsSchema = z.object({
 });
 
 // ============================================================================
+// BULK RECATEGORIZE SCHEMAS
+// ============================================================================
+
+export const bulkRecategorizeSchema = z.object({
+  uncategorizedAccountId: z.string().uuid().optional(),
+  assignments: z.array(z.object({
+    payee: z.string().min(1),
+    categoryId: uuidSchema,
+    createRule: z.boolean().optional(),
+  })).min(1, 'At least one assignment is required'),
+});
+
+// ============================================================================
 // SPENDING ANALYSIS SCHEMAS
 // ============================================================================
 

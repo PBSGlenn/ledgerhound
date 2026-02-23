@@ -448,17 +448,20 @@ describe('ReportService', () => {
       expect(report.g1TotalSales).toBeCloseTo(expectedG1, 0); // Rounded to whole dollar
     });
 
-    it('should throw error if GST accounts dont exist', async () => {
-      // Reset database to empty state (no GST accounts)
+    it('should return zeros when no business postings exist', async () => {
+      // Reset database to empty state
       await resetTestDb(prisma);
       const emptyReportService = new ReportService(prisma);
 
-      await expect(
-        emptyReportService.generateBASDraft(
-          new Date('2025-01-01'),
-          new Date('2025-01-31')
-        )
-      ).rejects.toThrow('GST Collected and GST Paid accounts must exist');
+      const result = await emptyReportService.generateBASDraft(
+        new Date('2025-01-01'),
+        new Date('2025-01-31')
+      );
+
+      expect(result.oneAGSTOnSales).toBe(0);
+      expect(result.oneBGSTOnPurchases).toBe(0);
+      expect(result.g1TotalSales).toBe(0);
+      expect(result.netGST).toBe(0);
     });
   });
 

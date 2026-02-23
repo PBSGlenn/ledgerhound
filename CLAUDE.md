@@ -87,6 +87,10 @@ See [STRIPE_ACCOUNTING_EXPLAINED.md](./STRIPE_ACCOUNTING_EXPLAINED.md) for detai
 - 10% standard rate; explicit postings to GST Collected (LIABILITY) and GST Paid (ASSET) categories
 - Net GST position = GST Collected - GST Paid
 - BAS payments are bank-to-ATO transfers (not to/from GST accounts)
+- **Two GST recording patterns** (both must be handled in reports):
+  - Pattern 1: `gstCode`/`gstAmount` fields on business postings (manual entry, CSV imports)
+  - Pattern 2: Separate postings to GST Collected/Paid accounts (Stripe imports)
+  - Reports use `processedTransactionIds` set to avoid double-counting between patterns
 
 ### Services Layer
 - **accountService**: CRUD, balances, archiving, hierarchies
@@ -113,10 +117,15 @@ Key endpoint groups:
 - Import, Reconciliation, Memorized Rules, Backups, Stripe
 - Transfer matching: `POST /api/transfers/match-preview`, `POST /api/transfers/commit`
 - Transaction search/bulk: `POST /api/transactions/search`, `POST /api/transactions/bulk-update`
+- Bulk categorize: `GET /api/transactions/uncategorized-summary`, `POST /api/transactions/bulk-recategorize`
+- Single recategorize: `POST /api/transactions/:id/recategorize`
+
+**IMPORTANT: Express route ordering** — Named routes like `/api/transactions/uncategorized-summary` MUST be registered BEFORE wildcard routes like `/api/transactions/:id`, otherwise Express matches the wildcard first. Always place specific GET routes above `/:id` catch-all routes.
 
 ### Database
 - SQLite via Prisma ORM; composite indexes on Posting and Transaction tables for performance
 - Migrations in `prisma/migrations/` (latest: `add_ato_label`)
+- **Prisma relation pitfall**: When a model has a relation (e.g. `MemorizedRule.defaultAccount`), use `defaultAccount: { connect: { id: ... } }` in `create()`, NOT `defaultAccountId: ...` directly
 
 ## Testing
 
@@ -136,7 +145,7 @@ Run: `npm test`
 - Run: `npm run test:e2e` (stop API server first with `Ctrl+C`)
 - Debug modes: `npm run test:e2e:ui`, `npm run test:e2e:headed`, `npm run test:e2e:debug`
 
-## Current Status (2026-02-19)
+## Current Status (2026-02-23)
 
 ### What's Working
 - Complete double-entry accounting engine with GST validation
@@ -148,12 +157,16 @@ Run: `npm test`
 - PDF reconciliation with smart transaction matching (saves 70-80% reconciliation time)
 - Global transaction search (Ctrl+F) with filters and batch operations
 - Transfer matching wizard using Hungarian algorithm for duplicate detection
+- Bulk categorize: group uncategorized transactions by payee, assign categories, create rules
+- Right-click recategorize: quick category change from register context menu
 - Automatic backup/restore system
 - Settings with general, categories, rules, Stripe, backups, and tax tables tabs
 - Desktop launcher (`start-ledgerhound.bat`)
 - 402 unit tests, 16 E2E tests all passing
 
 ### Recent Changes (February 2026)
+- **Bulk Categorize & Recategorize** (2026-02-23): Bulk Categorize modal groups uncategorized transactions by payee with category selectors and optional memorized rule creation. Right-click context menu "Recategorize" option for quick single-transaction category changes. New endpoints: `GET /api/transactions/uncategorized-summary`, `POST /api/transactions/bulk-recategorize`, `POST /api/transactions/:id/recategorize`. New component: `BulkCategorizeModal.tsx`.
+- **GST Report Fixes** (2026-02-23): Fixed GST Summary and BAS Draft to handle two GST recording patterns — (1) gstCode/gstAmount on business postings (CSV imports) and (2) separate postings to GST Collected/Paid accounts (Stripe imports). Both reports now use dual-pattern detection with deduplication via processedTransactionIds set.
 - **Spending Analysis Report** (2026-02-19): New Reports tab for analyzing spending by category, payee, or both. Filters: date range, category multi-select with hierarchy expansion, payee tags, weekly/monthly granularity, business-only, include income. Summary cards: Grand Total, Transaction Count, Avg/Period, Highest Period. Time-series bar chart (recharts). Sub-views: By Category (horizontal bar + donut + sortable table), By Payee (same), Combined (stacked bars + breakdown table). CSV export per sub-view. New files: `SpendingAnalysisReport.tsx`, `CategoryMultiSelect.tsx`. New endpoint: `POST /api/reports/spending-analysis`. New dependency: recharts.
 - **Validation bug fix** (2026-02-19): Fixed `sendValidationError` in `validation.ts` using `error.errors` (undefined) instead of `error.issues` - was silently breaking all Zod validation error responses.
 - **Global Transaction Search** (2026-02-17): Search across all accounts, filters, batch operations, Ctrl+F shortcut, navigate-to-transaction with pulse highlight.

@@ -422,6 +422,54 @@ export const transactionAPI = {
     }
     return await response.json();
   },
+
+  async getUncategorizedSummary(accountId?: string): Promise<{
+    payees: Array<{
+      payee: string;
+      count: number;
+      totalAmount: number;
+      earliestDate: string;
+      latestDate: string;
+      transactionIds: string[];
+    }>;
+    totalCount: number;
+    uncategorizedAccountId?: string;
+  }> {
+    const params = accountId ? `?accountId=${accountId}` : '';
+    const response = await fetch(`${API_BASE}/transactions/uncategorized-summary${params}`);
+    if (!response.ok) throw new Error('Failed to fetch uncategorized summary');
+    return await response.json();
+  },
+
+  async bulkRecategorize(assignments: Array<{
+    payee: string;
+    categoryId: string;
+    createRule?: boolean;
+  }>, uncategorizedAccountId?: string): Promise<{ updated: number; rulesCreated: number }> {
+    const response = await fetch(`${API_BASE}/transactions/bulk-recategorize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignments, uncategorizedAccountId }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to bulk recategorize');
+    }
+    return await response.json();
+  },
+
+  async recategorize(transactionId: string, oldAccountId: string, newAccountId: string): Promise<{ success: boolean }> {
+    const response = await fetch(`${API_BASE}/transactions/${transactionId}/recategorize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldAccountId, newAccountId }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to recategorize transaction');
+    }
+    return await response.json();
+  },
 };
 
 /**
