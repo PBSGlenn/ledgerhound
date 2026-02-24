@@ -154,13 +154,24 @@ export class ReconciliationService {
     let reconciledCount = 0;
     let unreconciledCount = 0;
 
+    // LIABILITY accounts (credit cards) store amounts with inverted sign convention
+    // relative to how statement balances work. A charge (increasing what you owe)
+    // is stored as a negative posting amount, but on the statement it increases the balance.
+    // We need to invert the sign so the reconciliation formula works correctly:
+    //   statementStartBalance + reconciledAmount = statementEndBalance
+    const account = await this.prisma.account.findUnique({
+      where: { id: reconciliation.accountId },
+      select: { type: true },
+    });
+    const signMultiplier = account?.type === 'LIABILITY' ? -1 : 1;
+
     for (const posting of periodPostings) {
       // Check if this posting is reconciled in THIS session
       if (posting.reconciled && posting.reconcileId === reconciliationId) {
-        reconciledAmount += posting.amount;
+        reconciledAmount += posting.amount * signMultiplier;
         reconciledCount++;
       } else if (!posting.reconciled) {
-        unreconciledAmount += posting.amount;
+        unreconciledAmount += posting.amount * signMultiplier;
         unreconciledCount++;
       }
       // Note: postings reconciled in OTHER sessions are excluded from both counts
@@ -373,12 +384,15 @@ export class ReconciliationService {
 
     // Try to find combination that matches statement balance
     // For now, use simple approach: mark all cleared postings
+    // LIABILITY accounts need sign inversion for reconciliation math
+    const signMultiplier = account.type === 'LIABILITY' ? -1 : 1;
+
     let runningBalance = account.openingBalance;
     const matched: string[] = [];
 
     for (const posting of postings) {
       if (posting.cleared) {
-        runningBalance += posting.amount;
+        runningBalance += posting.amount * signMultiplier;
         matched.push(posting.id);
       }
     }
