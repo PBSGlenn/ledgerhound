@@ -270,6 +270,64 @@ describe('ReconciliationService', () => {
       expect(status.statementBalance).toBe(1000);
       expect(status.difference).toBeCloseTo(-100, 2);
     });
+
+    it('should calculate correct status for LIABILITY (credit card) account', async () => {
+      // Credit card charge: -100 posting on credit card (increases what you owe)
+      await transactionService.createTransaction({
+        date: new Date('2025-01-15'),
+        payee: 'Store Purchase',
+        postings: [
+          { accountId: accounts.creditCard.id, amount: -100, isBusiness: false },
+          { accountId: accounts.groceries.id, amount: 100, isBusiness: false },
+        ],
+      });
+
+      // Credit card payment: +500 posting on credit card (reduces what you owe)
+      await transactionService.createTransaction({
+        date: new Date('2025-01-20'),
+        payee: 'Credit Card Payment',
+        postings: [
+          { accountId: accounts.creditCard.id, amount: 500, isBusiness: false },
+          { accountId: accounts.personalChecking.id, amount: -500, isBusiness: false },
+        ],
+      });
+
+      // Statement perspective (LIABILITY sign-inverted):
+      // Charge of 100 shows as +100 on statement, payment of 500 shows as -500
+      // Net change on statement: +100 - 500 = -400
+      // Opening 0, closing -400 (i.e., net credit/overpayment)
+      //
+      // With sign inversion: reconciledAmount = (-100 * -1) + (500 * -1) = 100 - 500 = -400
+      // expectedEnd = 0 + (-400) = -400
+      const reconciliation = await reconciliationService.createReconciliation({
+        accountId: accounts.creditCard.id,
+        statementStartDate: new Date('2025-01-01'),
+        statementEndDate: new Date('2025-01-31'),
+        statementStartBalance: 0,
+        statementEndBalance: -400,
+      });
+
+      // Reconcile all credit card postings
+      const creditCardPostings = await prisma.posting.findMany({
+        where: { accountId: accounts.creditCard.id },
+      });
+
+      await reconciliationService.reconcilePostings(
+        reconciliation.id,
+        creditCardPostings.map((p) => p.id)
+      );
+
+      const status = await reconciliationService.getReconciliationStatus(reconciliation.id);
+
+      // With LIABILITY sign inversion applied:
+      // reconciledAmount = (-100 * -1) + (500 * -1) = 100 + (-500) = -400
+      // expectedEndBalance = 0 + (-400) = -400
+      // difference = -400 - (-400) = 0
+      expect(status.reconciledAmount).toBeCloseTo(-400, 2);
+      expect(status.expectedEndBalance).toBeCloseTo(-400, 2);
+      expect(status.isBalanced).toBe(true);
+      expect(Math.abs(status.difference)).toBeLessThan(0.01);
+    });
   });
 
   describe('reconcilePostings', () => {
@@ -612,6 +670,43 @@ describe('ReconciliationService', () => {
         accounts.personalChecking.id,
         new Date('2025-01-31'),
         1500 // 1000 + 500
+      );
+
+      expect(result.matched).toHaveLength(1);
+      expect(result.difference).toBeCloseTo(0, 2);
+    });
+
+    it('should auto-reconcile LIABILITY (credit card) with sign inversion', async () => {
+      await accountService.updateAccount(accounts.creditCard.id, {
+        openingBalance: 0,
+      });
+
+      // Credit card charge: -100 posting (increases balance owed)
+      await transactionService.createTransaction({
+        date: new Date('2025-01-15'),
+        payee: 'Store Purchase',
+        postings: [
+          { accountId: accounts.creditCard.id, amount: -100, isBusiness: false },
+          { accountId: accounts.groceries.id, amount: 100, isBusiness: false },
+        ],
+      });
+
+      // Mark as cleared
+      const postings = await prisma.posting.findMany({
+        where: { accountId: accounts.creditCard.id },
+      });
+
+      await prisma.posting.updateMany({
+        where: { id: { in: postings.map((p) => p.id) } },
+        data: { cleared: true },
+      });
+
+      // Statement: opening 0, charge of 100 → closing 100 (statement perspective)
+      // With sign inversion: runningBalance = 0 + (-100 * -1) = 100
+      const result = await reconciliationService.autoReconcile(
+        accounts.creditCard.id,
+        new Date('2025-01-31'),
+        100 // Statement shows 100 owed
       );
 
       expect(result.matched).toHaveLength(1);
