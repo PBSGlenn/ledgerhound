@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import { execSync } from 'child_process';
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { accountService } from '../src/lib/services/accountService.js';
@@ -1843,6 +1843,28 @@ app.get('/api/books/active-db', (_req, res) => {
   res.json({
     currentDbUrl: getCurrentDbUrl() || process.env.DATABASE_URL || 'file:./dev.db',
   });
+});
+
+// GET /api/books/available-databases — List available SQLite databases in prisma/books/
+app.get('/api/books/available-databases', (_req, res) => {
+  try {
+    const booksDir = join(projectRoot, 'prisma', 'books');
+    const databases: Array<{ databasePath: string }> = [];
+    if (existsSync(booksDir)) {
+      const entries = readdirSync(booksDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const dbFile = join(booksDir, entry.name, 'ledger.db');
+          if (existsSync(dbFile)) {
+            databases.push({ databasePath: `books/${entry.name}/ledger.db` });
+          }
+        }
+      }
+    }
+    res.json({ databases, activeDatabasePath: loadActiveDbPath() });
+  } catch (error) {
+    return sendServerError(res, error);
+  }
 });
 
 // ============================================================================

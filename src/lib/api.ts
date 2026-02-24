@@ -1186,6 +1186,15 @@ export const booksAPI = {
     }
     return await response.json();
   },
+
+  async getAvailableDatabases(): Promise<{ databases: Array<{ databasePath: string }>; activeDatabasePath: string | null }> {
+    const response = await fetch(`${API_BASE}/books/available-databases`);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to get available databases');
+    }
+    return await response.json();
+  },
 };
 
 /**

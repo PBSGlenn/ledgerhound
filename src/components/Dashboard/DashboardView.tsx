@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { TrendingUp, TrendingDown, Wallet, AlertCircle, Clock, Briefcase, User } from 'lucide-react';
 import type { AccountWithBalance, RegisterEntry } from '../../types';
+
+interface DashboardEntry extends RegisterEntry {
+  accountId: string;
+}
 import { transactionAPI } from '../../lib/api';
 
 interface DashboardProps {
@@ -21,7 +25,7 @@ interface Summary {
 }
 
 export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _onShowAccountSetup }: DashboardProps) {
-  const [recentTransactions, setRecentTransactions] = useState<RegisterEntry[]>([]);
+  const [recentTransactions, setRecentTransactions] = useState<DashboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -32,12 +36,12 @@ export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _
     setLoading(true);
     try {
       // Get recent transactions from all accounts
-      const allTransactions: RegisterEntry[] = [];
+      const allTransactions: DashboardEntry[] = [];
 
       for (const account of accounts.filter(a => a.type === 'ASSET' || a.type === 'LIABILITY')) {
         try {
           const entries = await transactionAPI.getRegisterEntries(account.id);
-          allTransactions.push(...entries.slice(0, 5)); // Get last 5 from each
+          allTransactions.push(...entries.slice(0, 5).map(e => ({ ...e, accountId: account.id })));
         } catch (err) {
           console.error(`Failed to load transactions for ${account.name}:`, err);
         }
@@ -144,14 +148,14 @@ export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _
             )}
           </div>
           <div className="text-xl font-bold text-slate-900 dark:text-white">
-            {formatCurrency(summary.totalIncome - summary.totalExpenses)}
+            {formatCurrency(Math.abs(summary.totalIncome) - Math.abs(summary.totalExpenses))}
           </div>
           <div className="mt-2 flex items-center gap-4 text-xs">
             <span className="text-green-600 dark:text-green-400">
-              ↑ {formatCurrency(summary.totalIncome)}
+              ↑ {formatCurrency(Math.abs(summary.totalIncome))}
             </span>
             <span className="text-red-600 dark:text-red-400">
-              ↓ {formatCurrency(summary.totalExpenses)}
+              ↓ {formatCurrency(Math.abs(summary.totalExpenses))}
             </span>
           </div>
         </div>
@@ -236,7 +240,7 @@ export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _
                       <span className="font-medium text-slate-900 dark:text-white truncate">
                         {entry.payee || 'Unknown'}
                       </span>
-                      {entry.isBusiness && (
+                      {entry.postings.some(p => p.isBusiness) && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
                           <Briefcase className="w-3 h-3 mr-1" />
                           Business
@@ -246,20 +250,29 @@ export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _
                     <div className="flex items-center gap-2 mt-1 text-sm text-slate-500 dark:text-slate-400">
                       <span>{formatDate(entry.date)}</span>
                       <span>•</span>
-                      <span className="truncate">{entry.categoryName || entry.memo || 'No category'}</span>
+                      <span className="truncate">
+                        {entry.postings.find(p => p.account.kind === 'CATEGORY')?.account.name || entry.memo || 'No category'}
+                      </span>
                     </div>
                   </div>
                   <div className="ml-4 text-right">
-                    <div className={`font-semibold ${
-                      entry.amount >= 0
-                        ? 'text-green-600 dark:text-green-400'
-                        : 'text-red-600 dark:text-red-400'
-                    }`}>
-                      {entry.amount >= 0 ? '+' : ''}{formatCurrency(entry.amount)}
-                    </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                      Bal: {formatCurrency(entry.balance)}
-                    </div>
+                    {(() => {
+                      const amount = (entry.credit ?? 0) - (entry.debit ?? 0);
+                      return (
+                        <>
+                          <div className={`font-semibold ${
+                            amount >= 0
+                              ? 'text-green-600 dark:text-green-400'
+                              : 'text-red-600 dark:text-red-400'
+                          }`}>
+                            {amount >= 0 ? '+' : ''}{formatCurrency(amount)}
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            Bal: {formatCurrency(entry.runningBalance)}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>

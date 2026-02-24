@@ -40,7 +40,7 @@ if errorlevel 1 (
 echo.
 
 REM Open browser after a short delay (in background)
-start "" cmd /c "timeout /t 3 /nobreak >nul && start http://localhost:3001"
+start "" cmd /c "timeout /t 3 /nobreak >nul && start chrome http://localhost:3001"
 
 echo Starting Ledgerhound server on http://localhost:3001
 echo Press Ctrl+C to stop.

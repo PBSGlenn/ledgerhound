@@ -32,6 +32,33 @@ export default function App() {
       const firstRun = bookManager.isFirstRun();
       setIsFirstRun(firstRun);
 
+      if (firstRun) {
+        // localStorage was cleared but databases may still exist on disk — auto-reconnect
+        try {
+          const { databases, activeDatabasePath } = await booksAPI.getAvailableDatabases();
+          const targetPath = (activeDatabasePath?.startsWith('books/') ? activeDatabasePath : null)
+            ?? databases.find(d => d.databasePath.startsWith('books/'))?.databasePath;
+          if (targetPath) {
+            const book = bookManager.createBook({
+              name: 'My Books',
+              ownerName: '',
+              databasePath: targetPath,
+              currency: 'AUD',
+              dateFormat: 'DD/MM/YYYY',
+              fiscalYearStart: '07-01',
+            });
+            bookManager.setActiveBook(book.id);
+            await switchServerDatabase(book);
+            setCurrentBook(book);
+            setIsFirstRun(false);
+            setIsLoading(false);
+            return;
+          }
+        } catch (e) {
+          // Ignore — fall through to normal onboarding wizard
+        }
+      }
+
       if (!firstRun) {
         // Load active book
         let activeBook = bookManager.getActiveBook();
