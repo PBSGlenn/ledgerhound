@@ -122,6 +122,8 @@ Key endpoint groups:
 
 **IMPORTANT: Express route ordering** — Named routes like `/api/transactions/uncategorized-summary` MUST be registered BEFORE wildcard routes like `/api/transactions/:id`, otherwise Express matches the wildcard first. Always place specific GET routes above `/:id` catch-all routes.
 
+**IMPORTANT: Register filter naming convention** — The canonical field names used by `transactionService.getRegisterEntries()` are `dateFrom`/`dateTo`/`search`/`clearedOnly`/`reconciledOnly`/`businessOnly`/`personalOnly`. The API client (`src/lib/api.ts`) and server endpoint (`src-server/api.ts`) must map to these exact names. Do NOT use `startDate`/`endDate`/`searchText` — those were a naming mismatch bug that silently broke all register filtering.
+
 ### Database
 - SQLite via Prisma ORM; composite indexes on Posting and Transaction tables for performance
 - Migrations in `prisma/migrations/` (latest: `add_ato_label`)
@@ -129,14 +131,15 @@ Key endpoint groups:
 
 ## Testing
 
-### Unit Tests (Vitest) - 402 tests, all passing
+### Unit Tests (Vitest) - 838 passing, 2 pre-existing failures
 ```
 accountService (45)      categoryService (36)     transactionService (68)
 importService (31)       reconciliationService (29) reportService (22)
 memorizedRuleService (20) backupService (15)       settingsService (7)
 stripeImportService (28) pdfStatementService (32) reconciliationMatchingService (29)
-bookManager (43)
+bookManager (43)         accountFilters (5)       transactions (7)
 ```
+Note: 2 failing tests in `categoryService` (`getCategoryTree > should build tree with virtual parent nodes`) are pre-existing and duplicated across worktree.
 Run: `npm test`
 
 ### E2E Tests (Playwright) - 16 tests across 4 suites
@@ -145,7 +148,7 @@ Run: `npm test`
 - Run: `npm run test:e2e` (stop API server first with `Ctrl+C`)
 - Debug modes: `npm run test:e2e:ui`, `npm run test:e2e:headed`, `npm run test:e2e:debug`
 
-## Current Status (2026-02-23)
+## Current Status (2026-02-24)
 
 ### What's Working
 - Complete double-entry accounting engine with GST validation
@@ -162,9 +165,10 @@ Run: `npm test`
 - Automatic backup/restore system
 - Settings with general, categories, rules, Stripe, backups, and tax tables tabs
 - Desktop launcher (`start-ledgerhound.bat`)
-- 402 unit tests, 16 E2E tests all passing
+- 838 unit tests (2 pre-existing failures), 16 E2E tests all passing
 
 ### Recent Changes (February 2026)
+- **Reconciliation: locked items & register filter fix** (2026-02-24): Fixed two bugs where (1) date filters on the register endpoint were silently ignored due to naming mismatches across three layers (`dateFrom`/`dateTo` vs `startDate`/`endDate`) and (2) previously reconciled (locked) transactions appeared in new reconciliation sessions. Standardized `RegisterFilter` on canonical field names (`dateFrom`/`dateTo`/`search`), fixed server-to-service mapping (`clearedOnly`/`reconciledOnly`), and added client-side `reconcileId` filtering in `ReconciliationSession.tsx`. Files changed: `src/lib/api.ts`, `src-server/api.ts`, `src/types/index.ts`, `src/components/Register/RegisterGrid.tsx`, `src/components/Reconciliation/ReconciliationSession.tsx`.
 - **Bulk Categorize & Recategorize** (2026-02-23): Bulk Categorize modal groups uncategorized transactions by payee with category selectors and optional memorized rule creation. Right-click context menu "Recategorize" option for quick single-transaction category changes. New endpoints: `GET /api/transactions/uncategorized-summary`, `POST /api/transactions/bulk-recategorize`, `POST /api/transactions/:id/recategorize`. New component: `BulkCategorizeModal.tsx`.
 - **GST Report Fixes** (2026-02-23): Fixed GST Summary and BAS Draft to handle two GST recording patterns — (1) gstCode/gstAmount on business postings (CSV imports) and (2) separate postings to GST Collected/Paid accounts (Stripe imports). Both reports now use dual-pattern detection with deduplication via processedTransactionIds set.
 - **Spending Analysis Report** (2026-02-19): New Reports tab for analyzing spending by category, payee, or both. Filters: date range, category multi-select with hierarchy expansion, payee tags, weekly/monthly granularity, business-only, include income. Summary cards: Grand Total, Transaction Count, Avg/Period, Highest Period. Time-series bar chart (recharts). Sub-views: By Category (horizontal bar + donut + sortable table), By Payee (same), Combined (stacked bars + breakdown table). CSV export per sub-view. New files: `SpendingAnalysisReport.tsx`, `CategoryMultiSelect.tsx`. New endpoint: `POST /api/reports/spending-analysis`. New dependency: recharts.

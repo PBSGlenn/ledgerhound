@@ -203,10 +203,7 @@ export interface TagSummary {
 export interface RegisterFilter {
   dateFrom?: Date;
   dateTo?: Date;
-  startDate?: Date;  // Alternative naming for API compatibility
-  endDate?: Date;    // Alternative naming for API compatibility
   search?: string;
-  searchText?: string;  // Alternative naming for API compatibility
   tags?: string[];
   amountMin?: number;
   amountMax?: number;

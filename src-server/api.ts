@@ -488,11 +488,11 @@ app.post('/api/categories/:id/archive', async (req, res) => {
 app.get('/api/transactions/register/:accountId', async (req, res) => {
   try {
     const filter = {
-      startDate: req.query.startDate ? new Date(req.query.startDate as string) : undefined,
-      endDate: req.query.endDate ? new Date(req.query.endDate as string) : undefined,
-      searchText: req.query.searchText as string | undefined,
-      cleared: req.query.cleared === 'true' ? true : req.query.cleared === 'false' ? false : undefined,
-      reconciled: req.query.reconciled === 'true' ? true : req.query.reconciled === 'false' ? false : undefined,
+      dateFrom: req.query.dateFrom ? new Date(req.query.dateFrom as string) : undefined,
+      dateTo: req.query.dateTo ? new Date(req.query.dateTo as string) : undefined,
+      search: req.query.search as string | undefined,
+      clearedOnly: req.query.cleared === 'true' ? true : undefined,
+      reconciledOnly: req.query.reconciled === 'true' ? true : undefined,
     };
     const entries = await transactionService.getRegisterEntries(req.params.accountId, filter);
     res.json(entries);

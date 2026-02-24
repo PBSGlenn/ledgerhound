@@ -306,9 +306,9 @@ export const transactionAPI = {
     filter?: RegisterFilter
   ): Promise<RegisterEntry[]> {
     const params = new URLSearchParams();
-    if (filter?.startDate) params.set('startDate', filter.startDate.toISOString());
-    if (filter?.endDate) params.set('endDate', filter.endDate.toISOString());
-    if (filter?.searchText) params.set('searchText', filter.searchText);
+    if (filter?.dateFrom) params.set('dateFrom', filter.dateFrom.toISOString());
+    if (filter?.dateTo) params.set('dateTo', filter.dateTo.toISOString());
+    if (filter?.search) params.set('search', filter.search);
     if (filter?.cleared !== undefined) params.set('cleared', String(filter.cleared));
     if (filter?.reconciled !== undefined) params.set('reconciled', String(filter.reconciled));
 

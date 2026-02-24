@@ -147,18 +147,25 @@ export function ReconciliationSession({
       setStatus(statusData);
 
       // Load transactions for the statement period
-      const txns = await transactionAPI.getRegisterEntries(accountId, {
+      const allTxns = await transactionAPI.getRegisterEntries(accountId, {
         dateFrom: new Date(reconData.statementStartDate),
         dateTo: new Date(reconData.statementEndDate),
       });
 
+      // Filter out transactions reconciled in OTHER (locked) sessions
+      const txns = allTxns.filter((txn) => {
+        const posting = txn.postings.find((p: any) => p.accountId === accountId);
+        // Keep if: not reconciled, or reconciled in THIS session
+        return !posting?.reconciled || posting?.reconcileId === reconciliationId;
+      });
+
       setTransactions(txns);
 
-      // Set initially reconciled IDs
+      // Set initially reconciled IDs — only from THIS session
       const reconciled = new Set<string>();
       txns.forEach((txn) => {
-        const posting = txn.postings.find((p) => p.accountId === accountId);
-        if (posting?.reconciled) {
+        const posting = txn.postings.find((p: any) => p.accountId === accountId);
+        if (posting?.reconciled && posting?.reconcileId === reconciliationId) {
           reconciled.add(txn.id);
         }
       });

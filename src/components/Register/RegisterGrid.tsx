@@ -44,7 +44,7 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   useEffect(() => {
-    setFilter(prev => ({ ...prev, searchText: debouncedSearchTerm }));
+    setFilter(prev => ({ ...prev, search: debouncedSearchTerm }));
   }, [debouncedSearchTerm]);
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
   const [deletingTransactionId, setDeletingTransactionId] = useState<string | null>(null);
@@ -622,8 +622,8 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
           <label className="text-sm font-medium text-slate-600 dark:text-slate-400">From:</label>
           <input
             type="date"
-            value={filter.startDate ? format(filter.startDate, 'yyyy-MM-dd') : ''}
-            onChange={(e) => setFilter({ ...filter, startDate: new Date(e.target.value) })}
+            value={filter.dateFrom ? format(filter.dateFrom, 'yyyy-MM-dd') : ''}
+            onChange={(e) => setFilter({ ...filter, dateFrom: new Date(e.target.value) })}
             className="px-2 py-1 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white"
           />
         </div>
@@ -631,8 +631,8 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
           <label className="text-sm font-medium text-slate-600 dark:text-slate-400">To:</label>
           <input
             type="date"
-            value={filter.endDate ? format(filter.endDate, 'yyyy-MM-dd') : ''}
-            onChange={(e) => setFilter({ ...filter, endDate: new Date(e.target.value) })}
+            value={filter.dateTo ? format(filter.dateTo, 'yyyy-MM-dd') : ''}
+            onChange={(e) => setFilter({ ...filter, dateTo: new Date(e.target.value) })}
             className="px-2 py-1 border border-slate-300 dark:border-slate-600 rounded-lg dark:bg-slate-700 dark:text-white"
           />
         </div>
