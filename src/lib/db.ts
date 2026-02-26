@@ -6,6 +6,23 @@ let realPrisma: PrismaClient | null = null;
 // Track current database URL
 let currentDbUrl: string | null = null;
 
+// Track whether PRAGMAs have been applied to the current connection
+let pragmasApplied = false;
+
+/**
+ * Apply SQLite PRAGMAs for performance and integrity.
+ * Called once per connection.
+ */
+async function applyPragmas(client: PrismaClient): Promise<void> {
+  try {
+    await client.$executeRawUnsafe('PRAGMA journal_mode=WAL');
+    await client.$executeRawUnsafe('PRAGMA busy_timeout=5000');
+    await client.$executeRawUnsafe('PRAGMA foreign_keys=ON');
+  } catch (error) {
+    console.error('Failed to apply SQLite PRAGMAs:', error);
+  }
+}
+
 /**
  * Proxy that always delegates to the current real PrismaClient.
  * Services that store getPrismaClient() at construction time will
@@ -17,6 +34,11 @@ const prismaProxy = new Proxy({} as PrismaClient, {
       realPrisma = new PrismaClient({
         log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
       });
+      // Apply PRAGMAs on first use (async, but WAL mode is sticky after first call)
+      if (!pragmasApplied) {
+        pragmasApplied = true;
+        applyPragmas(realPrisma);
+      }
     }
     return (realPrisma as any)[prop];
   },
@@ -48,6 +70,9 @@ export async function switchDatabase(dbUrl: string): Promise<void> {
     datasourceUrl: dbUrl,
     log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
   });
+
+  // Apply PRAGMAs to the new connection
+  await applyPragmas(realPrisma);
 }
 
 /**
@@ -62,5 +87,6 @@ export async function disconnectPrisma(): Promise<void> {
     await realPrisma.$disconnect();
     realPrisma = null;
     currentDbUrl = null;
+    pragmasApplied = false;
   }
 }

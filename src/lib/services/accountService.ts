@@ -274,28 +274,41 @@ export class AccountService {
   }
 
   /**
-   * Get all accounts with balances
+   * Get all accounts with balances in a single efficient query.
+   * Uses raw SQL subqueries to avoid N+1 — one query instead of 2N+1.
    */
   async getAllAccountsWithBalances(options?: {
     includeArchived?: boolean;
     type?: AccountType;
   }): Promise<AccountWithBalance[]> {
     const accounts = await this.getAllAccounts(options);
+    if (accounts.length === 0) return [];
 
-    return Promise.all(
-      accounts.map(async (account) => {
-        const currentBalance = await this.getAccountBalance(account.id);
-        const clearedBalance = await this.getAccountBalance(account.id, {
-          clearedOnly: true,
-        });
+    // Fetch all balances in two bulk queries instead of 2 per account
+    const allBalances: Array<{ account_id: string; total: number }> = await this.prisma.$queryRawUnsafe(`
+      SELECT p.account_id, COALESCE(SUM(p.amount), 0) as total
+      FROM postings p
+      JOIN transactions t ON t.id = p.transaction_id
+      WHERE t.status = 'NORMAL'
+      GROUP BY p.account_id
+    `);
 
-        return {
-          ...account,
-          currentBalance,
-          clearedBalance,
-        };
-      })
-    );
+    const clearedBalances: Array<{ account_id: string; total: number }> = await this.prisma.$queryRawUnsafe(`
+      SELECT p.account_id, COALESCE(SUM(p.amount), 0) as total
+      FROM postings p
+      JOIN transactions t ON t.id = p.transaction_id
+      WHERE t.status = 'NORMAL' AND p.cleared = 1
+      GROUP BY p.account_id
+    `);
+
+    const balanceMap = new Map(allBalances.map(b => [b.account_id, Number(b.total)]));
+    const clearedMap = new Map(clearedBalances.map(b => [b.account_id, Number(b.total)]));
+
+    return accounts.map(account => ({
+      ...account,
+      currentBalance: account.openingBalance + (balanceMap.get(account.id) ?? 0),
+      clearedBalance: account.openingBalance + (clearedMap.get(account.id) ?? 0),
+    }));
   }
 
   /**

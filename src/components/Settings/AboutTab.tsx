@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Download, CheckCircle2, AlertTriangle, GitBranch, GitCommit, Clock, Server, HardDrive, Loader2 } from 'lucide-react';
+import { RefreshCw, CheckCircle2, GitBranch, GitCommit, Clock, Server, HardDrive, Loader2, ExternalLink } from 'lucide-react';
 import { systemAPI, backupAPI } from '../../lib/api';
 import type { VersionInfo, UpdateCheck } from '../../lib/api';
 import { useToast } from '../../hooks/useToast';
@@ -18,8 +18,6 @@ export function AboutTab() {
   const [dbStats, setDBStats] = useState<DBStats | null>(null);
   const [loadingVersion, setLoadingVersion] = useState(true);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [updating, setUpdating] = useState(false);
-  const [updateComplete, setUpdateComplete] = useState(false);
 
   useEffect(() => {
     loadVersionInfo();
@@ -60,22 +58,6 @@ export function AboutTab() {
       showError('Update check failed', (error as Error).message);
     } finally {
       setCheckingUpdate(false);
-    }
-  };
-
-  const handleUpdate = async () => {
-    setUpdating(true);
-    try {
-      const result = await systemAPI.performUpdate();
-      if (result.success) {
-        setUpdateComplete(true);
-        setUpdateCheck(null);
-        showSuccess('Update complete', `Updated to v${result.newVersion} (${result.newHash}). Please restart the server.`);
-      }
-    } catch (error) {
-      showError('Update failed', (error as Error).message);
-    } finally {
-      setUpdating(false);
     }
   };
 
@@ -153,22 +135,10 @@ export function AboutTab() {
       <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
         <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-4">Software Updates</h3>
 
-        {updateComplete ? (
-          <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 mt-0.5" />
-              <div>
-                <p className="font-medium text-emerald-800 dark:text-emerald-200">Update installed successfully</p>
-                <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-1">
-                  Please restart the API server to apply changes. Stop the current server and run <code className="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 rounded text-xs font-mono">npm run api</code> again.
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : updateCheck?.updateAvailable ? (
+        {updateCheck?.updateAvailable ? (
           <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg mb-4">
             <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5" />
+              <ExternalLink className="w-5 h-5 text-amber-600 mt-0.5" />
               <div className="flex-1">
                 <p className="font-medium text-amber-800 dark:text-amber-200">
                   Update available — {updateCheck.behindBy} commit{updateCheck.behindBy !== 1 ? 's' : ''} behind
@@ -179,23 +149,9 @@ export function AboutTab() {
                     <span className="ml-1">— {updateCheck.latestCommitMessage}</span>
                   )}
                 </p>
-                <button
-                  onClick={handleUpdate}
-                  disabled={updating}
-                  className="mt-3 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium text-sm flex items-center gap-2 transition-colors disabled:opacity-50"
-                >
-                  {updating ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Updating...
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-4 h-4" />
-                      Update Now
-                    </>
-                  )}
-                </button>
+                <p className="text-sm text-amber-700 dark:text-amber-300 mt-2">
+                  To update, run <code className="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 rounded text-xs font-mono">git pull origin main</code> then restart the server.
+                </p>
               </div>
             </div>
           </div>
@@ -208,25 +164,23 @@ export function AboutTab() {
           </div>
         ) : null}
 
-        {!updateComplete && (
-          <button
-            onClick={handleCheckUpdate}
-            disabled={checkingUpdate}
-            className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors disabled:opacity-50"
-          >
-            {checkingUpdate ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Checking...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-4 h-4" />
-                Check for Updates
-              </>
-            )}
-          </button>
-        )}
+        <button
+          onClick={handleCheckUpdate}
+          disabled={checkingUpdate}
+          className="px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors disabled:opacity-50"
+        >
+          {checkingUpdate ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Checking...
+            </>
+          ) : (
+            <>
+              <RefreshCw className="w-4 h-4" />
+              Check for Updates
+            </>
+          )}
+        </button>
       </div>
 
       {/* System Info */}

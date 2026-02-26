@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import { execSync } from 'child_process';
 import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
+import path from 'path';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { accountService } from '../src/lib/services/accountService.js';
@@ -169,8 +170,8 @@ const apiKeyAuth = (req: express.Request, res: express.Response, next: express.N
 // Apply authentication to all /api routes
 app.use('/api/', apiKeyAuth);
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ limit: '2mb', extended: true }));
 
 // ============================================================================
 // ACCOUNT ENDPOINTS
@@ -212,6 +213,45 @@ app.get('/api/accounts', async (req, res) => {
       isReal,
     });
     res.json(accounts);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+// Bulk endpoint: returns all accounts with balances in 2 queries instead of N+1
+app.get('/api/accounts-with-balances', async (req, res) => {
+  try {
+    const includeArchived = req.query.includeArchived === 'true';
+    const typeParam = req.query.type as string | undefined;
+    const kindParam = req.query.kind as string | undefined;
+
+    let type: AccountType | undefined;
+    let kind: AccountKind | undefined;
+
+    if (typeParam) {
+      const typeResult = accountTypeSchema.safeParse(typeParam);
+      if (!typeResult.success) {
+        return sendError(res, 400, `Invalid account type: ${typeParam}`);
+      }
+      type = typeResult.data;
+    }
+
+    if (kindParam) {
+      const kindResult = accountKindSchema.safeParse(kindParam);
+      if (!kindResult.success) {
+        return sendError(res, 400, `Invalid account kind: ${kindParam}`);
+      }
+      kind = kindResult.data;
+    }
+
+    const accounts = await accountService.getAllAccountsWithBalances({
+      includeArchived,
+      type,
+    });
+
+    // If kind filter was requested, filter the results
+    const filtered = kind ? accounts.filter(a => a.kind === kind) : accounts;
+    res.json(filtered);
   } catch (error) {
     return sendServerError(res, error);
   }
@@ -1442,7 +1482,13 @@ app.post('/api/backup/restore', async (req, res) => {
     const data = validateBody(restoreBackupSchema, req.body, res);
     if (!data) return;
 
-    await backupService.restoreBackup(data.filename);
+    // Prevent path traversal — only allow bare filenames
+    const safeName = path.basename(data.filename);
+    if (safeName !== data.filename || data.filename.includes('..')) {
+      return sendError(res, 400, 'Invalid filename');
+    }
+
+    await backupService.restoreBackup(safeName);
     res.json({ success: true, message: 'Backup restored successfully' });
   } catch (error) {
     const message = (error as Error).message;
@@ -1458,7 +1504,14 @@ app.delete('/api/backup/:filename', async (req, res) => {
     if (!req.params.filename) {
       return sendError(res, 400, 'Filename is required');
     }
-    backupService.deleteBackup(req.params.filename);
+
+    // Prevent path traversal — only allow bare filenames
+    const safeName = path.basename(req.params.filename);
+    if (safeName !== req.params.filename || req.params.filename.includes('..')) {
+      return sendError(res, 400, 'Invalid filename');
+    }
+
+    backupService.deleteBackup(safeName);
     res.status(204).send();
   } catch (error) {
     const message = (error as Error).message;
@@ -1684,35 +1737,7 @@ app.get('/api/system/check-update', (_req, res) => {
   }
 });
 
-app.post('/api/system/update', (_req, res) => {
-  try {
-    // Pull latest changes
-    const pullOutput = execSync('git pull origin main', { encoding: 'utf-8', timeout: 60000 });
-
-    // Install any new dependencies
-    let installOutput = '';
-    try {
-      installOutput = execSync('npm install --omit=dev', { encoding: 'utf-8', timeout: 120000 });
-    } catch (installError) {
-      installOutput = `npm install warning: ${(installError as Error).message}`;
-    }
-
-    // Get new version info
-    const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8'));
-    const newHash = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
-
-    res.json({
-      success: true,
-      newVersion: pkg.version,
-      newHash,
-      pullOutput: pullOutput.substring(0, 500),
-      installOutput: installOutput.substring(0, 500),
-      restartRequired: true,
-    });
-  } catch (error) {
-    return sendServerError(res, error);
-  }
-});
+// System update endpoint removed for security — updates should be done manually via git pull
 
 // ============================================================================
 // BOOK / DATABASE SWITCHING ENDPOINTS
@@ -1763,8 +1788,19 @@ app.post('/api/books/switch', async (req, res) => {
       return sendError(res, 400, 'databasePath is required');
     }
 
+    // Prevent path traversal — only allow alphanumeric, hyphens, underscores, dots, and single forward slashes
+    if (/[^a-zA-Z0-9\-_./]/.test(databasePath) || databasePath.includes('..')) {
+      return sendError(res, 400, 'Invalid database path');
+    }
+
     const dbUrl = resolveDbUrl(databasePath);
     const absDbPath = dbUrl.replace('file:', '');
+
+    // Verify resolved path stays within the prisma directory
+    const prismaDir = resolve(projectRoot, 'prisma');
+    if (!resolve(absDbPath).startsWith(prismaDir)) {
+      return sendError(res, 400, 'Invalid database path');
+    }
 
     // Create directory if it doesn't exist
     const dbDir = dirname(absDbPath);

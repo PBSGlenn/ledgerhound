@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import { CreditCard, Key, Trash2, Wallet } from 'lucide-react';
 
+const API_BASE = import.meta.env.DEV ? 'http://localhost:3001/api' : '/api';
+
 interface Account {
   id: string;
   name: string;
@@ -37,7 +39,7 @@ export const StripeSettings: React.FC = () => {
 
   const loadSettings = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/stripe/settings');
+      const response = await fetch(`${API_BASE}/stripe/settings`);
       const data = await response.json();
       setSettings(data);
 
@@ -55,7 +57,7 @@ export const StripeSettings: React.FC = () => {
 
   const loadPspAccounts = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/accounts');
+      const response = await fetch(`${API_BASE}/accounts`);
       const accounts = await response.json();
 
       // Filter for PSP accounts (Payment Service Providers)
@@ -68,7 +70,7 @@ export const StripeSettings: React.FC = () => {
 
   const loadBankAccounts = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/accounts?kind=TRANSFER');
+      const response = await fetch(`${API_BASE}/accounts?kind=TRANSFER`);
       const accounts = await response.json();
 
       // Filter for bank accounts (not PSP) that can receive payouts
@@ -89,7 +91,7 @@ export const StripeSettings: React.FC = () => {
 
     setTesting(true);
     try {
-      const response = await fetch('http://localhost:3001/api/stripe/test', {
+      const response = await fetch(`${API_BASE}/stripe/test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apiKey: apiKey || undefined }),
@@ -122,7 +124,7 @@ export const StripeSettings: React.FC = () => {
 
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/stripe/settings', {
+      const response = await fetch(`${API_BASE}/stripe/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -154,7 +156,7 @@ export const StripeSettings: React.FC = () => {
     // Save immediately with the new value
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/stripe/settings', {
+      const response = await fetch(`${API_BASE}/stripe/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -185,7 +187,7 @@ export const StripeSettings: React.FC = () => {
 
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/stripe/settings', {
+      const response = await fetch(`${API_BASE}/stripe/settings`, {
         method: 'DELETE',
       });
 

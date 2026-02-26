@@ -57,33 +57,10 @@ export const accountAPI = {
     if (options?.isReal) params.set('isReal', 'true');
 
     const query = params.toString();
-    const path = query ? `${API_BASE}/accounts?${query}` : `${API_BASE}/accounts`;
-    const response = await fetch(path);
+    const url = query ? `${API_BASE}/accounts-with-balances?${query}` : `${API_BASE}/accounts-with-balances`;
+    const response = await fetch(url);
     if (!response.ok) throw new Error('Failed to fetch accounts');
-    const accounts = await response.json();
-
-    const accountsWithBalances = await Promise.all(
-      accounts.map(async (account: Account) => {
-        try {
-          const balanceResponse = await fetch(`${API_BASE}/accounts/${account.id}/balance`);
-          if (!balanceResponse.ok) {
-            console.warn(`Failed to fetch balance for account ${account.id}`);
-            return { ...account, currentBalance: 0, clearedBalance: 0 };
-          }
-          const { balance } = await balanceResponse.json();
-          return {
-            ...account,
-            currentBalance: balance ?? 0,
-            clearedBalance: balance ?? 0,
-          };
-        } catch (error) {
-          console.warn(`Error fetching balance for account ${account.id}:`, error);
-          return { ...account, currentBalance: 0, clearedBalance: 0 };
-        }
-      })
-    );
-
-    return accountsWithBalances;
+    return await response.json();
   },
 
   async getCategories(options?: { includeArchived?: boolean }): Promise<Account[]> {
@@ -1121,15 +1098,6 @@ export interface UpdateCheck {
   latestCommitMessage: string;
 }
 
-export interface UpdateResult {
-  success: boolean;
-  newVersion: string;
-  newHash: string;
-  pullOutput: string;
-  installOutput: string;
-  restartRequired: boolean;
-}
-
 export const systemAPI = {
   async getVersion(): Promise<VersionInfo> {
     const response = await fetch(`${API_BASE}/system/version`);
@@ -1149,16 +1117,6 @@ export const systemAPI = {
     return await response.json();
   },
 
-  async performUpdate(): Promise<UpdateResult> {
-    const response = await fetch(`${API_BASE}/system/update`, {
-      method: 'POST',
-    });
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to perform update');
-    }
-    return await response.json();
-  },
 };
 
 /**

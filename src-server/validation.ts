@@ -68,10 +68,24 @@ export function sendConflict(res: Response, message: string): Response {
 
 /**
  * Send an internal server error response (500)
+ * Logs full error server-side but only sends safe messages to client.
+ * Known business errors (from throw new Error) are passed through;
+ * unexpected errors get a generic message.
  */
 export function sendServerError(res: Response, error: unknown): Response {
-  const message = error instanceof Error ? error.message : 'An unexpected error occurred';
   console.error('Server error:', error);
+
+  // Pass through known business-logic errors (e.g. "Account not found", "Cannot delete...")
+  // but strip anything that looks like it contains file paths or stack traces
+  let message = 'An unexpected error occurred';
+  if (error instanceof Error) {
+    const raw = error.message;
+    const looksInternal = /[/\\]/.test(raw) || raw.includes('ENOENT') || raw.includes('SQLITE') || raw.length > 300;
+    if (!looksInternal) {
+      message = raw;
+    }
+  }
+
   return sendError(res, 500, message, { code: 'INTERNAL_ERROR' });
 }
 

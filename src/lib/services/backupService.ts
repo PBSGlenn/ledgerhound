@@ -46,14 +46,10 @@ export class BackupService {
     const filename = `backup-${type}-${dateStr}.db`;
     const backupPath = path.join(this.backupDir, filename);
 
-    // Use SQLite VACUUM INTO for proper backup
+    // Use SQLite VACUUM INTO for a proper atomic backup
+    // This creates a standalone DB file without needing WAL/SHM files
     try {
-      // First, ensure all transactions are committed
-      // PRAGMA commands return results, so use $queryRawUnsafe
-      await this.prisma.$queryRawUnsafe('PRAGMA wal_checkpoint(TRUNCATE)');
-
-      // Create backup using file copy (simpler and more reliable)
-      fs.copyFileSync(this.dbPath, backupPath);
+      await this.prisma.$executeRawUnsafe(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
 
       const stats = fs.statSync(backupPath);
 
