@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { format } from 'date-fns';
-import { Check, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle, Download, Upload, ArrowLeftRight, ExternalLink, Search, FolderInput } from 'lucide-react';
+import { Check, CheckCircle, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle, Download, Upload, ArrowLeftRight, ExternalLink, Search, FolderInput, Shield } from 'lucide-react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 import type { RegisterEntry, RegisterFilter, Account } from '../../types';
 import { transactionAPI } from '../../lib/api';
@@ -1029,6 +1029,42 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
             <FolderInput className="w-4 h-4 text-amber-500" />
             Recategorize
           </button>
+          <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
+          <button
+            onClick={async () => {
+              const entry = contextMenu.entry;
+              const postingIds = entry.postings.filter(p => p.accountId === accountId).map(p => p.id);
+              setContextMenu(null);
+              try {
+                await transactionAPI.markCleared(postingIds, !entry.cleared);
+                await loadEntries();
+              } catch (error) {
+                showError('Failed to update cleared status', (error as Error).message);
+              }
+            }}
+            className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors"
+          >
+            <CheckCircle className={`w-4 h-4 ${contextMenu.entry.cleared ? 'text-blue-500' : 'text-slate-400'}`} />
+            {contextMenu.entry.cleared ? 'Mark Uncleared' : 'Mark Cleared'}
+          </button>
+          <button
+            onClick={async () => {
+              const entry = contextMenu.entry;
+              const postingIds = entry.postings.filter(p => p.accountId === accountId).map(p => p.id);
+              setContextMenu(null);
+              try {
+                await transactionAPI.markReconciled(postingIds, !entry.reconciled);
+                await loadEntries();
+              } catch (error) {
+                showError('Failed to update reconciled status', (error as Error).message);
+              }
+            }}
+            className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors"
+          >
+            <Shield className={`w-4 h-4 ${contextMenu.entry.reconciled ? 'text-purple-500' : 'text-slate-400'}`} />
+            {contextMenu.entry.reconciled ? 'Mark Unreconciled' : 'Mark Reconciled'}
+          </button>
+          <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
           <button
             onClick={() => {
               handleEditTransaction(contextMenu.entry.id);

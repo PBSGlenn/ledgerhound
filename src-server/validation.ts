@@ -386,6 +386,11 @@ export const markClearedSchema = z.object({
   cleared: z.boolean(),
 });
 
+export const markReconciledSchema = z.object({
+  postingIds: z.array(uuidSchema).min(1, 'At least one posting ID is required'),
+  reconciled: z.boolean(),
+});
+
 // ============================================================================
 // BACKUP SCHEMAS
 // ============================================================================

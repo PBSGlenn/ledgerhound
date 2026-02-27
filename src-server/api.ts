@@ -37,6 +37,7 @@ import {
   reorderRulesSchema,
   bulkAddTagsSchema,
   markClearedSchema,
+  markReconciledSchema,
   createBackupSchema,
   restoreBackupSchema,
   cleanBackupsSchema,
@@ -692,6 +693,18 @@ app.post('/api/transactions/mark-cleared', async (req, res) => {
     if (!data) return;
 
     await transactionService.markCleared(data.postingIds, data.cleared);
+    res.status(204).send();
+  } catch (error) {
+    return sendError(res, 400, (error as Error).message);
+  }
+});
+
+app.post('/api/transactions/mark-reconciled', async (req, res) => {
+  try {
+    const data = validateBody(markReconciledSchema, req.body, res);
+    if (!data) return;
+
+    await transactionService.markReconciled(data.postingIds, data.reconciled);
     res.status(204).send();
   } catch (error) {
     return sendError(res, 400, (error as Error).message);

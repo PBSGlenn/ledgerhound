@@ -363,6 +363,18 @@ export const transactionAPI = {
     }
   },
 
+  async markReconciled(postingIds: string[], reconciled: boolean): Promise<void> {
+    const response = await fetch(`${API_BASE}/transactions/mark-reconciled`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ postingIds, reconciled }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to mark as reconciled');
+    }
+  },
+
   async searchTransactions(filter: SearchFilter): Promise<SearchResponse> {
     const body: any = { scope: filter.scope };
     if (filter.dateFrom) body.dateFrom = filter.dateFrom instanceof Date ? filter.dateFrom.toISOString() : filter.dateFrom;

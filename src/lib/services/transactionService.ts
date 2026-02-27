@@ -379,6 +379,26 @@ export class TransactionService {
   }
 
   /**
+   * Mark postings as reconciled (or unreconciled)
+   */
+  async markReconciled(
+    postingIds: string[],
+    reconciled: boolean
+  ): Promise<void> {
+    if (reconciled) {
+      await this.prisma.posting.updateMany({
+        where: { id: { in: postingIds } },
+        data: { reconciled: true, cleared: true },
+      });
+    } else {
+      await this.prisma.posting.updateMany({
+        where: { id: { in: postingIds } },
+        data: { reconciled: false, reconcileId: null },
+      });
+    }
+  }
+
+  /**
    * Bulk add tags to transactions
    */
   async bulkAddTags(transactionIds: string[], tags: string[]): Promise<void> {
