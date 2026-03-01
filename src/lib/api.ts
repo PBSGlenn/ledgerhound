@@ -459,6 +459,19 @@ export const transactionAPI = {
     }
     return await response.json();
   },
+
+  async moveToAccount(transactionId: string, oldAccountId: string, newAccountId: string): Promise<{ success: boolean }> {
+    const response = await fetch(`${API_BASE}/transactions/${transactionId}/move-to-account`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldAccountId, newAccountId }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to move transaction');
+    }
+    return await response.json();
+  },
 };
 
 /**

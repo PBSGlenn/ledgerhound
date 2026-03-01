@@ -119,6 +119,7 @@ Key endpoint groups:
 - Transaction search/bulk: `POST /api/transactions/search`, `POST /api/transactions/bulk-update`
 - Bulk categorize: `GET /api/transactions/uncategorized-summary`, `POST /api/transactions/bulk-recategorize`
 - Single recategorize: `POST /api/transactions/:id/recategorize`
+- Move to account: `POST /api/transactions/:id/move-to-account`
 
 **IMPORTANT: Express route ordering** — Named routes like `/api/transactions/uncategorized-summary` MUST be registered BEFORE wildcard routes like `/api/transactions/:id`, otherwise Express matches the wildcard first. Always place specific GET routes above `/:id` catch-all routes.
 
@@ -148,7 +149,7 @@ Run: `npm test`
 - Run: `npm run test:e2e` (stop API server first with `Ctrl+C`)
 - Debug modes: `npm run test:e2e:ui`, `npm run test:e2e:headed`, `npm run test:e2e:debug`
 
-## Current Status (2026-02-24)
+## Current Status (2026-03-01)
 
 ### What's Working
 - Complete double-entry accounting engine with GST validation
@@ -161,11 +162,17 @@ Run: `npm test`
 - Global transaction search (Ctrl+F) with filters and batch operations
 - Transfer matching wizard using Hungarian algorithm for duplicate detection
 - Bulk categorize: group uncategorized transactions by payee, assign categories, create rules
-- Right-click recategorize: quick category change from register context menu
+- Right-click context menu: recategorize, move to account, manual cleared/reconciled toggle
+- PSP account pattern: intermediary accounts (Stripe, Optus) for bundled billing reconciliation
 - Automatic backup/restore system
 - Settings with general, categories, rules, Stripe, backups, and tax tables tabs
 - Desktop launcher (`start-ledgerhound.bat`)
 - 838 unit tests (2 pre-existing failures), 16 E2E tests all passing
+
+### Recent Changes (March 2026)
+- **Move to Account** (2026-03-01): Right-click context menu in the register now includes "Move to Account", which reassigns a transaction to any other real (TRANSFER) account via a dialog with account dropdown. Clears reconciliation state on move. New endpoint: `POST /api/transactions/:id/move-to-account`. Files changed: `src-server/api.ts`, `src/lib/api.ts`, `src/components/Register/RegisterGrid.tsx`.
+- **Optus PSP account pattern** (2026-03-01): Created Optus Payment Processor account to handle bundled billing (mobile + Netflix + YouTube on one statement charge). Same PSP intermediary pattern as Stripe — bank reconciliation sees a single transfer while individual expenses get their own payees.
+- **Manual cleared/reconciled toggle** (2026-02-28): Right-click context menu lets users manually set cleared/reconciled status on any transaction posting.
 
 ### Recent Changes (February 2026)
 - **Reconciliation: locked items & register filter fix** (2026-02-24): Fixed two bugs where (1) date filters on the register endpoint were silently ignored due to naming mismatches across three layers (`dateFrom`/`dateTo` vs `startDate`/`endDate`) and (2) previously reconciled (locked) transactions appeared in new reconciliation sessions. Standardized `RegisterFilter` on canonical field names (`dateFrom`/`dateTo`/`search`), fixed server-to-service mapping (`clearedOnly`/`reconciledOnly`), and added client-side `reconcileId` filtering in `ReconciliationSession.tsx`. Files changed: `src/lib/api.ts`, `src-server/api.ts`, `src/types/index.ts`, `src/components/Register/RegisterGrid.tsx`, `src/components/Reconciliation/ReconciliationSession.tsx`.

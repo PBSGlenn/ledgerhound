@@ -948,6 +948,56 @@ app.post('/api/transactions/:id/recategorize', async (req, res) => {
   }
 });
 
+app.post('/api/transactions/:id/move-to-account', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { oldAccountId, newAccountId } = req.body;
+
+    if (!oldAccountId || !newAccountId) {
+      return sendError(res, 400, 'oldAccountId and newAccountId are required');
+    }
+
+    const prisma = getPrismaClient();
+
+    // Verify the target account exists and is a TRANSFER (real) account
+    const targetAccount = await prisma.account.findUnique({
+      where: { id: newAccountId },
+    });
+
+    if (!targetAccount) {
+      return sendError(res, 404, 'Target account not found');
+    }
+
+    if (targetAccount.kind !== 'TRANSFER') {
+      return sendError(res, 400, 'Target must be a real account (not a category)');
+    }
+
+    // Find the posting to update
+    const posting = await prisma.posting.findFirst({
+      where: { transactionId: id, accountId: oldAccountId },
+    });
+
+    if (!posting) {
+      return sendError(res, 404, 'Posting not found');
+    }
+
+    // Move the posting: update accountId, clear reconciliation state
+    await prisma.posting.update({
+      where: { id: posting.id },
+      data: {
+        accountId: newAccountId,
+        cleared: false,
+        reconciled: false,
+        reconcileId: null,
+      },
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
 // ============================================================================
 // REPORT ENDPOINTS
 // ============================================================================

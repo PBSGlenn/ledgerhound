@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { format } from 'date-fns';
-import { Check, CheckCircle, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle, Download, Upload, ArrowLeftRight, ExternalLink, Search, FolderInput, Shield } from 'lucide-react';
+import { Check, CheckCircle, Filter, Tag, Briefcase, User, Loader2, Trash2, Edit2, AlertCircle, Download, Upload, ArrowLeftRight, ExternalLink, Search, FolderInput, Shield, MoveRight } from 'lucide-react';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
-import type { RegisterEntry, RegisterFilter, Account } from '../../types';
-import { transactionAPI } from '../../lib/api';
+import type { RegisterEntry, RegisterFilter, Account, AccountWithBalance } from '../../types';
+import { transactionAPI, accountAPI } from '../../lib/api';
 import { TransactionFormModal } from '../Transaction/TransactionFormModal';
 import { AccountSettingsModal } from '../Account/AccountSettingsModal';
 import { BankStatementImport } from '../Import/BankStatementImport';
@@ -60,6 +60,9 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [recategorizingEntry, setRecategorizingEntry] = useState<RegisterEntry | null>(null);
   const [recategorizeCategory, setRecategorizeCategory] = useState<string | null>(null);
+  const [movingEntry, setMovingEntry] = useState<RegisterEntry | null>(null);
+  const [moveTargetAccountId, setMoveTargetAccountId] = useState<string | null>(null);
+  const [transferAccounts, setTransferAccounts] = useState<AccountWithBalance[]>([]);
 
   useEffect(() => {
     loadEntries();
@@ -382,6 +385,37 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
     }
   };
 
+  const handleMoveToAccount = async (entry: RegisterEntry) => {
+    // Load transfer accounts for the picker (excluding current account)
+    try {
+      const accounts = await accountAPI.getAllAccountsWithBalances({ kind: 'TRANSFER' });
+      setTransferAccounts(accounts.filter(a => a.id !== accountId && !a.archived));
+    } catch {
+      showError('Failed to load accounts');
+      return;
+    }
+    setMoveTargetAccountId(null);
+    setMovingEntry(entry);
+  };
+
+  const handleMoveSubmit = async () => {
+    if (!movingEntry || !moveTargetAccountId) return;
+
+    try {
+      setOperationLoading('move');
+      await transactionAPI.moveToAccount(movingEntry.id, accountId, moveTargetAccountId);
+      const target = transferAccounts.find(a => a.id === moveTargetAccountId);
+      showSuccess(`Transaction moved to ${target?.name || 'account'}`);
+      setMovingEntry(null);
+      setMoveTargetAccountId(null);
+      await loadEntries();
+    } catch (error) {
+      showError((error as Error).message);
+    } finally {
+      setOperationLoading(null);
+    }
+  };
+
   /**
    * For a given register entry, find the other TRANSFER-kind account
    * (i.e. the other side of a bank-to-bank transfer).
@@ -571,6 +605,57 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
                 className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg"
               >
                 {operationLoading === 'recategorize' ? 'Saving...' : 'Apply'}
+              </button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* Move to Account Dialog */}
+      <Dialog.Root open={!!movingEntry} onOpenChange={(open) => {
+        if (!open) {
+          setMovingEntry(null);
+          setMoveTargetAccountId(null);
+        }
+      }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 z-50" />
+          <Dialog.Content className="fixed top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] bg-white dark:bg-slate-900 rounded-xl shadow-xl z-50 w-[95vw] max-w-md p-5">
+            <Dialog.Title className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2 mb-1">
+              <MoveRight className="w-5 h-5 text-teal-500" />
+              Move to Account
+            </Dialog.Title>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+              {movingEntry?.payee}
+              {movingEntry?.debit ? ` — ${formatCurrency(movingEntry.debit)} debit` : ''}
+              {movingEntry?.credit ? ` — ${formatCurrency(movingEntry.credit)} credit` : ''}
+            </p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Destination Account</label>
+              <select
+                value={moveTargetAccountId || ''}
+                onChange={(e) => setMoveTargetAccountId(e.target.value || null)}
+                className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select account...</option>
+                {transferAccounts.map(acc => (
+                  <option key={acc.id} value={acc.id}>{acc.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => { setMovingEntry(null); setMoveTargetAccountId(null); }}
+                className="px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleMoveSubmit}
+                disabled={!moveTargetAccountId || operationLoading === 'move'}
+                className="px-4 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg"
+              >
+                {operationLoading === 'move' ? 'Moving...' : 'Move'}
               </button>
             </div>
           </Dialog.Content>
@@ -1028,6 +1113,16 @@ export function RegisterGrid({ accountId, highlightTransactionId, onNavigateToAc
           >
             <FolderInput className="w-4 h-4 text-amber-500" />
             Recategorize
+          </button>
+          <button
+            onClick={() => {
+              handleMoveToAccount(contextMenu.entry);
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-3 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 transition-colors"
+          >
+            <MoveRight className="w-4 h-4 text-teal-500" />
+            Move to Account
           </button>
           <div className="border-t border-slate-200 dark:border-slate-700 my-1" />
           <button
