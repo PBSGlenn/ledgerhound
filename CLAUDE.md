@@ -190,6 +190,9 @@ Run: `npm test`
 - Tauri desktop packaging
 - E2E coverage for reports, settings, advanced workflows
 - Vehicle logbook tracking (ATO logbook and cents-per-km methods)
+- Bill payment reminder system with email notifications
+- Regular/recurring payments list
+- AI-assisted budgeting
 
 ## Tech Stack
 - **Frontend**: React 19 + TypeScript + Vite + TailwindCSS + Radix UI + recharts
