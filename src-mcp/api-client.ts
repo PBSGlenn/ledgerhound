@@ -231,6 +231,71 @@ export async function importExecute(
   return request('POST', '/api/import/execute', { previews, sourceAccountId, sourceName, mapping, options });
 }
 
+// ── Reconciliation ──
+
+export async function parsePdf(pdfBuffer: Buffer, filename: string) {
+  const formData = new FormData();
+  formData.append('pdf', new Blob([new Uint8Array(pdfBuffer)], { type: 'application/pdf' }), filename);
+
+  const url = `${BASE_URL}/api/reconciliation/parse-pdf`;
+  const headers: Record<string, string> = {};
+  const apiKey = process.env.LEDGERHOUND_API_KEY;
+  if (apiKey) {
+    headers['X-API-Key'] = apiKey;
+  }
+
+  const res = await fetch(url, { method: 'POST', headers, body: formData });
+  const text = await res.text();
+  let data: unknown;
+  try { data = JSON.parse(text); } catch { data = text; }
+  if (!res.ok) {
+    const msg = typeof data === 'object' && data && 'error' in data
+      ? (data as { error: string }).error
+      : `HTTP ${res.status}: ${text.slice(0, 200)}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+export async function startReconciliation(data: {
+  accountId: string;
+  statementStartDate: string;
+  statementEndDate: string;
+  statementStartBalance: number;
+  statementEndBalance: number;
+  notes?: string;
+}) {
+  return request('POST', '/api/reconciliation/start', data);
+}
+
+export async function getReconciliationStatus(reconciliationId: string) {
+  return request('GET', `/api/reconciliation/${reconciliationId}/status`);
+}
+
+export async function getReconciliation(reconciliationId: string) {
+  return request('GET', `/api/reconciliation/${reconciliationId}`);
+}
+
+export async function getInProgressReconciliation(accountId: string) {
+  return request('GET', `/api/reconciliation/in-progress/${accountId}`);
+}
+
+export async function matchTransactions(reconciliationId: string, statementTransactions: unknown[]) {
+  return request('POST', `/api/reconciliation/${reconciliationId}/match-transactions`, { statementTransactions });
+}
+
+export async function reconcilePostings(reconciliationId: string, postingIds: string[]) {
+  return request('POST', `/api/reconciliation/${reconciliationId}/reconcile-postings`, { postingIds });
+}
+
+export async function unreconcilePostings(reconciliationId: string, postingIds: string[]) {
+  return request('POST', `/api/reconciliation/${reconciliationId}/unreconcile-postings`, { postingIds });
+}
+
+export async function lockReconciliation(reconciliationId: string) {
+  return request('POST', `/api/reconciliation/${reconciliationId}/lock`);
+}
+
 // ── System ──
 
 export async function checkApiHealth(): Promise<boolean> {

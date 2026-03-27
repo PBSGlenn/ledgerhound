@@ -10,6 +10,8 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { readFileSync } from 'fs';
+import { basename } from 'path';
 import * as api from './api-client.js';
 
 const server = new McpServer({
@@ -478,6 +480,168 @@ The previews array should be passed through from import_preview. You can modify 
 );
 
 
+// ── Reconciliation Tools ──
+
+server.registerTool(
+  'parse_bank_pdf',
+  {
+    title: 'Parse Bank Statement PDF',
+    description: `Read a bank statement PDF file from disk and extract transactions, account info, and balances. Supports CommBank credit card, CommBank savings, and generic bank statement formats.
+
+Returns:
+- info: account number, name, statement period, opening/closing balance
+- transactions: date, description, debit, credit, balance for each line
+- confidence: high/medium/low (how well the parser understood the format)
+
+Use this as the first step before starting reconciliation. The parsed statement data feeds into start_reconciliation and match_reconciliation.`,
+    inputSchema: {
+      filePath: z.string().describe('Absolute path to the PDF file on disk'),
+    },
+    annotations: { readOnlyHint: true },
+  },
+  async ({ filePath }) => {
+    const buffer = readFileSync(filePath);
+    const filename = basename(filePath);
+    const data = await api.parsePdf(buffer, filename);
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  }
+);
+
+server.registerTool(
+  'start_reconciliation',
+  {
+    title: 'Start Reconciliation Session',
+    description: `Create a new reconciliation session for a bank account. Use the statement period and balances from parse_bank_pdf.
+
+A reconciliation session tracks which ledger transactions have been matched against the bank statement. Once all transactions are matched and the balance difference is zero, the session can be locked (finalized).`,
+    inputSchema: {
+      accountId: z.string().describe('UUID of the bank account to reconcile'),
+      statementStartDate: z.string().describe('Statement period start date (YYYY-MM-DD)'),
+      statementEndDate: z.string().describe('Statement period end date (YYYY-MM-DD)'),
+      statementStartBalance: z.number().describe('Opening balance on the statement'),
+      statementEndBalance: z.number().describe('Closing balance on the statement'),
+      notes: z.string().optional().describe('Optional notes (e.g. "March 2026 statement")'),
+    },
+    annotations: { readOnlyHint: false },
+  },
+  async (data) => {
+    const result = await api.startReconciliation(data);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+server.registerTool(
+  'match_reconciliation',
+  {
+    title: 'Match Statement to Ledger',
+    description: `Match parsed bank statement transactions against ledger transactions for a reconciliation session. Uses fuzzy matching with date tolerance (±3 days), exact amount matching, and description similarity.
+
+Returns matches in confidence tiers:
+- exactMatches (score 80+): High confidence, safe to auto-reconcile
+- probableMatches (60-79): Likely correct, worth reviewing
+- possibleMatches (40-59): May need manual verification
+- unmatchedStatement: Statement lines with no ledger match (may need to be entered)
+- unmatchedLedger: Ledger transactions not on the statement
+
+Pass the transactions array from parse_bank_pdf as statementTransactions.`,
+    inputSchema: {
+      reconciliationId: z.string().describe('UUID of the reconciliation session'),
+      statementTransactions: z.array(z.object({
+        date: z.string().describe('Transaction date (ISO string)'),
+        description: z.string().describe('Transaction description from statement'),
+        debit: z.number().optional().describe('Debit/outflow amount'),
+        credit: z.number().optional().describe('Credit/inflow amount'),
+        balance: z.number().optional().describe('Running balance'),
+      })).describe('Parsed transactions from parse_bank_pdf'),
+    },
+    annotations: { readOnlyHint: true },
+  },
+  async ({ reconciliationId, statementTransactions }) => {
+    const data = await api.matchTransactions(reconciliationId, statementTransactions);
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  }
+);
+
+server.registerTool(
+  'reconcile_postings',
+  {
+    title: 'Reconcile Matched Postings',
+    description: `Mark ledger postings as reconciled (matched to the bank statement). Pass the posting IDs from the matched transactions returned by match_reconciliation.
+
+Each matched transaction has a ledgerTx with postings — use the posting ID for the account being reconciled.
+
+Typically you would:
+1. Auto-reconcile all exactMatches posting IDs
+2. Review probableMatches with the user, then reconcile confirmed ones
+3. Ask about possibleMatches
+4. Check status with get_reconciliation_status`,
+    inputSchema: {
+      reconciliationId: z.string().describe('UUID of the reconciliation session'),
+      postingIds: z.array(z.string()).describe('Array of posting UUIDs to mark as reconciled'),
+    },
+    annotations: { readOnlyHint: false },
+  },
+  async ({ reconciliationId, postingIds }) => {
+    await api.reconcilePostings(reconciliationId, postingIds);
+    return { content: [{ type: 'text', text: 'Postings reconciled successfully.' }] };
+  }
+);
+
+server.registerTool(
+  'unreconcile_postings',
+  {
+    title: 'Unreconcile Postings',
+    description: 'Undo reconciliation on specific postings if a mistake was made.',
+    inputSchema: {
+      reconciliationId: z.string().describe('UUID of the reconciliation session'),
+      postingIds: z.array(z.string()).describe('Array of posting UUIDs to unreconcile'),
+    },
+    annotations: { readOnlyHint: false },
+  },
+  async ({ reconciliationId, postingIds }) => {
+    await api.unreconcilePostings(reconciliationId, postingIds);
+    return { content: [{ type: 'text', text: 'Postings unreconciled successfully.' }] };
+  }
+);
+
+server.registerTool(
+  'get_reconciliation_status',
+  {
+    title: 'Get Reconciliation Status',
+    description: `Check the current status of a reconciliation session. Shows:
+- clearedBalance: opening balance + reconciled amounts
+- statementBalance: closing balance from the statement
+- difference: how far off the reconciliation is (0 = balanced)
+- isBalanced: true when difference is zero (ready to lock)
+- reconciledCount / unreconciledCount: progress tracking`,
+    inputSchema: {
+      reconciliationId: z.string().describe('UUID of the reconciliation session'),
+    },
+    annotations: { readOnlyHint: true },
+  },
+  async ({ reconciliationId }) => {
+    const data = await api.getReconciliationStatus(reconciliationId);
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  }
+);
+
+server.registerTool(
+  'lock_reconciliation',
+  {
+    title: 'Finalize Reconciliation',
+    description: 'Lock/finalize a reconciliation session. Only works when the session is balanced (difference = 0). Once locked, reconciled postings cannot be modified. Check get_reconciliation_status first to verify isBalanced is true.',
+    inputSchema: {
+      reconciliationId: z.string().describe('UUID of the reconciliation session'),
+    },
+    annotations: { readOnlyHint: false },
+  },
+  async ({ reconciliationId }) => {
+    const result = await api.lockReconciliation(reconciliationId);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  }
+);
+
+
 // ════════════════════════════════════════════════════════════════════════════
 // RESOURCES
 // ════════════════════════════════════════════════════════════════════════════
@@ -726,6 +890,66 @@ Follow these steps:
 9. Report the final result: how many imported, how many skipped
 
 If any transactions are uncategorized after import, offer to help categorize them using get_uncategorized_summary and bulk_categorize.`,
+        },
+      },
+    ],
+  })
+);
+
+
+server.registerPrompt(
+  'reconcile-bank-statements',
+  {
+    title: 'Reconcile Bank Statement PDFs',
+    description: 'Process one or more bank statement PDFs and reconcile them against the ledger.',
+    argsSchema: {
+      filePaths: z.string().describe('Comma-separated absolute file paths to bank statement PDFs'),
+      accountName: z.string().optional().describe('The bank account name (e.g. "CBA Smart Access"). If omitted, will try to detect from the PDF.'),
+    },
+  },
+  ({ filePaths, accountName }) => ({
+    messages: [
+      {
+        role: 'user' as const,
+        content: {
+          type: 'text' as const,
+          text: `Please reconcile my bank statement PDFs against the ledger. ${accountName ? `The bank account is "${accountName}".` : ''}
+
+PDF files to process:
+${filePaths.split(',').map(p => `- ${p.trim()}`).join('\n')}
+
+For each PDF, follow these steps:
+
+1. **Parse the PDF**: Call parse_bank_pdf with the file path. Review the confidence level and extracted info.
+
+2. **Identify the account**: Call list_accounts to find the matching account.${accountName ? ` Look for "${accountName}".` : ' Use the account number/name from the PDF to match.'}
+
+3. **Start reconciliation**: Call start_reconciliation with the account ID and the statement period/balances from the parsed PDF info.
+
+4. **Match transactions**: Call match_statement_transactions with the reconciliation ID and the parsed transactions.
+
+5. **Review matches**: Present a summary:
+   - How many exact matches (auto-reconcile these)
+   - How many probable matches (review with me)
+   - How many possible matches (ask me about each)
+   - How many unmatched on statement (may need to be entered as new transactions)
+   - How many unmatched in ledger (may be errors or belong to a different period)
+
+6. **Reconcile exact matches**: Call reconcile_postings with the posting IDs from all exact matches.
+
+7. **Review probable/possible matches**: Show me each probable and possible match with the statement description vs ledger payee/amount so I can confirm or reject them. Reconcile the ones I confirm.
+
+8. **Handle unmatched statement items**: For any statement transactions with no match:
+   - Ask if I want to create them as new transactions (use create_transaction)
+   - Or skip them
+
+9. **Check status**: Call get_reconciliation_status to see if we balance.
+   - If balanced (difference === 0): call lock_reconciliation to finalize
+   - If not balanced: show the difference and help investigate
+
+10. **Report**: Summarize what was done — transactions reconciled, new transactions created, final balance status.
+
+If there are multiple PDFs, process them one at a time in chronological order. Each statement gets its own reconciliation session.`,
         },
       },
     ],
