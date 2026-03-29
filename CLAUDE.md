@@ -11,17 +11,25 @@ ledgerhound/
 │   ├── seed.ts                # Sample data
 │   └── migrations/            # Latest: add_ato_label
 ├── src/
-│   ├── components/            # 30+ React UI components
+│   ├── components/            # ~50 React UI components
 │   │   ├── Account/           # Account management UI
+│   │   ├── Book/              # Multi-book switching UI
 │   │   ├── Category/          # Category hierarchy UI
+│   │   ├── Common/            # Shared UI (ConfirmDialog)
+│   │   ├── Dashboard/         # Dashboard view
+│   │   ├── Import/            # CSV import wizard
 │   │   ├── Layout/            # Sidebar, topbar, context menus
+│   │   ├── Onboarding/        # First-run onboarding wizard
+│   │   ├── Reconciliation/    # Bank reconciliation sessions
+│   │   ├── Register/          # Account register grid
+│   │   ├── Reports/           # P&L, GST, BAS, Spending Analysis reports
+│   │   ├── Search/            # Global transaction search
+│   │   ├── Settings/          # Settings and configuration
+│   │   ├── Stripe/            # Stripe import modal
 │   │   ├── Transaction/       # Transaction forms and register
 │   │   ├── Transfer/          # Transfer matching wizard
-│   │   ├── Dashboard/         # Dashboard view
-│   │   ├── Reports/           # P&L, GST, BAS, Spending Analysis reports
-│   │   ├── Settings/          # Settings and configuration
-│   │   ├── Import/            # CSV import wizard
-│   │   └── Search/            # Global transaction search
+│   │   └── UI/                # Toast notifications
+│   ├── domain/                # Domain logic (account filters, transaction helpers)
 │   ├── lib/
 │   │   ├── db.ts              # Prisma client singleton
 │   │   ├── api.ts             # API client (HTTP wrapper)
@@ -30,8 +38,11 @@ ledgerhound/
 │   ├── App.tsx
 │   └── main.tsx
 ├── src-server/
-│   ├── api.ts                 # 100+ REST endpoints
-│   └── validation.ts          # Centralized Zod validation schemas
+│   ├── api.ts                 # ~90 REST endpoints
+│   └── validation.ts          # Centralized Zod validation schemas (45 schemas)
+├── src-mcp/                   # MCP server for Claude Cowork integration
+│   ├── index.ts               # MCP server entry point
+│   └── api-client.ts          # API client for MCP tools
 ├── e2e/                       # Playwright E2E tests (4 suites, 16 tests)
 ├── scripts/                   # Utility and diagnostic scripts
 ├── playwright.config.ts
@@ -106,13 +117,14 @@ See [STRIPE_ACCOUNTING_EXPLAINED.md](./STRIPE_ACCOUNTING_EXPLAINED.md) for detai
 - **pdfStatementService**: PDF parsing and statement extraction
 - **reconciliationMatchingService**: Statement parsing and transaction matching algorithms
 - **transferMatchingService**: Hungarian algorithm (munkres-js), optimal 1:1 matching, atomic merge operations
+- **taxService**: PAYG withholding calculations, tax tables configuration, financial year helpers
 - **bookManager**: Multi-book support (stub/planned)
 
 ### API Server (`src-server/api.ts`)
-100+ REST endpoints. Validation via `src-server/validation.ts` (25+ Zod schemas). Security: Helmet.js, rate limiting (1000 req/15 min), optional API key auth.
+~90 REST endpoints. Validation via `src-server/validation.ts` (45 Zod schemas). Security: Helmet.js, rate limiting (1000 req/15 min), optional API key auth.
 
 Key endpoint groups:
-- Accounts, Categories (9 tree endpoints), Transactions (register, CRUD, search, bulk)
+- Accounts, Categories (13 endpoints incl. tree/hierarchy), Transactions (register, CRUD, search, bulk)
 - Reports: P&L, GST, BAS, Spending Analysis (`POST /api/reports/spending-analysis`)
 - Import, Reconciliation, Memorized Rules, Backups, Stripe
 - Transfer matching: `POST /api/transfers/match-preview`, `POST /api/transfers/commit`
@@ -132,15 +144,15 @@ Key endpoint groups:
 
 ## Testing
 
-### Unit Tests (Vitest) - 838 passing, 2 pre-existing failures
+### Unit Tests (Vitest) - 419 passing, 1 pre-existing failure
 ```
-accountService (45)      categoryService (36)     transactionService (68)
-importService (31)       reconciliationService (29) reportService (22)
-memorizedRuleService (20) backupService (15)       settingsService (7)
-stripeImportService (28) pdfStatementService (32) reconciliationMatchingService (29)
-bookManager (43)         accountFilters (5)       transactions (7)
+bookManager (43)         importService (37)       memorizedRuleService (36)
+categoryService (29)     accountService (32)      pdfStatementService (32)
+reportService (32)       backupService (31)       settingsService (30)
+reconciliationMatchingService (29) reconciliationService (27) stripeImportService (28)
+transactionService (22)  transactions (7)         accountFilters (5)
 ```
-Note: 2 failing tests in `categoryService` (`getCategoryTree > should build tree with virtual parent nodes`) are pre-existing and duplicated across worktree.
+Note: 1 failing test in `categoryService` (`getCategoryTree > should build tree with virtual parent nodes`) is pre-existing.
 Run: `npm test`
 
 ### E2E Tests (Playwright) - 16 tests across 4 suites
@@ -149,7 +161,7 @@ Run: `npm test`
 - Run: `npm run test:e2e` (stop API server first with `Ctrl+C`)
 - Debug modes: `npm run test:e2e:ui`, `npm run test:e2e:headed`, `npm run test:e2e:debug`
 
-## Current Status (2026-03-01)
+## Current Status (2026-03-29)
 
 ### What's Working
 - Complete double-entry accounting engine with GST validation
@@ -167,9 +179,10 @@ Run: `npm test`
 - Automatic backup/restore system
 - Settings with general, categories, rules, Stripe, backups, and tax tables tabs
 - Desktop launcher (`start-ledgerhound.bat`)
-- 838 unit tests (2 pre-existing failures), 16 E2E tests all passing
+- 419 unit tests (1 pre-existing failure), 16 E2E tests all passing
 
 ### Recent Changes (March 2026)
+- **MCP server for Claude Cowork** (2026-03-29): Added `src-mcp/` with MCP server exposing PDF reconciliation tools and CSV import tools for AI-assisted bank statement processing.
 - **Move to Account** (2026-03-01): Right-click context menu in the register now includes "Move to Account", which reassigns a transaction to any other real (TRANSFER) account via a dialog with account dropdown. Clears reconciliation state on move. New endpoint: `POST /api/transactions/:id/move-to-account`. Files changed: `src-server/api.ts`, `src/lib/api.ts`, `src/components/Register/RegisterGrid.tsx`.
 - **Optus PSP account pattern** (2026-03-01): Created Optus Payment Processor account to handle bundled billing (mobile + Netflix + YouTube on one statement charge). Same PSP intermediary pattern as Stripe — bank reconciliation sees a single transfer while individual expenses get their own payees.
 - **Manual cleared/reconciled toggle** (2026-02-28): Right-click context menu lets users manually set cleared/reconciled status on any transaction posting.
