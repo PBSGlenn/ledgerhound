@@ -3,6 +3,7 @@ import type {
   Transaction as PrismaTransaction,
   Posting as PrismaPosting,
   MemorizedRule as PrismaMemorizedRule,
+  RecurringBill as PrismaRecurringBill,
   ImportBatch,
   Reconciliation,
   Settings,
@@ -15,6 +16,8 @@ import {
   TransactionStatus,
   MatchType,
   AccountKind,
+  BillFrequency,
+  BillStatus,
 } from '@prisma/client';
 
 export {
@@ -24,12 +27,15 @@ export {
   TransactionStatus,
   MatchType,
   AccountKind,
+  BillFrequency,
+  BillStatus,
 };
 
 export type Account = PrismaAccount;
 export type Transaction = PrismaTransaction;
 export type Posting = PrismaPosting;
 export type MemorizedRule = PrismaMemorizedRule;
+export type RecurringBill = PrismaRecurringBill;
 export type { ImportBatch, Reconciliation, Settings };
 
 // Extended types for UI
@@ -448,6 +454,46 @@ export interface PAYGConfig {
   annualRate?: number;
   annualAmount?: number;
   installments: PAYGInstallment[];
+}
+
+// === Spending Analysis Types ===
+
+// === Recurring Bill Types ===
+
+export interface RecurringBillWithAccounts extends PrismaRecurringBill {
+  categoryAccount: { id: string; name: string; fullPath: string | null };
+  payFromAccount: { id: string; name: string };
+}
+
+export interface CreateRecurringBillDTO {
+  name: string;
+  payee: string;
+  expectedAmount: number;
+  frequency: BillFrequency;
+  dueDay: number;
+  startDate: string; // ISO date
+  categoryAccountId: string;
+  payFromAccountId: string;
+  notes?: string;
+}
+
+export interface UpdateRecurringBillDTO extends Partial<CreateRecurringBillDTO> {
+  status?: BillStatus;
+}
+
+export interface UpcomingBill {
+  id: string;
+  name: string;
+  payee: string;
+  expectedAmount: number;
+  frequency: BillFrequency;
+  nextDueDate: string;
+  daysUntilDue: number;
+  isOverdue: boolean;
+  payFromAccountId: string;
+  payFromAccountName: string;
+  categoryAccountId: string;
+  categoryAccountName: string;
 }
 
 // === Spending Analysis Types ===

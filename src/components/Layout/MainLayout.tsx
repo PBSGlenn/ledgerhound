@@ -14,9 +14,10 @@ import { BankStatementImport } from '../Import/BankStatementImport';
 import { StripeImportWizard } from '../../features/import/StripeImportWizard';
 import { TransferMatchingModal } from '../Transfer/TransferMatchingModal';
 import { SearchModal } from '../Search/SearchModal';
-import { accountAPI } from '../../lib/api';
+import { RecurringBillsView } from '../RecurringBills/RecurringBillsView';
+import { accountAPI, recurringBillAPI } from '../../lib/api';
 
-type ViewType = 'dashboard' | 'register' | 'reports' | 'reconciliation' | 'settings';
+type ViewType = 'dashboard' | 'register' | 'reports' | 'reconciliation' | 'settings' | 'bills';
 
 interface MainLayoutProps {
   currentBook: Book;
@@ -37,11 +38,22 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
   const [isMatchingTransfers, setIsMatchingTransfers] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchPayee, setSearchPayee] = useState<string | null>(null);
+  const [overdueBillCount, setOverdueBillCount] = useState(0);
   const [highlightTransactionId, setHighlightTransactionId] = useState<string | null>(null);
   const [registerRefreshKey, setRegisterRefreshKey] = useState(0);
 
+  const loadBillCount = async () => {
+    try {
+      const count = await recurringBillAPI.getCount(14);
+      setOverdueBillCount(count.overdue);
+    } catch {
+      // Non-critical — don't block on this
+    }
+  };
+
   useEffect(() => {
     loadAccounts();
+    loadBillCount();
   }, []);
 
   // Navigate to initial account after accounts are loaded (Issue #5)
@@ -68,6 +80,7 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
   // Refresh both accounts AND trigger register to reload
   const handleTransactionSaved = async () => {
     await loadAccounts();
+    await loadBillCount();
     setRegisterRefreshKey(prev => prev + 1);
   };
 
@@ -170,6 +183,11 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
             setSelectedAccountId(null);
           }}
           onSettingsClick={() => setCurrentView('settings')}
+          onBillsClick={() => {
+            setCurrentView('bills');
+            setSelectedAccountId(null);
+          }}
+          overdueBillCount={overdueBillCount}
           onSearchClick={() => { setSearchPayee(null); setIsSearching(true); }}
         />
 
@@ -177,6 +195,8 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
         <main className="flex-1 overflow-auto p-8">
           {currentView === 'settings' ? (
             <SettingsView />
+          ) : currentView === 'bills' ? (
+            <RecurringBillsView onTransactionCreated={handleTransactionSaved} />
           ) : currentView === 'reports' ? (
             <ReportsView />
           ) : currentView === 'reconciliation' && selectedAccountId ? (
@@ -204,6 +224,11 @@ export function MainLayout({ currentBook, onSwitchBook, onShowAccountSetup, init
                 setCurrentView('register');
               }}
               onShowAccountSetup={onShowAccountSetup}
+              onNavigateToBills={() => {
+                setCurrentView('bills');
+                setSelectedAccountId(null);
+              }}
+              onTransactionCreated={handleTransactionSaved}
             />
           )}
         </main>

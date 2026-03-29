@@ -68,6 +68,7 @@ export async function resetTestDb(prisma?: PrismaClient): Promise<void> {
   // Delete all data in reverse order of foreign key dependencies
   await client.posting.deleteMany();
   await client.transaction.deleteMany();
+  await client.recurringBill.deleteMany();
   await client.memorizedRule.deleteMany();
   await client.reconciliation.deleteMany();
   await client.importBatch.deleteMany();

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { TrendingUp, TrendingDown, Wallet, AlertCircle, Clock, Briefcase, User } from 'lucide-react';
 import type { AccountWithBalance, RegisterEntry } from '../../types';
+import { UpcomingBillsWidget } from './UpcomingBillsWidget';
 
 interface DashboardEntry extends RegisterEntry {
   accountId: string;
@@ -11,6 +12,8 @@ interface DashboardProps {
   accounts: AccountWithBalance[];
   onSelectAccount: (accountId: string) => void;
   onShowAccountSetup?: () => void;
+  onNavigateToBills?: () => void;
+  onTransactionCreated?: () => void | Promise<void>;
 }
 
 interface Summary {
@@ -24,7 +27,7 @@ interface Summary {
   gstLiability: number;
 }
 
-export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _onShowAccountSetup }: DashboardProps) {
+export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _onShowAccountSetup, onNavigateToBills, onTransactionCreated }: DashboardProps) {
   const [recentTransactions, setRecentTransactions] = useState<DashboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -205,6 +208,14 @@ export function DashboardView({ accounts, onSelectAccount, onShowAccountSetup: _
           </div>
         )}
       </div>
+
+      {/* Upcoming Bills Widget */}
+      {onNavigateToBills && (
+        <UpcomingBillsWidget
+          onNavigateToBills={onNavigateToBills}
+          onTransactionCreated={onTransactionCreated}
+        />
+      )}
 
       {/* Recent Transactions */}
       <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">

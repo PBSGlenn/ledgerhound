@@ -28,6 +28,10 @@ import type {
   PAYGConfig,
   SpendingAnalysisRequest,
   SpendingAnalysisResponse,
+  RecurringBillWithAccounts,
+  CreateRecurringBillDTO,
+  UpdateRecurringBillDTO,
+  UpcomingBill,
 } from '../types';
 
 export interface ImportResult {
@@ -1214,6 +1218,94 @@ export const transferMatchingAPI = {
       const error = await response.json();
       throw new Error(error.error || 'Failed to commit transfer matches');
     }
+    return await response.json();
+  },
+};
+
+/**
+ * Recurring Bills API
+ */
+export const recurringBillAPI = {
+  async getAll(): Promise<RecurringBillWithAccounts[]> {
+    const response = await fetch(`${API_BASE}/recurring-bills`);
+    if (!response.ok) throw new Error('Failed to fetch recurring bills');
+    return await response.json();
+  },
+
+  async getById(id: string): Promise<RecurringBillWithAccounts> {
+    const response = await fetch(`${API_BASE}/recurring-bills/${id}`);
+    if (!response.ok) throw new Error('Failed to fetch recurring bill');
+    return await response.json();
+  },
+
+  async create(data: CreateRecurringBillDTO): Promise<RecurringBillWithAccounts> {
+    const response = await fetch(`${API_BASE}/recurring-bills`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to create recurring bill');
+    }
+    return await response.json();
+  },
+
+  async update(id: string, data: UpdateRecurringBillDTO): Promise<RecurringBillWithAccounts> {
+    const response = await fetch(`${API_BASE}/recurring-bills/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to update recurring bill');
+    }
+    return await response.json();
+  },
+
+  async delete(id: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/recurring-bills/${id}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Failed to delete recurring bill');
+  },
+
+  async recordPayment(id: string, amount?: number, date?: string): Promise<TransactionWithPostings> {
+    const response = await fetch(`${API_BASE}/recurring-bills/${id}/pay`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, date }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to record payment');
+    }
+    return await response.json();
+  },
+
+  async skipOccurrence(id: string): Promise<RecurringBillWithAccounts> {
+    const response = await fetch(`${API_BASE}/recurring-bills/${id}/skip`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to skip occurrence');
+    }
+    return await response.json();
+  },
+
+  async getUpcoming(days: number = 14): Promise<UpcomingBill[]> {
+    const response = await fetch(`${API_BASE}/recurring-bills/upcoming?days=${days}`);
+    if (!response.ok) throw new Error('Failed to fetch upcoming bills');
+    return await response.json();
+  },
+
+  async getCount(days: number = 14): Promise<{ upcoming: number; overdue: number }> {
+    const response = await fetch(`${API_BASE}/recurring-bills/count?days=${days}`);
+    if (!response.ok) throw new Error('Failed to fetch bill count');
     return await response.json();
   },
 };

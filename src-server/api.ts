@@ -54,6 +54,9 @@ import {
   taxTablesConfigSchema,
   paygConfigSchema,
   spendingAnalysisSchema,
+  createRecurringBillSchema,
+  updateRecurringBillSchema,
+  recordBillPaymentSchema,
 } from './validation.js';
 import { transactionService } from '../src/lib/services/transactionService.js';
 import { reportService } from '../src/lib/services/reportService.js';
@@ -68,6 +71,7 @@ import { PDFStatementService } from '../src/lib/services/pdfStatementService.js'
 import { ReconciliationMatchingService } from '../src/lib/services/reconciliationMatchingService.js';
 import { TransferMatchingService } from '../src/lib/services/transferMatchingService.js';
 import { taxService } from '../src/lib/services/taxService.js';
+import { recurringBillService } from '../src/lib/services/recurringBillService.js';
 import { seedDefaultCategories } from './seedCategories.js';
 import { getPrismaClient, switchDatabase, getCurrentDbUrl } from '../src/lib/db.js';
 
@@ -1985,6 +1989,113 @@ if (existsSync(distPath)) {
   });
   console.log(`📂 Serving frontend from ${distPath}`);
 }
+
+// ============================================================================
+// RECURRING BILL ENDPOINTS
+// ============================================================================
+
+app.get('/api/recurring-bills', async (req, res) => {
+  try {
+    const bills = await recurringBillService.getAllBills();
+    res.json(bills);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+// Named routes BEFORE :id wildcard
+app.get('/api/recurring-bills/upcoming', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days as string) || 14;
+    const bills = await recurringBillService.getUpcomingBills(days);
+    res.json(bills);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.get('/api/recurring-bills/count', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days as string) || 14;
+    const count = await recurringBillService.getUpcomingCount(days);
+    res.json(count);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.post('/api/recurring-bills', async (req, res) => {
+  try {
+    const data = validateBody(createRecurringBillSchema, req.body, res);
+    if (!data) return;
+    const bill = await recurringBillService.createBill(data);
+    res.status(201).json(bill);
+  } catch (error) {
+    return sendError(res, 400, (error as Error).message);
+  }
+});
+
+app.get('/api/recurring-bills/:id', async (req, res) => {
+  try {
+    const bill = await recurringBillService.getBillById(req.params.id);
+    if (!bill) return sendNotFound(res, 'Recurring bill');
+    res.json(bill);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+app.put('/api/recurring-bills/:id', async (req, res) => {
+  try {
+    const data = validateBody(updateRecurringBillSchema, req.body, res);
+    if (!data) return;
+    const bill = await recurringBillService.updateBill(req.params.id, data);
+    res.json(bill);
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message.includes('not found')) return sendNotFound(res, 'Recurring bill');
+    return sendError(res, 400, message);
+  }
+});
+
+app.delete('/api/recurring-bills/:id', async (req, res) => {
+  try {
+    await recurringBillService.deleteBill(req.params.id);
+    res.status(204).send();
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message.includes('not found')) return sendNotFound(res, 'Recurring bill');
+    return sendError(res, 400, message);
+  }
+});
+
+app.post('/api/recurring-bills/:id/pay', async (req, res) => {
+  try {
+    const data = validateBody(recordBillPaymentSchema, req.body, res);
+    if (!data) return;
+    const transaction = await recurringBillService.recordPayment(
+      req.params.id,
+      data.amount,
+      data.date,
+    );
+    res.status(201).json(transaction);
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message.includes('not found')) return sendNotFound(res, 'Recurring bill');
+    return sendError(res, 400, message);
+  }
+});
+
+app.post('/api/recurring-bills/:id/skip', async (req, res) => {
+  try {
+    const bill = await recurringBillService.skipOccurrence(req.params.id);
+    res.json(bill);
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message.includes('not found')) return sendNotFound(res, 'Recurring bill');
+    return sendError(res, 400, message);
+  }
+});
 
 // ============================================================================
 // START SERVER

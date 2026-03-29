@@ -53,6 +53,21 @@ enum TransactionStatus {
   VOID
 }
 
+// Recurring bill frequencies
+enum BillFrequency {
+  WEEKLY
+  FORTNIGHTLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+// Recurring bill status
+enum BillStatus {
+  ACTIVE
+  PAUSED
+}
+
 // Memorized rule match types
 enum MatchType {
   EXACT
@@ -88,6 +103,8 @@ model Account {
   reconciliations     Reconciliation[]
   importBatches       ImportBatch[]
   memorizedRules      MemorizedRule[]
+  billsAsCategory     RecurringBill[] @relation("BillCategory")
+  billsAsPayFrom      RecurringBill[] @relation("BillPayFrom")
 
   @@unique([name, type, parentId])  // Unique name within same parent and type
   @@index([type])
@@ -220,4 +237,30 @@ model Settings {
   updatedAt             DateTime  @updatedAt @map("updated_at")
 
   @@map("settings")
+}
+
+model RecurringBill {
+  id                  String        @id @default(uuid())
+  name                String
+  payee               String
+  expectedAmount      Float         @map("expected_amount")
+  frequency           BillFrequency
+  dueDay              Int           @map("due_day")           // day-of-week (1=Mon..7=Sun) for WEEKLY/FORTNIGHTLY, day-of-month (1-31) for others
+  startDate           DateTime      @map("start_date")
+  categoryAccountId   String        @map("category_account_id")
+  payFromAccountId    String        @map("pay_from_account_id")
+  status              BillStatus    @default(ACTIVE)
+  lastPaidDate        DateTime?     @map("last_paid_date")
+  nextDueDate         DateTime      @map("next_due_date")
+  notes               String?
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  categoryAccount     Account       @relation("BillCategory", fields: [categoryAccountId], references: [id])
+  payFromAccount      Account       @relation("BillPayFrom", fields: [payFromAccountId], references: [id])
+
+  @@index([status])
+  @@index([nextDueDate])
+  @@map("recurring_bills")
 }

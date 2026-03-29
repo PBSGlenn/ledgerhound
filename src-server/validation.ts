@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AccountType, AccountKind, GSTCode, MatchType } from '@prisma/client';
+import { AccountType, AccountKind, GSTCode, MatchType, BillFrequency, BillStatus } from '@prisma/client';
 import type { Response } from 'express';
 
 // ============================================================================
@@ -564,4 +564,29 @@ export const paygConfigSchema = z.object({
     status: z.enum(['upcoming', 'due', 'overdue', 'paid']),
     notes: z.string().optional(),
   })),
+});
+
+// ============================================================================
+// RECURRING BILL SCHEMAS
+// ============================================================================
+
+export const createRecurringBillSchema = z.object({
+  name: nonEmptyStringSchema.max(255),
+  payee: nonEmptyStringSchema.max(255),
+  expectedAmount: positiveNumberSchema,
+  frequency: z.nativeEnum(BillFrequency),
+  dueDay: z.number().int().min(1).max(31),
+  startDate: dateStringSchema,
+  categoryAccountId: uuidSchema,
+  payFromAccountId: uuidSchema,
+  notes: z.string().optional(),
+});
+
+export const updateRecurringBillSchema = createRecurringBillSchema.partial().extend({
+  status: z.nativeEnum(BillStatus).optional(),
+});
+
+export const recordBillPaymentSchema = z.object({
+  amount: z.number().positive().optional(),
+  date: dateStringSchema.optional(),
 });
