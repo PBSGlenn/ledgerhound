@@ -107,6 +107,8 @@ export interface ImportPreview {
   suggestedCategory?: Account;
   selectedCategoryId?: string; // Category ID selected by user or from rule matching
   suggestedPayee?: string; // Payee name from matched rule (for renaming)
+  isTransfer?: boolean; // Flagged as inter-account transfer (by AI or user)
+  transferTargetAccountId?: string; // Target TRANSFER-kind account for transfer rows
 }
 
 // Report types

@@ -19,6 +19,9 @@ export * from './memorizedRuleService';
 // Reporting and tax
 export * from './taxService';
 
+// AI services
+export * from './aiCategorizationService';
+
 // System services
 export * from './settingsService';
 export * from './backupService';

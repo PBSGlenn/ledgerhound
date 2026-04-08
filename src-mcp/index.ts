@@ -9,10 +9,93 @@
 
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { readFileSync } from 'fs';
 import { basename } from 'path';
 import * as api from './api-client.js';
+
+// ════════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════════════════════════════════════════
+
+type NumericMapping = Record<string, number | undefined>;
+
+/**
+ * Prepare CSV text and column mapping for the import API.
+ *
+ * The import service expects:
+ *   - Row 0 to be a header row (keys become the CSVRow object keys)
+ *   - Mapping values to be header-name strings, not column indexes
+ *
+ * When hasHeader is false (e.g. CBA CSVs), we prepend synthetic headers
+ * (col0, col1, …) so every CSV has a header row.  Then we translate the
+ * numeric column indexes into the corresponding header names.
+ */
+function prepareImportCsv(
+  csvText: string,
+  mapping: NumericMapping,
+  hasHeader: boolean
+): { csvText: string; mapping: Record<string, string> } {
+  const lines = csvText.trim().split('\n');
+  let headers: string[];
+
+  if (hasHeader && lines.length > 0) {
+    // Parse the existing header row to discover column names
+    headers = parseCSVLine(lines[0]);
+  } else {
+    // No header — figure out column count from the first data row
+    const firstRow = lines[0] ?? '';
+    const numCols = parseCSVLine(firstRow).length;
+    headers = Array.from({ length: numCols }, (_, i) => `col${i}`);
+    // Prepend synthetic header row
+    csvText = headers.join(',') + '\n' + csvText;
+  }
+
+  // Translate numeric indexes → header names
+  const translated: Record<string, string> = {};
+  for (const [field, idx] of Object.entries(mapping)) {
+    if (idx !== undefined && idx >= 0 && idx < headers.length) {
+      translated[field] = headers[idx];
+    }
+  }
+
+  return { csvText, mapping: translated };
+}
+
+/** Minimal CSV line parser (handles quoted fields). */
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        current += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+function createServer(): McpServer {
 
 const server = new McpServer({
   name: 'ledgerhound',
@@ -406,9 +489,12 @@ COLUMN MAPPING: The mapping object tells the importer which CSV column index (0-
 - balance: column index for running balance (informational only)
 - memo: column index for memo/notes
 
+hasHeader: Set to false for headerless CSVs (e.g. CBA exports). When false, synthetic headers (col0, col1, …) are prepended automatically so the importer can parse the file. Default: true.
+
 TIPS FOR DETECTING COLUMNS:
 - Look at the CSV headers and first few rows to determine which columns contain dates, amounts, descriptions
 - Australian banks commonly use dd/MM/yyyy date format
+- CBA CSVs have NO header row — use hasHeader: false
 - Some banks use separate debit/credit columns; others use a single amount column
 - If you have a saved mapping for this account (from get_import_mappings), use that
 
@@ -416,6 +502,7 @@ Call list_accounts first to get the sourceAccountId for the bank account being i
     inputSchema: {
       csvText: z.string().describe('The full CSV file content as a string'),
       sourceAccountId: z.string().describe('UUID of the bank account to import into'),
+      hasHeader: z.boolean().optional().describe('Whether the CSV has a header row. Default: true. Set to false for headerless CSVs like CBA exports.'),
       mapping: z.object({
         date: z.number().int().min(0).optional().describe('Column index for date'),
         payee: z.number().int().min(0).optional().describe('Column index for payee/description'),
@@ -426,12 +513,13 @@ Call list_accounts first to get the sourceAccountId for the bank account being i
         reference: z.number().int().min(0).optional().describe('Column index for reference/transaction ID'),
         balance: z.number().int().min(0).optional().describe('Column index for running balance'),
         memo: z.number().int().min(0).optional().describe('Column index for memo/notes'),
-      }).describe('Maps CSV column indexes to transaction fields'),
+      }).describe('Maps CSV column indexes (0-based) to transaction fields'),
     },
     annotations: { readOnlyHint: true },
   },
-  async ({ csvText, sourceAccountId, mapping }) => {
-    const data = await api.importPreview(csvText, mapping, sourceAccountId);
+  async ({ csvText, sourceAccountId, hasHeader, mapping }) => {
+    const prepared = prepareImportCsv(csvText, mapping, hasHeader ?? true);
+    const data = await api.importPreview(prepared.csvText, prepared.mapping, sourceAccountId);
     return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
   }
 );
@@ -447,12 +535,14 @@ IMPORTANT: Always call import_preview first, review the results with the user, t
 Options:
 - skipDuplicates: Skip transactions flagged as duplicates (recommended: true)
 - applyRules: Apply memorized rules for auto-categorization (recommended: true)
+- hasHeader: Must match the value used in import_preview (default: true)
 
 The previews array should be passed through from import_preview. You can modify selectedCategoryId on individual previews if the user wants to override categories before importing.`,
     inputSchema: {
       previews: z.array(z.any()).describe('The preview array returned from import_preview (pass through, or modify selectedCategoryId on items)'),
       sourceAccountId: z.string().describe('UUID of the bank account being imported into'),
       sourceName: z.string().describe('Human-readable name for this import (e.g. "CBA March 2026 statement")'),
+      hasHeader: z.boolean().optional().describe('Whether the CSV has a header row. Must match the value used in import_preview. Default: true.'),
       mapping: z.object({
         date: z.number().int().min(0).optional(),
         payee: z.number().int().min(0).optional(),
@@ -463,18 +553,28 @@ The previews array should be passed through from import_preview. You can modify 
         reference: z.number().int().min(0).optional(),
         balance: z.number().int().min(0).optional(),
         memo: z.number().int().min(0).optional(),
-      }).describe('Same column mapping used in import_preview'),
+      }).describe('Same column mapping used in import_preview (0-based column indexes)'),
       skipDuplicates: z.boolean().optional().describe('Skip duplicate transactions (default: true)'),
       applyRules: z.boolean().optional().describe('Apply memorized rules for auto-categorization (default: true)'),
     },
     annotations: { readOnlyHint: false },
   },
-  async ({ previews, sourceAccountId, sourceName, mapping, skipDuplicates, applyRules }) => {
+  async ({ previews, sourceAccountId, sourceName, hasHeader, mapping, skipDuplicates, applyRules }) => {
+    // import_execute doesn't re-parse CSV, but the mapping still needs to be
+    // header-name strings for the service to apply rules during import.
+    // We don't have the CSV text here, so we translate using the same col0/col1
+    // convention — the preview already used these synthetic headers.
+    const translatedMapping: Record<string, string> = {};
+    for (const [field, idx] of Object.entries(mapping)) {
+      if (idx !== undefined && (idx as number) >= 0) {
+        translatedMapping[field] = `col${idx}`;
+      }
+    }
     const options = {
       skipDuplicates: skipDuplicates ?? true,
       applyRules: applyRules ?? true,
     };
-    const result = await api.importExecute(previews, sourceAccountId, sourceName, mapping, options);
+    const result = await api.importExecute(previews, sourceAccountId, sourceName, translatedMapping, options);
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
@@ -871,14 +971,15 @@ Follow these steps:
 
 1. Call list_accounts to find the target account ID${accountName ? ` (look for "${accountName}")` : ''}
 2. Call get_import_mappings with the account ID to check for a saved column mapping
-3. Look at the CSV headers and first few data rows. Determine the column mapping:
+3. Look at the first few rows of the CSV. Determine:
+   - Does the CSV have a header row? (CBA exports do NOT — set hasHeader: false)
    - Which column has the date? (look for dates in dd/MM/yyyy or similar format)
    - Which column has the payee/description?
    - Is there a single amount column, or separate debit/credit columns?
    - Is there a reference/transaction ID column?
    - Column indexes are 0-based
-4. If a saved mapping exists for this account, use it. Otherwise, show me the headers with index numbers and your proposed mapping for confirmation.
-5. Call import_preview with the CSV content, account ID, and mapping
+4. If a saved mapping exists for this account, use it. Otherwise, show me the columns with index numbers and your proposed mapping for confirmation.
+5. Call import_preview with the CSV content, account ID, hasHeader flag, and mapping
 6. Summarize the preview results:
    - Total transactions found
    - How many are duplicates
@@ -957,17 +1058,99 @@ If there are multiple PDFs, process them one at a time in chronological order. E
 );
 
 
+return server;
+} // end createServer
+
 // ════════════════════════════════════════════════════════════════════════════
 // START SERVER
 // ════════════════════════════════════════════════════════════════════════════
 
-async function main() {
+const useHttp = process.argv.includes('--http') || process.env.LEDGERHOUND_MCP_HTTP === 'true';
+
+async function startStdio() {
+  const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  // Server is now listening on stdio — Claude Desktop/Cowork will communicate via stdin/stdout.
+  // Server is now listening on stdio — Claude Desktop will communicate via stdin/stdout.
 }
 
-main().catch((err) => {
+async function startHttp() {
+  const port = parseInt(process.env.LEDGERHOUND_MCP_PORT || '3002', 10);
+  const app = createMcpExpressApp();
+
+  // Map to store transports by session ID
+  const transports: Record<string, StreamableHTTPServerTransport> = {};
+
+  app.post('/mcp', async (req, res) => {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    try {
+      let transport: StreamableHTTPServerTransport;
+
+      if (sessionId && transports[sessionId]) {
+        transport = transports[sessionId];
+      } else if (!sessionId && isInitializeRequest(req.body)) {
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+          onsessioninitialized: (sid) => {
+            transports[sid] = transport;
+          },
+        });
+        transport.onclose = () => {
+          const sid = transport.sessionId;
+          if (sid && transports[sid]) {
+            delete transports[sid];
+          }
+        };
+        const mcpServer = createServer();
+        await mcpServer.connect(transport);
+        await transport.handleRequest(req, res, req.body);
+        return;
+      } else {
+        res.status(400).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Bad Request: No valid session ID provided' },
+          id: null,
+        });
+        return;
+      }
+
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      console.error('Error handling MCP request:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          error: { code: -32603, message: 'Internal server error' },
+          id: null,
+        });
+      }
+    }
+  });
+
+  app.get('/mcp', async (req, res) => {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    if (!sessionId || !transports[sessionId]) {
+      res.status(400).send('Invalid or missing session ID');
+      return;
+    }
+    await transports[sessionId].handleRequest(req, res);
+  });
+
+  app.delete('/mcp', async (req, res) => {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    if (!sessionId || !transports[sessionId]) {
+      res.status(400).send('Invalid or missing session ID');
+      return;
+    }
+    await transports[sessionId].handleRequest(req, res);
+  });
+
+  app.listen(port, () => {
+    console.error(`Ledgerhound MCP HTTP server listening on http://localhost:${port}/mcp`);
+  });
+}
+
+(useHttp ? startHttp() : startStdio()).catch((err) => {
   console.error('Failed to start Ledgerhound MCP server:', err);
   process.exit(1);
 });

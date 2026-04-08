@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "ledgerhound": {
+      "command": "npx",
+      "args": ["tsx", "src-mcp/index.ts"],
+      "cwd": "C:\\Users\\grubb\\OneDrive\\Pet Behaviour Services\\Management\\Dev\\Ledgerhound"
+    }
+  }
+}

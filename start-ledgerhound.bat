@@ -39,10 +39,15 @@ if errorlevel 1 (
 )
 echo.
 
+REM Start MCP HTTP server in background (for Cowork integration)
+echo Starting MCP HTTP server on http://localhost:3002/mcp
+start "Ledgerhound MCP" /min cmd /c "npx tsx src-mcp/index.ts --http"
+echo.
+
 REM Open browser after a short delay (in background)
 start "" cmd /c "timeout /t 3 /nobreak >nul && start chrome http://localhost:3001"
 
-echo Starting Ledgerhound server on http://localhost:3001
+echo Starting Ledgerhound API server on http://localhost:3001
 echo Press Ctrl+C to stop.
 echo.
 

@@ -263,9 +263,17 @@ export class PDFStatementService {
     const transactions: StatementTransaction[] = [];
     const lines = text.split('\n');
 
-    // Get statement year from the period
+    // Get statement year and end date from the period
     const periodMatch = text.match(/Statement\s+Period\s+\d{1,2}\s+\w{3}\s+(\d{4})/i);
     const statementYear = periodMatch ? parseInt(periodMatch[1]) : new Date().getFullYear();
+
+    // Extract statement end date for interest/fee charges
+    const endDateMatch = text.match(/Statement\s+Period\s+\d{1,2}\s+\w{3}\s+\d{4}\s*-\s*(\d{1,2})\s+(\w{3})\s+(\d{4})/i);
+    let statementEndDate: Date | null = null;
+    if (endDateMatch) {
+      const endMonth = this.monthToNumber(endDateMatch[2]);
+      statementEndDate = new Date(parseInt(endDateMatch[3]), endMonth, parseInt(endDateMatch[1]));
+    }
 
     // Track whether we're in the transactions section
     let inTransactions = false;
@@ -292,9 +300,27 @@ export class PDFStatementService {
 
       // Stop at end of transactions (look for page markers or summary sections)
       if (trimmedLine.startsWith('TransactionsAccount') ||
-          trimmedLine.startsWith('Please check your transactions') ||
-          trimmedLine.includes('Interest charged on')) {
+          trimmedLine.startsWith('Please check your transactions')) {
         // Don't break - there may be more transaction pages
+        continue;
+      }
+
+      // Extract interest/fee lines that don't have a date prefix
+      // Format: "Interest charged on purchases Purchase Rate 20.990%p.a. 94.07"
+      // Format: "Interest charged on cash advances Cash Advance Rate 21.990%p.a. 0.00"
+      const interestMatch = trimmedLine.match(/^(Interest charged on\s+\w+).*?([\d,]+\.\d{2})$/i);
+      if (interestMatch) {
+        const amount = parseFloat(interestMatch[2].replace(/,/g, ''));
+        if (amount > 0) {
+          // Use the statement end date for interest charges (they're calculated at statement close)
+          transactions.push({
+            date: statementEndDate || new Date(),
+            description: interestMatch[1].trim(),
+            debit: amount,
+            balance: undefined,
+            rawText: trimmedLine,
+          });
+        }
         continue;
       }
 
@@ -306,8 +332,17 @@ export class PDFStatementService {
         const monthNum = this.monthToNumber(month);
         let year = statementYear;
 
-        // If the statement spans Dec-Jan, transactions in Jan should be next year
-        // But for now, use the statement year as the base
+        // If the statement spans a year boundary (e.g. Dec 2025 - Jan 2026),
+        // transactions in early months (Jan, Feb) that come after Dec transactions
+        // belong to the next year.
+        if (statementEndDate && statementEndDate.getFullYear() > statementYear) {
+          // Statement crosses a year boundary. If this transaction's month is
+          // in the next year's part of the range, use the end date's year.
+          const endMonth = statementEndDate.getMonth(); // 0-based
+          if (monthNum <= endMonth) {
+            year = statementEndDate.getFullYear();
+          }
+        }
 
         const date = new Date(year, monthNum, parseInt(day));
         const amount = parseFloat(amountStr.replace(/,/g, ''));

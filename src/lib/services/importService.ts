@@ -405,6 +405,46 @@ export class ImportService {
         continue;
       }
 
+      // TRANSFER PATH: create 2 postings (source + target), no category, no GST
+      if (preview.isTransfer && preview.transferTargetAccountId) {
+        const metadata: Record<string, any> = { importedAsTransfer: true };
+        if (preview.suggestedPayee && preview.parsed.payee !== preview.suggestedPayee) {
+          metadata.originalDescription = preview.parsed.payee;
+        }
+        if (preview.matchedRule) {
+          metadata.matchedRuleId = preview.matchedRule.id;
+          metadata.matchedRuleName = preview.matchedRule.name;
+        }
+
+        await this.prisma.transaction.create({
+          data: {
+            date: preview.parsed.date!,
+            payee: preview.suggestedPayee || preview.parsed.payee || 'Transfer',
+            reference: preview.parsed.reference,
+            importBatchId: batch.id,
+            externalId: preview.parsed.reference,
+            metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
+            postings: {
+              create: [
+                {
+                  accountId: sourceAccountId,
+                  amount: preview.parsed.amount!,        // as-is from CSV (e.g. -500)
+                  isBusiness: false,
+                },
+                {
+                  accountId: preview.transferTargetAccountId,
+                  amount: -(preview.parsed.amount!),     // opposite sign (e.g. +500)
+                  isBusiness: false,
+                },
+              ],
+            },
+          },
+        });
+
+        imported++;
+        continue;
+      }
+
       // Determine category
       let categoryAccountId = uncategorizedAccount.id;
       let isBusiness = false;

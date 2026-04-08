@@ -1310,3 +1310,155 @@ export const recurringBillAPI = {
   },
 };
 
+// ── AI Categorization API ──────────────────────────────────────────────────
+
+export interface AISettingsPublic {
+  configured: boolean;
+  enabled: boolean;
+  modelId?: string;
+  apiKeyMasked?: string;
+}
+
+export interface AIModelInfo {
+  id: string;
+  name: string;
+  description: string;
+  inputPrice: string;
+  outputPrice: string;
+}
+
+export interface AICategorySuggestion {
+  index: number;
+  originalDescription: string;
+  cleanPayee: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  isBusiness: boolean;
+  confidence: number;
+  isTransfer: boolean;
+  transferTargetAccountId: string | null;
+  transferConfidence: number;
+}
+
+export const aiAPI = {
+  async getSettings(): Promise<AISettingsPublic> {
+    const response = await fetch(`${API_BASE}/ai/settings`);
+    if (!response.ok) throw new Error('Failed to fetch AI settings');
+    return await response.json();
+  },
+
+  async saveSettings(data: { apiKey?: string; modelId?: string; enabled?: boolean }): Promise<{ success: boolean; settings: AISettingsPublic }> {
+    const response = await fetch(`${API_BASE}/ai/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to save AI settings');
+    }
+    return await response.json();
+  },
+
+  async deleteSettings(): Promise<void> {
+    const response = await fetch(`${API_BASE}/ai/settings`, { method: 'DELETE' });
+    if (!response.ok) throw new Error('Failed to delete AI settings');
+  },
+
+  async validateKey(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+    const response = await fetch(`${API_BASE}/ai/validate-key`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey }),
+    });
+    if (!response.ok) throw new Error('Failed to validate API key');
+    return await response.json();
+  },
+
+  async listModels(): Promise<AIModelInfo[]> {
+    const response = await fetch(`${API_BASE}/ai/models`);
+    if (!response.ok) throw new Error('Failed to fetch models');
+    return await response.json();
+  },
+
+  async checkModelUpdate(): Promise<{ hasUpdate: boolean; currentModel: string; newestModel?: string }> {
+    const response = await fetch(`${API_BASE}/ai/check-model-update`);
+    if (!response.ok) throw new Error('Failed to check for model updates');
+    return await response.json();
+  },
+
+  async categorize(
+    transactions: Array<{ index: number; description: string; amount: number }>,
+    sourceAccountId?: string
+  ): Promise<AICategorySuggestion[]> {
+    const response = await fetch(`${API_BASE}/ai/categorize`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transactions, sourceAccountId }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || 'AI categorization failed');
+    }
+    return await response.json();
+  },
+
+  async diagnoseReconciliation(data: {
+    accountId: string;
+    reconciliation: {
+      statementStartDate: string;
+      statementEndDate: string;
+      statementStartBalance: number;
+      statementEndBalance: number;
+      accountName: string;
+      accountType: string;
+    };
+    status: {
+      difference: number;
+      isBalanced: boolean;
+      reconciledCount: number;
+      unreconciledCount: number;
+      reconciledAmount: number;
+    };
+    ledgerTransactions: Array<{
+      id: string;
+      date: string;
+      payee: string;
+      amount: number;
+      isReconciled: boolean;
+    }>;
+    statementTransactions?: Array<{
+      date: string;
+      description: string;
+      debit?: number;
+      credit?: number;
+    }>;
+  }): Promise<ReconciliationDiagnosis> {
+    const response = await fetch(`${API_BASE}/ai/diagnose-reconciliation`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || 'AI diagnosis failed');
+    }
+    return await response.json();
+  },
+};
+
+export interface ReconciliationDiagnosis {
+  summary: string;
+  difference: number;
+  issues: Array<{
+    type: 'unchecked_transaction' | 'missing_transaction' | 'date_mismatch' | 'duplicate' | 'amount_mismatch' | 'other';
+    severity: 'critical' | 'warning' | 'info';
+    description: string;
+    amount?: number;
+    transactionId?: string;
+    suggestedAction?: string;
+  }>;
+  explanation: string;
+  remainingAfterFixes: number;
+}
+

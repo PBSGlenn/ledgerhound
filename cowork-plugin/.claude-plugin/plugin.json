@@ -1,0 +1,9 @@
+{
+  "name": "ledgerhound-assistant",
+  "version": "0.2.0",
+  "description": "Connect to Ledgerhound accounting — double-entry bookkeeping, GST tracking, bank reconciliation, reports, and CSV import for Australian sole traders.",
+  "author": {
+    "name": "Captain"
+  },
+  "keywords": ["accounting", "bookkeeping", "GST", "BAS", "ledger", "Australian tax"]
+}

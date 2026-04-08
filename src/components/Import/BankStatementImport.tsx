@@ -22,9 +22,10 @@ import {
 } from 'lucide-react';
 import { CategorySelector } from '../Category/CategorySelector';
 import { useToast } from '../../hooks/useToast';
-import { accountAPI, importAPI } from '../../lib/api';
+import { accountAPI, importAPI, aiAPI } from '../../lib/api';
 import type { AccountType } from '@prisma/client';
 import type { Account, AccountWithBalance } from '../../types';
+import { Brain } from 'lucide-react';
 
 interface BankStatementImportProps {
   isOpen: boolean;
@@ -105,6 +106,15 @@ export function BankStatementImport({
   const [saveAsTemplate, setSaveAsTemplate] = useState(false);
   const [newTemplateName, setNewTemplateName] = useState('');
 
+  // AI categorization
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const [aiCategorizing, setAiCategorizing] = useState(false);
+  const [aiSuggestionCount, setAiSuggestionCount] = useState(0);
+
+  // Transfer detection
+  const [transferOverrides, setTransferOverrides] = useState<Record<number, { isTransfer: boolean; targetAccountId?: string }>>({});
+  const [transferAccounts, setTransferAccounts] = useState<AccountWithBalance[]>([]);
+
   const { showToast } = useToast();
 
   // Get display label for a column (uses header name if available)
@@ -112,13 +122,20 @@ export function BankStatementImport({
     csvHeaders[idx] ? `${csvHeaders[idx]}` : `Column ${idx + 1}`;
 
   // Load accounts and templates when dialog opens (only if accountId not provided)
+  // Also check if AI categorization is available
   useEffect(() => {
-    if (isOpen && !propsAccountId) {
-      loadAccountsAndTemplates();
-    }
-    if (isOpen && propsAccountId) {
-      setSelectedAccountId(propsAccountId);
-      setSelectedAccountName(propsAccountName || '');
+    if (isOpen) {
+      // Check AI availability
+      aiAPI.getSettings().then(s => setAiAvailable(s.configured && s.enabled)).catch(() => setAiAvailable(false));
+      // Load transfer accounts (for transfer detection target picker)
+      accountAPI.getAllAccountsWithBalances({ kind: 'TRANSFER' }).then(accs => setTransferAccounts(accs.filter(a => !a.archived))).catch(() => {});
+
+      if (!propsAccountId) {
+        loadAccountsAndTemplates();
+      } else {
+        setSelectedAccountId(propsAccountId);
+        setSelectedAccountName(propsAccountName || '');
+      }
     }
   }, [isOpen, propsAccountId, propsAccountName]);
 
@@ -425,17 +442,113 @@ export function BankStatementImport({
     return preview.suggestedCategory?.id || null;
   };
 
+  /** True if the row still needs AI help — no user override AND category is missing or "Uncategorized" */
+  const needsAICategorization = (preview: ImportPreview, index: number): boolean => {
+    if (preview.isDuplicate) return false;
+    if (transferOverrides[index]?.isTransfer) return false;
+    if (categoryOverrides[index]) return false; // user already picked a category
+    // No suggested category, or suggested category is "Uncategorized"
+    return !preview.suggestedCategory || preview.suggestedCategory.name === 'Uncategorized';
+  };
+
+  // AI Categorization: send uncategorized transactions to Claude
+  const handleAICategorize = async () => {
+    // Collect transactions that need AI help (uncategorized or "Uncategorized" default)
+    const uncategorized = previews
+      .map((preview, idx) => ({ preview, idx }))
+      .filter(({ preview, idx }) => needsAICategorization(preview, idx));
+
+    if (uncategorized.length === 0) {
+      showToast('All transactions are already categorized or marked as transfers', 'info');
+      return;
+    }
+
+    setAiCategorizing(true);
+    setAiSuggestionCount(0);
+    try {
+      const transactions = uncategorized.map(({ preview, idx }) => ({
+        index: idx,
+        description: preview.parsed.payee || 'Unknown',
+        amount: preview.parsed.amount || 0,
+      }));
+
+      console.log('[AI Categorize] Sending', transactions.length, 'transactions to AI');
+      const suggestions = await aiAPI.categorize(transactions, selectedAccountId);
+      console.log('[AI Categorize] Received', suggestions.length, 'suggestions:', suggestions);
+
+      // Apply suggestions as category overrides AND transfer overrides
+      const newCategoryOverrides = { ...categoryOverrides };
+      const newTransferOverrides = { ...transferOverrides };
+      let categorized = 0;
+      let transfers = 0;
+
+      for (const suggestion of suggestions) {
+        // Transfer detection (high confidence auto-apply)
+        if (suggestion.isTransfer && suggestion.transferConfidence >= 0.9 && suggestion.transferTargetAccountId) {
+          newTransferOverrides[suggestion.index] = {
+            isTransfer: true,
+            targetAccountId: suggestion.transferTargetAccountId,
+          };
+          transfers++;
+        }
+        // Transfer suggestion without target (flag it but user picks account)
+        else if (suggestion.isTransfer && suggestion.transferConfidence >= 0.9) {
+          newTransferOverrides[suggestion.index] = { isTransfer: true };
+          transfers++;
+        }
+        // Category suggestion
+        else if (suggestion.categoryId && suggestion.confidence >= 0.3) {
+          newCategoryOverrides[suggestion.index] = suggestion.categoryId;
+          categorized++;
+        }
+      }
+
+      console.log('[AI Categorize] Applied:', categorized, 'categories,', transfers, 'transfers');
+      setCategoryOverrides(newCategoryOverrides);
+      setTransferOverrides(newTransferOverrides);
+      const total = categorized + transfers;
+      setAiSuggestionCount(total);
+
+      const parts: string[] = [];
+      if (categorized > 0) parts.push(`${categorized} categorized`);
+      if (transfers > 0) parts.push(`${transfers} transfers detected`);
+
+      if (total > 0) {
+        showToast(`AI: ${parts.join(', ')} (of ${uncategorized.length})`, 'success');
+      } else {
+        showToast('AI could not confidently categorize any transactions', 'info');
+      }
+    } catch (error) {
+      console.error('AI categorization failed:', error);
+      showToast('AI categorization failed: ' + (error as Error).message, 'error');
+    } finally {
+      setAiCategorizing(false);
+    }
+  };
+
   // Step 4: Import using backend API
   const handleImport = async () => {
     // No longer skip uncategorized - they'll be imported as "Uncategorized" and can be categorized later
     setImporting(true);
 
     try {
-      // Prepare data for backend import
-      const previewsWithCategories = previews.map((preview, idx) => ({
-        ...preview,
-        selectedCategoryId: getCategoryForPreview(preview, idx),
-      }));
+      // Prepare data for backend import — merge category and transfer overrides
+      const previewsWithCategories = previews.map((preview, idx) => {
+        const transfer = transferOverrides[idx];
+        if (transfer?.isTransfer && transfer.targetAccountId) {
+          return {
+            ...preview,
+            isTransfer: true,
+            transferTargetAccountId: transfer.targetAccountId,
+            selectedCategoryId: undefined, // transfers don't have categories
+          };
+        }
+        return {
+          ...preview,
+          isTransfer: false,
+          selectedCategoryId: getCategoryForPreview(preview, idx),
+        };
+      });
 
       // Call backend import API
       const response = await fetch('http://localhost:3001/api/import/execute', {
@@ -484,6 +597,8 @@ export function BankStatementImport({
     setSelectedTemplateName('');
     setNewTemplateName('');
     setSaveAsTemplate(false);
+    setAiSuggestionCount(0);
+    setTransferOverrides({});
     // Don't reset selectedAccountId if it was provided via props
     if (!propsAccountId) {
       setSelectedAccountId('');
@@ -495,11 +610,13 @@ export function BankStatementImport({
   // Calculate stats
   const duplicateCount = previews.filter(p => p.isDuplicate).length;
   const matchedCount = previews.filter(p => p.matchedRule).length;
+  const transferCount = Object.values(transferOverrides).filter(t => t.isTransfer).length;
+  // "Categorized" = has a real category (not "Uncategorized") or has a user override
   const categorizedCount = previews.filter((p, idx) =>
-    !p.isDuplicate && getCategoryForPreview(p, idx)
+    !p.isDuplicate && !transferOverrides[idx]?.isTransfer && !needsAICategorization(p, idx)
   ).length;
   const uncategorizedCount = previews.filter((p, idx) =>
-    !p.isDuplicate && !getCategoryForPreview(p, idx)
+    needsAICategorization(p, idx)
   ).length;
 
   return (
@@ -937,13 +1054,37 @@ export function BankStatementImport({
                         {matchedCount} auto-matched by rules •{' '}
                       </span>
                     )}
-                    {uncategorizedCount} need categories • {duplicateCount} duplicates
+                    {transferCount > 0 && `${transferCount} transfers • `}{uncategorizedCount} need categories • {duplicateCount} duplicates
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2">
+                  {aiAvailable && (
+                    <button
+                      onClick={handleAICategorize}
+                      disabled={aiCategorizing}
+                      className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {aiCategorizing ? (
+                        <>
+                          <Brain className="w-4 h-4 animate-pulse" />
+                          AI Categorizing...
+                        </>
+                      ) : (
+                        <>
+                          <Brain className="w-4 h-4" />
+                          AI Categorize
+                          {aiSuggestionCount > 0 && (
+                            <span className="bg-violet-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                              {aiSuggestionCount}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </button>
+                  )}
                   <span className="text-sm text-slate-600 dark:text-slate-400">
-                    Bulk assign to uncategorized:
+                    Bulk assign:
                   </span>
                   <div className="w-64">
                     <CategorySelector
@@ -963,13 +1104,18 @@ export function BankStatementImport({
                       <th className="px-3 py-2 text-left font-medium text-slate-700 dark:text-slate-300">Date</th>
                       <th className="px-3 py-2 text-left font-medium text-slate-700 dark:text-slate-300">Description</th>
                       <th className="px-3 py-2 text-right font-medium text-slate-700 dark:text-slate-300">Amount</th>
-                      <th className="px-3 py-2 text-left font-medium text-slate-700 dark:text-slate-300">Category</th>
+                      <th className="px-2 py-2 text-center font-medium text-slate-700 dark:text-slate-300 w-24">Type</th>
+                      <th className="px-3 py-2 text-left font-medium text-slate-700 dark:text-slate-300">Category / Target</th>
                     </tr>
                   </thead>
                   <tbody>
                     {previews.map((preview, idx) => {
                       const categoryId = getCategoryForPreview(preview, idx);
                       const amount = preview.parsed.amount || 0;
+                      const isTransfer = transferOverrides[idx]?.isTransfer ?? false;
+                      const targetAccountId = transferOverrides[idx]?.targetAccountId;
+                      // Filter out source account from transfer targets
+                      const availableTargets = transferAccounts.filter(a => a.id !== selectedAccountId);
 
                       return (
                         <tr
@@ -977,7 +1123,9 @@ export function BankStatementImport({
                           className={`border-t border-slate-200 dark:border-slate-700 ${
                             preview.isDuplicate
                               ? 'bg-yellow-50 dark:bg-yellow-900/10'
-                              : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                              : isTransfer
+                                ? 'bg-indigo-50 dark:bg-indigo-900/10'
+                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
                           }`}
                         >
                           <td className="px-3 py-2 text-slate-900 dark:text-slate-100">
@@ -999,11 +1147,61 @@ export function BankStatementImport({
                           >
                             ${Math.abs(amount).toFixed(2)}
                           </td>
+                          <td className="px-2 py-2 text-center">
+                            {preview.isDuplicate ? null : (
+                              <button
+                                onClick={() => {
+                                  if (isTransfer) {
+                                    // Toggle off: remove transfer override
+                                    const newOverrides = { ...transferOverrides };
+                                    delete newOverrides[idx];
+                                    setTransferOverrides(newOverrides);
+                                  } else {
+                                    // Toggle on: set as transfer
+                                    setTransferOverrides({
+                                      ...transferOverrides,
+                                      [idx]: { isTransfer: true },
+                                    });
+                                    // Clear any category override
+                                    const newCatOverrides = { ...categoryOverrides };
+                                    delete newCatOverrides[idx];
+                                    setCategoryOverrides(newCatOverrides);
+                                  }
+                                }}
+                                className={`text-xs px-2 py-1 rounded-full font-medium transition-colors ${
+                                  isTransfer
+                                    ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-900/60'
+                                    : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'
+                                }`}
+                                title={isTransfer ? 'Click to change to Expense/Income' : 'Click to mark as Transfer'}
+                              >
+                                {isTransfer ? 'Transfer' : amount < 0 ? 'Expense' : 'Income'}
+                              </button>
+                            )}
+                          </td>
                           <td className="px-3 py-2">
                             {preview.isDuplicate ? (
                               <span className="text-xs text-yellow-700 dark:text-yellow-400 font-medium">
                                 DUPLICATE
                               </span>
+                            ) : isTransfer ? (
+                              <select
+                                value={targetAccountId || ''}
+                                onChange={(e) => {
+                                  setTransferOverrides({
+                                    ...transferOverrides,
+                                    [idx]: { isTransfer: true, targetAccountId: e.target.value || undefined },
+                                  });
+                                }}
+                                className="w-full px-2 py-1 text-sm border border-indigo-300 dark:border-indigo-600 rounded-lg bg-white dark:bg-slate-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                              >
+                                <option value="">Select target account...</option>
+                                {availableTargets.map(acc => (
+                                  <option key={acc.id} value={acc.id}>
+                                    {acc.name}
+                                  </option>
+                                ))}
+                              </select>
                             ) : (
                               <div className="w-64">
                                 <CategorySelector
@@ -1070,6 +1268,9 @@ export function BankStatementImport({
                 <h4 className="font-semibold text-slate-900 dark:text-white mb-2">Import Summary</h4>
                 <ul className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
                   <li>• {previews.length - duplicateCount} transactions will be imported</li>
+                  {transferCount > 0 && (
+                    <li className="text-indigo-600 dark:text-indigo-400">• {transferCount} inter-account transfers</li>
+                  )}
                   <li>• {duplicateCount} duplicates will be skipped automatically</li>
                   <li>• Account: {selectedAccountName}</li>
                   {matchedCount > 0 && (

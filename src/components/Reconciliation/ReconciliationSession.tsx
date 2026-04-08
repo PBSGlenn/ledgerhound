@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Check, X, Lock, AlertCircle, Loader2, CheckCircle, Sparkles, Upload, FileText, RotateCcw, ChevronDown, ChevronUp, Calendar, Info } from 'lucide-react';
+import { Check, X, Lock, AlertCircle, Loader2, CheckCircle, Sparkles, Upload, FileText, RotateCcw, ChevronDown, ChevronUp, Calendar, Info, Brain } from 'lucide-react';
 import { format } from 'date-fns';
-import { reconciliationAPI, transactionAPI } from '../../lib/api';
+import { reconciliationAPI, transactionAPI, aiAPI } from '../../lib/api';
+import type { ReconciliationDiagnosis } from '../../lib/api';
 import type { RegisterEntry } from '../../types';
 import * as Dialog from '@radix-ui/react-dialog';
 import { PDFViewer } from './PDFViewer';
@@ -112,6 +113,16 @@ export function ReconciliationSession({
     onConfirm: () => void;
   } | null>(null);
 
+  // AI diagnosis state
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [diagnosis, setDiagnosis] = useState<ReconciliationDiagnosis | null>(null);
+
+  // Check AI availability on mount
+  useEffect(() => {
+    aiAPI.getSettings().then(s => setAiAvailable(s.configured && s.enabled)).catch(() => {});
+  }, []);
+
   // Load data and restore match state on mount
   useEffect(() => {
     loadData();
@@ -152,8 +163,10 @@ export function ReconciliationSession({
         dateTo: new Date(reconData.statementEndDate),
       });
 
-      // Filter out transactions reconciled in OTHER (locked) sessions
+      // Filter out synthetic opening balance row and transactions reconciled in OTHER (locked) sessions
       const txns = allTxns.filter((txn) => {
+        // Skip the synthetic opening balance entry — it's not a real transaction
+        if (txn.id.startsWith('opening-')) return false;
         const posting = txn.postings.find((p: any) => p.accountId === accountId);
         // Keep if: not reconciled, or reconciled in THIS session
         return !posting?.reconciled || posting?.reconcileId === reconciliationId;
@@ -222,6 +235,61 @@ export function ReconciliationSession({
       showError('Lock Failed', (err as Error).message);
     } finally {
       setLockLoading(false);
+    }
+  };
+
+  const handleDiagnose = async () => {
+    if (!reconciliation || !status) return;
+
+    setDiagnosing(true);
+    setDiagnosis(null);
+    try {
+      // Build ledger transactions list from current register entries
+      const ledgerTxs = transactions.map(t => {
+        const posting = t.postings.find((p: any) => p.accountId === accountId);
+        return {
+          id: t.id,
+          date: format(new Date(t.date), 'yyyy-MM-dd'),
+          payee: t.payee,
+          amount: posting?.amount ?? 0,
+          isReconciled: reconciledIds.has(t.id),
+        };
+      });
+
+      // Build statement transactions from parsed PDF (if available)
+      const stmtTxs = parsedTransactions?.map((t: any) => ({
+        date: t.date ? format(new Date(t.date), 'yyyy-MM-dd') : 'Unknown',
+        description: t.description || '',
+        debit: t.debit,
+        credit: t.credit,
+      }));
+
+      const result = await aiAPI.diagnoseReconciliation({
+        accountId,
+        reconciliation: {
+          statementStartDate: format(new Date(reconciliation.statementStartDate), 'yyyy-MM-dd'),
+          statementEndDate: format(new Date(reconciliation.statementEndDate), 'yyyy-MM-dd'),
+          statementStartBalance: reconciliation.statementStartBalance,
+          statementEndBalance: reconciliation.statementEndBalance,
+          accountName: reconciliation.account?.name || 'Unknown',
+          accountType: reconciliation.account?.type || 'ASSET',
+        },
+        status: {
+          difference: status.difference,
+          isBalanced: status.isBalanced,
+          reconciledCount: status.reconciledCount,
+          unreconciledCount: status.unreconciledCount,
+          reconciledAmount: status.reconciledAmount ?? 0,
+        },
+        ledgerTransactions: ledgerTxs,
+        statementTransactions: stmtTxs,
+      });
+
+      setDiagnosis(result);
+    } catch (err) {
+      showError('AI Diagnosis Failed', (err as Error).message);
+    } finally {
+      setDiagnosing(false);
     }
   };
 
@@ -659,8 +727,110 @@ export function ReconciliationSession({
                 </>
               )}
             </button>
+            {!isBalanced && (
+              <button
+                onClick={handleDiagnose}
+                disabled={diagnosing}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-amber-400 text-white rounded-md font-medium flex items-center gap-2"
+              >
+                {diagnosing ? (
+                  <>
+                    <AlertCircle className="w-4 h-4 animate-pulse" />
+                    Diagnosing...
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="w-4 h-4" />
+                    Diagnose
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </div>
+
+        {/* AI Diagnosis Results */}
+        {diagnosis && (
+          <div className="mb-4 bg-amber-50 dark:bg-amber-900/20 border-2 border-amber-300 dark:border-amber-700 rounded-lg overflow-hidden">
+            <div className="p-4 border-b border-amber-200 dark:border-amber-700 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                <h3 className="font-semibold text-amber-900 dark:text-amber-100">
+                  Diagnosis: {diagnosis.summary}
+                </h3>
+              </div>
+              <button
+                onClick={() => setDiagnosis(null)}
+                className="text-amber-400 hover:text-amber-600 dark:hover:text-amber-300"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Issue Cards */}
+            <div className="p-4 space-y-3">
+              {diagnosis.issues.map((issue, idx) => (
+                <div
+                  key={idx}
+                  className={`p-3 rounded-lg border ${
+                    issue.severity === 'critical'
+                      ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+                      : issue.severity === 'warning'
+                        ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+                        : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full mt-0.5 ${
+                      issue.severity === 'critical'
+                        ? 'bg-red-200 dark:bg-red-800 text-red-800 dark:text-red-200'
+                        : issue.severity === 'warning'
+                          ? 'bg-yellow-200 dark:bg-yellow-800 text-yellow-800 dark:text-yellow-200'
+                          : 'bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200'
+                    }`}>
+                      {issue.severity === 'critical' ? 'CRITICAL' : issue.severity === 'warning' ? 'WARNING' : 'INFO'}
+                    </span>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-slate-900 dark:text-white">{issue.description}</p>
+                      {issue.amount !== undefined && issue.amount !== 0 && (
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                          Amount: <span className="font-mono font-medium">${Math.abs(issue.amount).toFixed(2)}</span>
+                        </p>
+                      )}
+                      {issue.suggestedAction && (
+                        <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 italic">
+                          Action: {issue.suggestedAction}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Expected Outcome */}
+            <div className="px-4 pb-4 space-y-3">
+              {diagnosis.explanation && (
+                <div className="p-3 bg-white/60 dark:bg-slate-800/60 rounded-lg">
+                  <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{diagnosis.explanation}</p>
+                </div>
+              )}
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-slate-600 dark:text-slate-400">Expected difference after fixes:</span>
+                <span className={`font-mono font-bold ${
+                  Math.abs(diagnosis.remainingAfterFixes) < 0.01
+                    ? 'text-green-600 dark:text-green-400'
+                    : 'text-yellow-600 dark:text-yellow-400'
+                }`}>
+                  ${Math.abs(diagnosis.remainingAfterFixes).toFixed(2)}
+                </span>
+                {Math.abs(diagnosis.remainingAfterFixes) < 0.01 && (
+                  <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Reconciliation Formula Display */}
         <div className="bg-white/50 dark:bg-slate-900/30 rounded-lg p-4 mb-4">
@@ -770,6 +940,11 @@ export function ReconciliationSession({
                   <tr
                     key={txn.id}
                     onClick={() => toggleReconciled(txn.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setContextMenu({ x: e.clientX, y: e.clientY, type: 'ledger', transaction: txn });
+                    }}
                     className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer transition-colors ${
                       isReconciled
                         ? 'bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30'

@@ -72,6 +72,7 @@ import { ReconciliationMatchingService } from '../src/lib/services/reconciliatio
 import { TransferMatchingService } from '../src/lib/services/transferMatchingService.js';
 import { taxService } from '../src/lib/services/taxService.js';
 import { recurringBillService } from '../src/lib/services/recurringBillService.js';
+import { aiCategorizationService } from '../src/lib/services/aiCategorizationService.js';
 import { seedDefaultCategories } from './seedCategories.js';
 import { getPrismaClient, switchDatabase, getCurrentDbUrl } from '../src/lib/db.js';
 
@@ -1266,6 +1267,126 @@ app.get('/api/import/mappings', async (req, res) => {
     res.json(mappings);
   } catch (error) {
     return sendServerError(res, error);
+  }
+});
+
+// ============================================================================
+// AI CATEGORIZATION ENDPOINTS
+// ============================================================================
+
+// Get AI settings (public, masked API key)
+app.get('/api/ai/settings', async (req, res) => {
+  try {
+    const settings = await aiCategorizationService.getSettingsPublic();
+    res.json(settings);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+// Save AI settings
+app.post('/api/ai/settings', async (req, res) => {
+  try {
+    const { apiKey, modelId, enabled } = req.body;
+
+    // If apiKey not provided, keep existing one
+    const existing = await aiCategorizationService.getSettings();
+    const finalApiKey = apiKey || existing?.apiKey;
+
+    if (!finalApiKey) {
+      return sendError(res, 400, 'API key is required');
+    }
+
+    const settings = await aiCategorizationService.saveSettings(
+      finalApiKey,
+      modelId || 'claude-haiku-4-5-20251001',
+      enabled ?? true
+    );
+    res.json({ success: true, settings: await aiCategorizationService.getSettingsPublic() });
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+// Delete AI settings
+app.delete('/api/ai/settings', async (req, res) => {
+  try {
+    await aiCategorizationService.deleteSettings();
+    res.json({ success: true });
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+// Validate API key
+app.post('/api/ai/validate-key', async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    if (!apiKey) {
+      return sendError(res, 400, 'API key is required');
+    }
+    const result = await aiCategorizationService.validateApiKey(apiKey);
+    res.json(result);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+// List available models (with optional API-based discovery)
+app.get('/api/ai/models', async (req, res) => {
+  try {
+    const settings = await aiCategorizationService.getSettings();
+    const models = await aiCategorizationService.listAvailableModels(settings?.apiKey);
+    res.json(models);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+// Check for model updates
+app.get('/api/ai/check-model-update', async (req, res) => {
+  try {
+    const result = await aiCategorizationService.checkForModelUpdate();
+    res.json(result);
+  } catch (error) {
+    return sendServerError(res, error);
+  }
+});
+
+// Categorize transactions
+app.post('/api/ai/categorize', async (req, res) => {
+  try {
+    const { transactions, sourceAccountId } = req.body;
+    if (!transactions || !Array.isArray(transactions) || transactions.length === 0) {
+      return sendError(res, 400, 'transactions array is required');
+    }
+    const suggestions = await aiCategorizationService.categorizeTransactions(
+      { transactions },
+      sourceAccountId
+    );
+    res.json(suggestions);
+  } catch (error) {
+    return sendError(res, 400, (error as Error).message);
+  }
+});
+
+// Diagnose reconciliation issues
+app.post('/api/ai/diagnose-reconciliation', async (req, res) => {
+  try {
+    const { accountId, reconciliation, status, ledgerTransactions, statementTransactions } = req.body;
+    if (!accountId || !reconciliation || !status || !ledgerTransactions) {
+      return sendError(res, 400, 'accountId, reconciliation, status, and ledgerTransactions are required');
+    }
+    const diagnosis = await aiCategorizationService.diagnoseReconciliation({
+      accountId,
+      reconciliation,
+      status,
+      ledgerTransactions,
+      statementTransactions,
+    });
+    res.json(diagnosis);
+  } catch (error) {
+    return sendError(res, 400, (error as Error).message);
   }
 });
 

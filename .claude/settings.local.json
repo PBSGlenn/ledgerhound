@@ -56,9 +56,43 @@
       "Bash(git worktree:*)",
       "Bash(git branch:*)",
       "Bash(npx prisma db execute:*)",
-      "Bash(where:*)"
+      "Bash(where:*)",
+      "Bash(git push:*)",
+      "Bash(npm audit)",
+      "Bash(npm audit fix)",
+      "Bash(sed 's/^\\\\s*//')",
+      "Bash(sed 's/:.*//')",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:ts.sdk.modelcontextprotocol.io)",
+      "WebFetch(domain:devtk.ai)",
+      "Read(//c/Dev/Ledgerhound/$APPDATA/Claude/**)",
+      "Bash(python -m json.tool)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\(''payee'',''?''\\), [p[''account''][''name''] for p in d.get\\(''postings'',[]\\)]\\)\")",
+      "Bash(xargs -I {} basename {})",
+      "Bash(cmd.exe //c create-shortcut.bat)",
+      "Bash(cmd.exe //c \"cd /d \"\"C:\\\\Users\\\\grubb\\\\OneDrive\\\\Pet Behaviour Services\\\\Management\\\\Dev\\\\Ledgerhound\"\" && create-shortcut.bat\")",
+      "Bash(echo \"EXIT CODE: $?\")",
+      "Read(//c/Users/grubb/OneDrive/Pet Behaviour Services/Management/Dev/Ledgerhound/$APPDATA/Claude/**)",
+      "Read(//c/Users/grubb/OneDrive/Pet Behaviour Services/Management/Dev/Ledgerhound/$HOME/.claude/**)",
+      "Bash(npm show:*)",
+      "Bash(pip show:*)",
+      "Bash(pip3 show:*)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "WebSearch",
+      "Bash(xxd \"c:/Users/grubb/OneDrive/Pet Behaviour Services/Management/Dev/Ledgerhound/cowork-plugin/ledgerhound.plugin\")",
+      "WebFetch(domain:support.claude.com)",
+      "mcp__ledgerhound__list_accounts",
+      "Bash(python3 -c \"import sys,json; data=json.loads\\(sys.stdin.read\\(\\)\\); text=data[0]['text']; accounts=json.loads\\(text\\); [print\\(f\\\\\"{a['id'][:8]}... {a['name']}\\\\\"\\) for a in accounts if 'MQB' in a.get\\('name',''\\) or 'Macq' in a.get\\('name',''\\) or 'macq' in a.get\\('name',''\\).lower\\(\\) or 'Sav' in a.get\\('name',''\\)]\")",
+      "mcp__ledgerhound__import_preview",
+      "mcp__ledgerhound__search_categories",
+      "mcp__ledgerhound__import_execute"
     ],
     "deny": [],
-    "ask": []
+    "ask": [],
+    "additionalDirectories": [
+      "C:\\Users\\grubb\\AppData\\Roaming\\Claude"
+    ]
   }
 }
