@@ -161,7 +161,7 @@ Run: `npm test`
 - Run: `npm run test:e2e` (stop API server first with `Ctrl+C`)
 - Debug modes: `npm run test:e2e:ui`, `npm run test:e2e:headed`, `npm run test:e2e:debug`
 
-## Current Status (2026-03-29)
+## Current Status (2026-04-18)
 
 ### What's Working
 - Complete double-entry accounting engine with GST validation
@@ -176,12 +176,19 @@ Run: `npm test`
 - Bulk categorize: group uncategorized transactions by payee, assign categories, create rules
 - Right-click context menu: recategorize, move to account, manual cleared/reconciled toggle
 - PSP account pattern: intermediary accounts (Stripe, Optus) for bundled billing reconciliation
+- Recurring bills with payment reminders: dashboard widget (14-day lookahead), overdue badge in topbar, pay/skip/pause flows that create real double-entry transactions
+- Business/personal split ratios: mixed-use expenses (e.g. utilities 25% business) expand into paired postings with optional GST credit on the business portion, usable via manual entry, import rules, and memorized rules
 - Automatic backup/restore system
 - Settings with general, categories, rules, Stripe, backups, and tax tables tabs
 - Desktop launcher (`start-ledgerhound.bat`)
 - 419 unit tests (1 pre-existing failure), 16 E2E tests all passing
 
+### Recent Changes (April 2026)
+- **Business/personal split ratios** (2026-04-18): New `SplitRatio` type and `SplitBusinessPersonalDialog` for mixed-use expenses. `generateSplitPostings()` in `transactionService` expands a total into paired personal/business postings with a separate GST Paid/Collected posting when `gstOnBusiness` is true. Memorized rules can store a SplitRatio in `defaultSplits` (JSON); import flow detects and expands it via `memorizedRuleService.getSplitRatio()`. Also fixed reconciliation ±1 day timezone buffer to apply in `getUnreconciledPostings` and `ReconciliationSession` loader so AEST-stored-as-UTC boundary dates aren't dropped. Files: `src/types/index.ts`, `src/lib/services/transactionService.ts`, `src/lib/services/memorizedRuleService.ts`, `src/lib/services/reconciliationService.ts`, `src/lib/services/importService.ts`, `src/components/Transaction/SplitBusinessPersonalDialog.tsx`, `src/components/Transaction/TransactionFormModal.tsx`, `src/components/Settings/MemorizedRulesManager.tsx`, `src/components/Reconciliation/ReconciliationSession.tsx`, `src-server/validation.ts`.
+
 ### Recent Changes (March 2026)
+- **AI categorization + MCP enhancements + PDF reconciliation improvements** (2026-03-29): Batch commit adding AI-assisted categorization, expanded MCP toolset (balance sheet, BAS draft, GST summary, tax estimation, spending analysis, reconciliation workflows), and PDF reconciliation polish.
+- **Recurring bills & payment reminders** (2026-03-29): New `RecurringBill` model with CRUD, pay (creates real double-entry transaction), skip, pause/resume, upcoming/overdue tracking. Dashboard `UpcomingBillsWidget` shows bills due in next 14 days with quick-pay; topbar badge shows overdue count. Endpoints under `/api/recurring-bills`. 33 new tests. Files: `prisma/schema.prisma`, `src/lib/services/recurringBillService.ts`, `src/components/RecurringBills/`, `src/components/Dashboard/UpcomingBillsWidget.tsx`.
 - **MCP server for Claude Cowork** (2026-03-29): Added `src-mcp/` with MCP server exposing PDF reconciliation tools and CSV import tools for AI-assisted bank statement processing.
 - **Move to Account** (2026-03-01): Right-click context menu in the register now includes "Move to Account", which reassigns a transaction to any other real (TRANSFER) account via a dialog with account dropdown. Clears reconciliation state on move. New endpoint: `POST /api/transactions/:id/move-to-account`. Files changed: `src-server/api.ts`, `src/lib/api.ts`, `src/components/Register/RegisterGrid.tsx`.
 - **Optus PSP account pattern** (2026-03-01): Created Optus Payment Processor account to handle bundled billing (mobile + Netflix + YouTube on one statement charge). Same PSP intermediary pattern as Stripe — bank reconciliation sees a single transfer while individual expenses get their own payees.
@@ -203,9 +210,8 @@ Run: `npm test`
 - Tauri desktop packaging
 - E2E coverage for reports, settings, advanced workflows
 - Vehicle logbook tracking (ATO logbook and cents-per-km methods)
-- Bill payment reminder system with email notifications
-- Regular/recurring payments list
-- AI-assisted budgeting
+- Email delivery for bill reminders (in-app reminders shipped; SMTP/email notifications still TODO)
+- AI-assisted budgeting (scope: distinct from Cowork MCP categorization — intended for forward-looking budget suggestions)
 
 ## Tech Stack
 - **Frontend**: React 19 + TypeScript + Vite + TailwindCSS + Radix UI + recharts
