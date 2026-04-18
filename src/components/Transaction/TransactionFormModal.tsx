@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import type { Account, CreateTransactionDTO, GSTCode, AccountType } from '../../types';
+import type { Account, CreateTransactionDTO, GSTCode, AccountType, SplitRatio } from '../../types';
 import { transactionAPI, accountAPI, memorizedRuleAPI } from '../../lib/api';
 import { CategorySelector } from '../Category/CategorySelector';
+import { SplitBusinessPersonalDialog } from './SplitBusinessPersonalDialog';
 
 // Helper to format date for input field (YYYY-MM-DD) without timezone shift
 // Using toISOString() can shift dates due to UTC conversion in positive timezone offsets
@@ -102,6 +103,64 @@ export function TransactionFormModal({
   const [gstPaidAccount, setGstPaidAccount] = useState<Account | null>(null);
   const [gstCollectedAccount, setGstCollectedAccount] = useState<Account | null>(null);
   const [accountName, setAccountName] = useState<string>('');
+  const [isSplitBPOpen, setIsSplitBPOpen] = useState(false);
+
+  const applyBusinessPersonalSplit = (ratio: SplitRatio) => {
+    const absTotal = Math.abs(parseFloat(totalAmount) || 0);
+    if (absTotal <= 0) {
+      alert('Enter the total amount before splitting.');
+      return;
+    }
+
+    const pct = Math.max(0, Math.min(100, ratio.businessPercent));
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const businessGross = round2(absTotal * (pct / 100));
+    const personalGross = round2(absTotal - businessGross);
+    const gstAmount = ratio.gstOnBusiness ? round2(businessGross / 11) : 0;
+    const businessExGst = round2(businessGross - gstAmount);
+
+    const nextSplits: Split[] = [];
+
+    if (personalGross > 0) {
+      nextSplits.push({
+        id: `bp-personal-${Date.now()}`,
+        accountId: ratio.personalCategoryId,
+        amount: personalGross.toFixed(2),
+        isBusiness: false,
+      });
+    }
+
+    if (businessGross > 0) {
+      const businessId = `bp-business-${Date.now()}`;
+      if (ratio.gstOnBusiness && gstPaidAccount) {
+        nextSplits.push({
+          id: businessId,
+          accountId: ratio.businessCategoryId,
+          amount: businessExGst.toFixed(2),
+          isBusiness: true,
+          gstCode: 'GST' as GSTCode,
+          originalAmount: businessGross.toFixed(2),
+        });
+        nextSplits.push({
+          id: `bp-gst-${Date.now()}`,
+          accountId: gstPaidAccount.id,
+          amount: gstAmount.toFixed(2),
+          isBusiness: false,
+          isGstSplit: true,
+          parentSplitId: businessId,
+        });
+      } else {
+        nextSplits.push({
+          id: businessId,
+          accountId: ratio.businessCategoryId,
+          amount: businessGross.toFixed(2),
+          isBusiness: true,
+        });
+      }
+    }
+
+    setSplits(nextSplits);
+  };
 
   useEffect(() => {
     loadCategories();
@@ -744,20 +803,31 @@ export function TransactionFormModal({
                     {transactionType === 'transfer-out' ? 'Transfer To' : transactionType === 'transfer-in' ? 'Transfer From' : 'Items'}
                   </label>
                   {transactionType === 'expense' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSplits([...splits, {
-                          id: `temp-${Date.now()}`,
-                          accountId: '',
-                          amount: '',
-                          isBusiness: false,
-                        }]);
-                      }}
-                      className="px-2 py-0.5 text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
-                    >
-                      + Add Split
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsSplitBPOpen(true)}
+                        disabled={!totalAmount || parseFloat(totalAmount) === 0}
+                        className="px-2 py-0.5 text-xs font-medium bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded hover:bg-purple-200 dark:hover:bg-purple-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        title="Split a mixed-use expense (e.g. utilities 25% business)"
+                      >
+                        Split Business/Personal
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSplits([...splits, {
+                            id: `temp-${Date.now()}`,
+                            accountId: '',
+                            amount: '',
+                            isBusiness: false,
+                          }]);
+                        }}
+                        className="px-2 py-0.5 text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors"
+                      >
+                        + Add Split
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -1041,6 +1111,14 @@ export function TransactionFormModal({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+
+    <SplitBusinessPersonalDialog
+      isOpen={isSplitBPOpen}
+      onClose={() => setIsSplitBPOpen(false)}
+      onApply={applyBusinessPersonalSplit}
+      totalAmount={parseFloat(totalAmount) || 0}
+      categories={categories}
+    />
     </>
   );
 }

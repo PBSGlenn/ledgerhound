@@ -157,10 +157,14 @@ export function ReconciliationSession({
       setReconciliation(reconData);
       setStatus(statusData);
 
-      // Load transactions for the statement period
+      // Load transactions for the statement period, buffered by ±1 day to handle
+      // timezone offsets (AEST/AEDT dates stored as prior-day UTC). Must match the
+      // same buffer used by reconciliationService.getReconciliationStatus().
+      const stmtStart = new Date(reconData.statementStartDate);
+      const stmtEnd = new Date(reconData.statementEndDate);
       const allTxns = await transactionAPI.getRegisterEntries(accountId, {
-        dateFrom: new Date(reconData.statementStartDate),
-        dateTo: new Date(reconData.statementEndDate),
+        dateFrom: new Date(stmtStart.getTime() - 24 * 60 * 60 * 1000),
+        dateTo: new Date(stmtEnd.getTime() + 24 * 60 * 60 * 1000),
       });
 
       // Filter out synthetic opening balance row and transactions reconciled in OTHER (locked) sessions

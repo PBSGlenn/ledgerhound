@@ -7,7 +7,8 @@ import { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, GripVertical, Save, X, AlertCircle, Play } from 'lucide-react';
 import { memorizedRuleAPI, accountAPI } from '../../lib/api';
 import { useToast } from '../../hooks/useToast';
-import type { MemorizedRule, Account } from '../../types';
+import type { MemorizedRule, Account, SplitRatio } from '../../types';
+import { isSplitRatio } from '../../types';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
 
@@ -19,7 +20,23 @@ interface RuleFormData {
   defaultAccountId: string;
   applyOnImport: boolean;
   applyOnManualEntry: boolean;
+  // Business/personal split ratio (optional)
+  hasSplitRatio: boolean;
+  personalCategoryId: string;
+  businessCategoryId: string;
+  businessPercent: number;
+  gstOnBusiness: boolean;
 }
+
+const parseDefaultSplits = (raw: string | null | undefined): SplitRatio | null => {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return isSplitRatio(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
 
 export function MemorizedRulesManager() {
   const { showSuccess, showError } = useToast();
@@ -39,6 +56,11 @@ export function MemorizedRulesManager() {
     defaultAccountId: '',
     applyOnImport: true,
     applyOnManualEntry: true,
+    hasSplitRatio: false,
+    personalCategoryId: '',
+    businessCategoryId: '',
+    businessPercent: 25,
+    gstOnBusiness: true,
   });
 
   useEffect(() => {
@@ -72,12 +94,18 @@ export function MemorizedRulesManager() {
       defaultAccountId: '',
       applyOnImport: true,
       applyOnManualEntry: true,
+      hasSplitRatio: false,
+      personalCategoryId: '',
+      businessCategoryId: '',
+      businessPercent: 25,
+      gstOnBusiness: true,
     });
     setIsAddEditOpen(true);
   };
 
   const handleEdit = (rule: MemorizedRule) => {
     setEditingRule(rule);
+    const existingRatio = parseDefaultSplits(rule.defaultSplits);
     setFormData({
       name: rule.name,
       matchType: rule.matchType,
@@ -86,6 +114,11 @@ export function MemorizedRulesManager() {
       defaultAccountId: rule.defaultAccountId || '',
       applyOnImport: rule.applyOnImport,
       applyOnManualEntry: rule.applyOnManualEntry,
+      hasSplitRatio: existingRatio !== null,
+      personalCategoryId: existingRatio?.personalCategoryId ?? '',
+      businessCategoryId: existingRatio?.businessCategoryId ?? '',
+      businessPercent: existingRatio?.businessPercent ?? 25,
+      gstOnBusiness: existingRatio?.gstOnBusiness ?? true,
     });
     setIsAddEditOpen(true);
   };
@@ -100,12 +133,47 @@ export function MemorizedRulesManager() {
       return;
     }
 
+    if (formData.hasSplitRatio) {
+      if (!formData.personalCategoryId || !formData.businessCategoryId) {
+        showError('Split ratio requires both a personal and a business category');
+        return;
+      }
+      if (formData.businessPercent < 0 || formData.businessPercent > 100) {
+        showError('Business percentage must be between 0 and 100');
+        return;
+      }
+    }
+
+    const payload: any = {
+      name: formData.name,
+      matchType: formData.matchType,
+      matchValue: formData.matchValue,
+      defaultPayee: formData.defaultPayee,
+      defaultAccountId: formData.defaultAccountId || undefined,
+      applyOnImport: formData.applyOnImport,
+      applyOnManualEntry: formData.applyOnManualEntry,
+    };
+
+    if (formData.hasSplitRatio) {
+      const ratio: SplitRatio = {
+        kind: 'SPLIT_RATIO',
+        personalCategoryId: formData.personalCategoryId,
+        businessCategoryId: formData.businessCategoryId,
+        businessPercent: formData.businessPercent,
+        gstOnBusiness: formData.gstOnBusiness,
+      };
+      payload.defaultSplits = JSON.stringify(ratio);
+    } else if (editingRule && parseDefaultSplits(editingRule.defaultSplits)) {
+      // Was a split ratio before, now unchecked — clear it
+      payload.defaultSplits = '';
+    }
+
     try {
       if (editingRule) {
-        await memorizedRuleAPI.updateRule(editingRule.id, formData);
+        await memorizedRuleAPI.updateRule(editingRule.id, payload);
         showSuccess('Rule updated successfully');
       } else {
-        await memorizedRuleAPI.createRule(formData);
+        await memorizedRuleAPI.createRule(payload);
         showSuccess('Rule created successfully');
       }
       setIsAddEditOpen(false);
@@ -431,6 +499,115 @@ export function MemorizedRulesManager() {
                       );
                     })}
                 </select>
+              </div>
+
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-700">
+                <label className="flex items-center gap-2 mb-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.hasSplitRatio}
+                    onChange={(e) => setFormData({ ...formData, hasSplitRatio: e.target.checked })}
+                    className="rounded border-slate-300 dark:border-slate-600 text-purple-600 focus:ring-2 focus:ring-purple-500"
+                  />
+                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Business/personal split (mixed-use expense)
+                  </span>
+                </label>
+
+                {formData.hasSplitRatio && (
+                  <div className="ml-6 space-y-3 p-3 rounded-lg bg-purple-50 dark:bg-purple-900/10 border border-purple-200 dark:border-purple-800">
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      Matching transactions will be auto-split into two postings. Overrides the default category above.
+                    </p>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                        Business use %
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={formData.businessPercent}
+                          onChange={(e) => setFormData({ ...formData, businessPercent: Number(e.target.value) })}
+                          className="flex-1"
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={0.1}
+                          value={formData.businessPercent}
+                          onChange={(e) => {
+                            const v = Number(e.target.value);
+                            if (!Number.isNaN(v)) setFormData({ ...formData, businessPercent: Math.max(0, Math.min(100, v)) });
+                          }}
+                          className="w-20 px-2 py-1 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                        Personal category
+                      </label>
+                      <select
+                        value={formData.personalCategoryId}
+                        onChange={(e) => setFormData({ ...formData, personalCategoryId: e.target.value })}
+                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+                      >
+                        <option value="">Select personal category…</option>
+                        {categories
+                          .filter(c => c.parentId !== null && !c.isBusinessDefault)
+                          .map(c => {
+                            const parent = categories.find(p => p.id === c.parentId);
+                            return (
+                              <option key={c.id} value={c.id}>
+                                {parent ? `${parent.name}: ${c.name}` : c.name}
+                              </option>
+                            );
+                          })}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                        Business category
+                      </label>
+                      <select
+                        value={formData.businessCategoryId}
+                        onChange={(e) => setFormData({ ...formData, businessCategoryId: e.target.value })}
+                        className="w-full px-3 py-2 text-sm border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
+                      >
+                        <option value="">Select business category…</option>
+                        {categories
+                          .filter(c => c.parentId !== null && c.isBusinessDefault)
+                          .map(c => {
+                            const parent = categories.find(p => p.id === c.parentId);
+                            return (
+                              <option key={c.id} value={c.id}>
+                                {parent ? `${parent.name}: ${c.name}` : c.name}
+                              </option>
+                            );
+                          })}
+                      </select>
+                    </div>
+
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={formData.gstOnBusiness}
+                        onChange={(e) => setFormData({ ...formData, gstOnBusiness: e.target.checked })}
+                        className="rounded border-slate-300 dark:border-slate-600 text-purple-600 focus:ring-2 focus:ring-purple-500"
+                      />
+                      <span className="text-xs text-slate-700 dark:text-slate-300">
+                        Claim 10% GST credit on business portion
+                      </span>
+                    </label>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700">

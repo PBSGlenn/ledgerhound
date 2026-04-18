@@ -1,6 +1,7 @@
 import { getPrismaClient } from '../db';
 import type { MemorizedRule, MatchType, Account, GSTCode, PrismaClient } from '@prisma/client';
-import type { SplitTemplate } from '../../types';
+import type { SplitTemplate, SplitRatio, MemorizedRuleSplits } from '../../types';
+import { isSplitRatio } from '../../types';
 
 export class MemorizedRuleService {
   private prisma: PrismaClient;
@@ -36,7 +37,7 @@ export class MemorizedRuleService {
     matchValue: string;
     defaultPayee?: string;
     defaultAccountId?: string;
-    defaultSplits?: SplitTemplate[];
+    defaultSplits?: MemorizedRuleSplits;
     applyOnImport?: boolean;
     applyOnManualEntry?: boolean;
     priority?: number;
@@ -69,7 +70,7 @@ export class MemorizedRuleService {
       matchValue: string;
       defaultPayee: string;
       defaultAccountId: string;
-      defaultSplits: SplitTemplate[];
+      defaultSplits: MemorizedRuleSplits;
       applyOnImport: boolean;
       applyOnManualEntry: boolean;
       priority: number;
@@ -162,18 +163,33 @@ export class MemorizedRuleService {
   }
 
   /**
-   * Get default splits for a rule
+   * Get default splits for a rule as classic multi-category templates.
+   * Returns [] if the rule has a business/personal SplitRatio stored instead.
    */
   getDefaultSplits(rule: MemorizedRule): SplitTemplate[] {
-    if (!rule.defaultSplits) {
+    const parsed = this.parseDefaultSplits(rule);
+    if (!parsed || isSplitRatio(parsed)) {
       return [];
     }
+    return parsed;
+  }
 
+  /**
+   * Get the business/personal SplitRatio stored on a rule, or null if the rule
+   * uses the classic multi-category split shape (or has no defaultSplits).
+   */
+  getSplitRatio(rule: MemorizedRule): SplitRatio | null {
+    const parsed = this.parseDefaultSplits(rule);
+    return isSplitRatio(parsed) ? parsed : null;
+  }
+
+  private parseDefaultSplits(rule: MemorizedRule): MemorizedRuleSplits | null {
+    if (!rule.defaultSplits) return null;
     try {
-      return JSON.parse(rule.defaultSplits);
+      return JSON.parse(rule.defaultSplits) as MemorizedRuleSplits;
     } catch (e) {
       console.error('Failed to parse default splits:', e);
-      return [];
+      return null;
     }
   }
 

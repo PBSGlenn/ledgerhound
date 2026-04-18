@@ -108,7 +108,7 @@ export async function searchTransactions(filters: {
   minAmount?: number;
   maxAmount?: number;
 }) {
-  return request('POST', '/api/transactions/search', filters);
+  return request('POST', '/api/transactions/search', { scope: 'all', ...filters });
 }
 
 export async function createTransaction(data: {

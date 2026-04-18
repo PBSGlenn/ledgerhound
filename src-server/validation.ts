@@ -340,13 +340,23 @@ const regexPatternSchema = z.string().refine(
   { message: 'Invalid regex pattern' }
 );
 
+// SplitRatio shape stored inside defaultSplits JSON when a rule represents a
+// business/personal percentage split rather than a classic multi-category split.
+export const splitRatioSchema = z.object({
+  kind: z.literal('SPLIT_RATIO'),
+  personalCategoryId: uuidSchema,
+  businessCategoryId: uuidSchema,
+  businessPercent: z.number().min(0).max(100),
+  gstOnBusiness: z.boolean(),
+});
+
 export const createRuleSchema = z.object({
   name: nonEmptyStringSchema.max(255),
   matchType: matchTypeSchema.optional().default('CONTAINS'),
   matchValue: nonEmptyStringSchema,
   defaultPayee: z.string().optional(),
   defaultAccountId: uuidSchema.optional(),
-  defaultSplits: z.string().optional(), // JSON string
+  defaultSplits: z.string().optional(), // JSON string: SplitTemplate[] or SplitRatio
   applyOnImport: z.boolean().optional().default(true),
   applyOnManualEntry: z.boolean().optional().default(true),
   priority: z.number().int().optional().default(0),

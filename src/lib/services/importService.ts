@@ -3,6 +3,7 @@ import { parse } from 'date-fns';
 import type { ImportBatch, Account, Settings, PrismaClient } from '@prisma/client';
 import type { CSVColumnMapping, CSVRow, ImportPreview } from '../../types';
 import { memorizedRuleService } from './memorizedRuleService';
+import { generateSplitPostings } from './transactionService';
 
 export class ImportService {
   private prisma: PrismaClient;
@@ -445,6 +446,70 @@ export class ImportService {
         continue;
       }
 
+      // SPLIT RATIO PATH: matched rule carries a business/personal percentage split.
+      // Expand into a multi-posting transaction via generateSplitPostings, then skip
+      // the rest of the regular category/GST logic.
+      if (options.applyRules && preview.matchedRule) {
+        const splitRatio = memorizedRuleService.getSplitRatio(preview.matchedRule);
+        if (splitRatio) {
+          const isExpense = preview.parsed.amount! < 0;
+          let gstAccountId: string | undefined;
+          if (splitRatio.gstOnBusiness) {
+            const gstAccount = await this.prisma.account.findFirst({
+              where: {
+                name: isExpense ? 'GST Paid' : 'GST Collected',
+                type: isExpense ? 'ASSET' : 'LIABILITY',
+              },
+            });
+            gstAccountId = gstAccount?.id;
+          }
+
+          const categoryPostings = generateSplitPostings(
+            -preview.parsed.amount!, // category side opposes the bank-side sign
+            splitRatio,
+            { gstAccountId }
+          );
+
+          const metadata: Record<string, any> = {};
+          if (preview.suggestedPayee && preview.parsed.payee !== preview.suggestedPayee) {
+            metadata.originalDescription = preview.parsed.payee;
+          }
+          metadata.matchedRuleId = preview.matchedRule.id;
+          metadata.matchedRuleName = preview.matchedRule.name;
+
+          await this.prisma.transaction.create({
+            data: {
+              date: preview.parsed.date!,
+              payee: preview.suggestedPayee || preview.parsed.payee!,
+              reference: preview.parsed.reference,
+              importBatchId: batch.id,
+              externalId: preview.parsed.reference,
+              metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
+              postings: {
+                create: [
+                  {
+                    accountId: sourceAccountId,
+                    amount: preview.parsed.amount!,
+                    isBusiness: false,
+                  },
+                  ...categoryPostings.map(p => ({
+                    accountId: p.accountId,
+                    amount: p.amount,
+                    isBusiness: p.isBusiness ?? false,
+                    gstCode: p.gstCode,
+                    gstRate: p.gstRate,
+                    gstAmount: p.gstAmount,
+                  })),
+                ],
+              },
+            },
+          });
+
+          imported++;
+          continue;
+        }
+      }
+
       // Determine category
       let categoryAccountId = uncategorizedAccount.id;
       let isBusiness = false;
@@ -485,6 +550,20 @@ export class ImportService {
           // Calculate GST if business and GST code is set
           if (isBusiness && gstCode === 'GST' && gstRate) {
             gstAmount = preview.parsed.amount * gstRate / (1 + gstRate);
+          }
+        } else if (preview.matchedRule.defaultAccountId) {
+          // Rule uses defaultAccountId instead of splits — look up category for business/GST settings
+          categoryAccountId = preview.matchedRule.defaultAccountId;
+          const ruleCategory = await this.prisma.account.findUnique({
+            where: { id: preview.matchedRule.defaultAccountId },
+          });
+          if (ruleCategory) {
+            isBusiness = ruleCategory.isBusinessDefault ?? false;
+            if (isBusiness && ruleCategory.defaultHasGst !== false) {
+              gstCode = 'GST';
+              gstRate = 0.1;
+              gstAmount = preview.parsed.amount * gstRate / (1 + gstRate);
+            }
           }
         }
       }

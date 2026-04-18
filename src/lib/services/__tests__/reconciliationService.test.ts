@@ -167,10 +167,12 @@ describe('ReconciliationService', () => {
     });
 
     it('should exclude postings outside date range', async () => {
+      // Date range must be >1 day away from test data (01/15, 01/20)
+      // because getUnreconciledPostings uses ±1 day timezone buffer
       const postings = await reconciliationService.getUnreconciledPostings(
         accounts.personalChecking.id,
         new Date('2025-01-01'),
-        new Date('2025-01-14')
+        new Date('2025-01-13')
       );
 
       expect(postings).toHaveLength(0);

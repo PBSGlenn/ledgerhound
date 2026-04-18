@@ -78,6 +78,25 @@ export interface SplitTemplate {
   memoTemplate?: string;
 }
 
+// Business/Personal split ratio for mixed-use expenses (e.g. utilities 25% business)
+// Expands into two paired postings at transaction-creation time.
+export interface SplitRatio {
+  kind: 'SPLIT_RATIO';
+  personalCategoryId: string;
+  businessCategoryId: string;
+  businessPercent: number; // 0-100
+  gstOnBusiness: boolean;  // apply 10% GST credit on business portion
+}
+
+// Stored JSON shape of MemorizedRule.defaultSplits may be a classic multi-category
+// split (SplitTemplate[]) or a single business/personal SplitRatio. Legacy rules
+// stored a bare array so we keep that shape and use a discriminator for the new one.
+export type MemorizedRuleSplits = SplitTemplate[] | SplitRatio;
+
+export function isSplitRatio(value: unknown): value is SplitRatio {
+  return !!value && typeof value === 'object' && (value as any).kind === 'SPLIT_RATIO';
+}
+
 // CSV import types
 export interface CSVColumnMapping {
   date?: number;

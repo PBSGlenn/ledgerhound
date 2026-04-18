@@ -8,6 +8,7 @@ import type {
 } from '@prisma/client';
 import type {
   CreateTransactionDTO,
+  CreatePostingDTO,
   UpdateTransactionDTO,
   TransactionWithPostings,
   RegisterEntry,
@@ -15,7 +16,96 @@ import type {
   SearchFilter,
   SearchResult,
   SearchResponse,
+  SplitRatio,
 } from '../../types';
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/**
+ * Expand a single expense amount into the category-side postings for a
+ * business/personal split. The caller is responsible for adding the real-account
+ * (bank/card) posting that balances them to zero.
+ *
+ * Given a $200 bill (passed as totalAmount=200 for expenses the caller represents
+ * as the bank outflow) at 25% business with GST, returns:
+ *   [
+ *     { personalCategory, -$150.00, personal, no GST },
+ *     { businessCategory, -$45.45, business, gstCode=GST, gstAmount=$4.55 },
+ *     { gstPaidAccount,   -$4.55,  business },
+ *   ]
+ *
+ * `totalAmount` is the category-side absolute amount (the number that will be
+ * split). Sign convention: pass a negative number for an expense-style split so
+ * the returned postings are negative and balance a positive bank-outflow posting.
+ * Pass positive for income-side splits.
+ *
+ * GST handling matches the established importService/TransactionFormModal pattern:
+ * the business category posting carries the GST-EXCLUSIVE amount with gstAmount
+ * stored for reporting, and a separate GST Paid/Collected posting carries the
+ * GST amount. This keeps the validator's `gstAmount ≈ amount × rate` check happy.
+ *
+ * The business amount is rounded first; the personal amount is the exact
+ * complement (total − business) to avoid rounding drift.
+ */
+export function generateSplitPostings(
+  totalAmount: number,
+  ratio: SplitRatio,
+  options: { cleared?: boolean; gstAccountId?: string } = {}
+): CreatePostingDTO[] {
+  const pct = Math.max(0, Math.min(100, ratio.businessPercent));
+  const sign = totalAmount < 0 ? -1 : 1;
+  const absTotal = Math.abs(totalAmount);
+
+  const absBusinessGross = round2(absTotal * (pct / 100));
+  const absPersonal = round2(absTotal - absBusinessGross);
+
+  const postings: CreatePostingDTO[] = [];
+
+  if (absPersonal > 0) {
+    postings.push({
+      accountId: ratio.personalCategoryId,
+      amount: sign * absPersonal,
+      isBusiness: false,
+      cleared: options.cleared,
+    });
+  }
+
+  if (absBusinessGross > 0) {
+    if (ratio.gstOnBusiness && options.gstAccountId) {
+      // Split the business portion into ex-GST category + separate GST posting.
+      // GST-inclusive: gst = gross / 11 (10/110 of the gross)
+      const absGst = round2(absBusinessGross / 11);
+      const absExGst = round2(absBusinessGross - absGst);
+
+      postings.push({
+        accountId: ratio.businessCategoryId,
+        amount: sign * absExGst,
+        isBusiness: true,
+        gstCode: 'GST',
+        gstRate: 0.1,
+        gstAmount: absGst,
+        cleared: options.cleared,
+      });
+
+      postings.push({
+        accountId: options.gstAccountId,
+        amount: sign * absGst,
+        isBusiness: true,
+        cleared: options.cleared,
+      });
+    } else {
+      // No GST (or no GST account supplied): single business posting for the gross amount.
+      postings.push({
+        accountId: ratio.businessCategoryId,
+        amount: sign * absBusinessGross,
+        isBusiness: true,
+        cleared: options.cleared,
+      });
+    }
+  }
+
+  return postings;
+}
 
 export class TransactionService {
   private prisma: PrismaClient;

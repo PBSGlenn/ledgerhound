@@ -67,6 +67,17 @@ export class ReconciliationService {
   }
 
   /**
+   * Buffer dates by ±1 day to handle timezone offsets
+   * (e.g., AEST dates stored as prior-day UTC: June 1 AEST = May 31 UTC)
+   */
+  private bufferDates(startDate: Date, endDate: Date): { bufferedStart: Date; bufferedEnd: Date } {
+    return {
+      bufferedStart: new Date(startDate.getTime() - 24 * 60 * 60 * 1000),
+      bufferedEnd: new Date(endDate.getTime() + 24 * 60 * 60 * 1000),
+    };
+  }
+
+  /**
    * Get unreconciled postings for an account in a date range
    */
   async getUnreconciledPostings(
@@ -74,14 +85,17 @@ export class ReconciliationService {
     startDate: Date,
     endDate: Date
   ): Promise<Posting[]> {
+    // Buffer dates by 1 day to handle timezone offsets, matching getReconciliationStatus
+    const { bufferedStart, bufferedEnd } = this.bufferDates(startDate, endDate);
+
     return this.prisma.posting.findMany({
       where: {
         accountId,
         reconciled: false,
         transaction: {
           date: {
-            gte: startDate,
-            lte: endDate,
+            gte: bufferedStart,
+            lte: bufferedEnd,
           },
           status: 'NORMAL',
         },
@@ -126,10 +140,10 @@ export class ReconciliationService {
       throw new Error(`Reconciliation ${reconciliationId} not found`);
     }
 
-    // Buffer dates by 1 day to handle timezone offsets
-    // (e.g., AEST dates stored as prior-day UTC: June 1 AEST = May 31 UTC)
-    const bufferedStart = new Date(reconciliation.statementStartDate.getTime() - 24 * 60 * 60 * 1000);
-    const bufferedEnd = new Date(reconciliation.statementEndDate.getTime() + 24 * 60 * 60 * 1000);
+    const { bufferedStart, bufferedEnd } = this.bufferDates(
+      reconciliation.statementStartDate,
+      reconciliation.statementEndDate
+    );
 
     // Get all postings in the statement date range for this account
     const periodPostings = await this.prisma.posting.findMany({

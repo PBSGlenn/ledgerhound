@@ -123,6 +123,53 @@ describe('MemorizedRuleService', () => {
     });
   });
 
+  describe('SplitRatio handling', () => {
+    it('stores and retrieves a business/personal SplitRatio on a rule', async () => {
+      const rule = await ruleService.createRule({
+        name: 'AGL Energy - mixed use',
+        matchType: MatchType.CONTAINS,
+        matchValue: 'AGL',
+        defaultSplits: {
+          kind: 'SPLIT_RATIO',
+          personalCategoryId: accounts.groceries.id,
+          businessCategoryId: accounts.officeSupplies.id,
+          businessPercent: 25,
+          gstOnBusiness: true,
+        },
+      });
+
+      const ratio = ruleService.getSplitRatio(rule);
+      expect(ratio).not.toBeNull();
+      expect(ratio?.businessPercent).toBe(25);
+      expect(ratio?.gstOnBusiness).toBe(true);
+      expect(ratio?.personalCategoryId).toBe(accounts.groceries.id);
+      expect(ratio?.businessCategoryId).toBe(accounts.officeSupplies.id);
+
+      // Legacy getDefaultSplits should return [] for split-ratio rules
+      expect(ruleService.getDefaultSplits(rule)).toEqual([]);
+    });
+
+    it('returns null SplitRatio for classic multi-category rules', async () => {
+      const rule = await ruleService.createRule({
+        name: 'Office Supplies classic split',
+        matchType: MatchType.CONTAINS,
+        matchValue: 'Officeworks',
+        defaultSplits: [
+          {
+            accountId: accounts.officeSupplies.id,
+            percentOrAmount: 100,
+            isBusiness: true,
+            gstCode: GSTCode.GST,
+            gstRate: 0.1,
+          },
+        ],
+      });
+
+      expect(ruleService.getSplitRatio(rule)).toBeNull();
+      expect(ruleService.getDefaultSplits(rule)).toHaveLength(1);
+    });
+  });
+
   describe('getAllRules', () => {
     beforeEach(async () => {
       // Create rules with different priorities
