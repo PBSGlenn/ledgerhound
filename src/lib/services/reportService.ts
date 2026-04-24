@@ -197,7 +197,8 @@ export class ReportService {
     for (const posting of businessPostings) {
       const isIncome = posting.account.type === AccountType.INCOME;
       const gstAmount = Math.abs(posting.gstAmount ?? 0);
-      const amount = Math.abs(posting.amount);
+      // Category posting amount is GST-exclusive; inclusive = amount + gstAmount.
+      const amountInclusive = Math.abs(posting.amount) + gstAmount;
 
       if (isIncome) {
         gstCollected += gstAmount;
@@ -208,10 +209,10 @@ export class ReportService {
       const categoryName = posting.account.name;
       const catData = byCategory.get(categoryName) || { sales: 0, purchases: 0, gstCollected: 0, gstPaid: 0 };
       if (isIncome) {
-        catData.sales += amount;
+        catData.sales += amountInclusive;
         catData.gstCollected += gstAmount;
       } else {
-        catData.purchases += amount;
+        catData.purchases += amountInclusive;
         catData.gstPaid += gstAmount;
       }
       byCategory.set(categoryName, catData);
@@ -331,10 +332,13 @@ export class ReportService {
     let oneAGSTOnSales = 0;
     let oneBGSTOnPurchases = 0;
     let g1TotalSales = 0;
+    let g1TotalSalesInclusive = 0;
     let g2ExportSales = 0;
     let g3OtherGSTFree = 0;
     let g10CapitalPurchases = 0;
+    let g10CapitalPurchasesInclusive = 0;
     let g11NonCapitalPurchases = 0;
+    let g11NonCapitalPurchasesInclusive = 0;
 
     const processedTransactionIds = new Set<string>();
 
@@ -357,21 +361,28 @@ export class ReportService {
       const isExpense = posting.account.type === AccountType.EXPENSE;
       const gstCode = posting.gstCode;
       const gstAmount = Math.abs(posting.gstAmount ?? 0);
-      const amount = Math.abs(posting.amount);
-      const gstExclusive = amount - gstAmount;
+      // Per the ledger convention (see transactionService.generateSplitPostings):
+      // the income/expense category posting carries the GST-EXCLUSIVE amount, and
+      // the GST component lives in a separate posting to GST Collected/Paid.
+      // So `amount` here IS the ex-GST value; inclusive = amount + gstAmount.
+      const amountExGst = Math.abs(posting.amount);
+      const amountInclusive = amountExGst + gstAmount;
 
       if (isIncome && gstCode) {
         oneAGSTOnSales += gstAmount;
         processedTransactionIds.add(posting.transactionId);
 
         if (gstCode === 'GST') {
-          g1TotalSales += gstExclusive;
+          g1TotalSales += amountExGst;
+          g1TotalSalesInclusive += amountInclusive;
         } else if (gstCode === 'EXPORT') {
-          g1TotalSales += amount;
-          g2ExportSales += amount;
+          g1TotalSales += amountExGst;
+          g1TotalSalesInclusive += amountInclusive;
+          g2ExportSales += amountExGst;
         } else if (gstCode === 'GST_FREE') {
-          g1TotalSales += amount;
-          g3OtherGSTFree += amount;
+          g1TotalSales += amountExGst;
+          g1TotalSalesInclusive += amountInclusive;
+          g3OtherGSTFree += amountExGst;
         }
       } else if (isExpense && gstCode) {
         oneBGSTOnPurchases += gstAmount;
@@ -382,15 +393,19 @@ export class ReportService {
 
         if (gstCode === 'GST') {
           if (isCapital) {
-            g10CapitalPurchases += gstExclusive;
+            g10CapitalPurchases += amountExGst;
+            g10CapitalPurchasesInclusive += amountInclusive;
           } else {
-            g11NonCapitalPurchases += gstExclusive;
+            g11NonCapitalPurchases += amountExGst;
+            g11NonCapitalPurchasesInclusive += amountInclusive;
           }
         } else if (gstCode === 'GST_FREE' || gstCode === 'INPUT_TAXED') {
           if (isCapital) {
-            g10CapitalPurchases += amount;
+            g10CapitalPurchases += amountExGst;
+            g10CapitalPurchasesInclusive += amountInclusive;
           } else {
-            g11NonCapitalPurchases += amount;
+            g11NonCapitalPurchases += amountExGst;
+            g11NonCapitalPurchasesInclusive += amountInclusive;
           }
         }
       }
@@ -433,7 +448,9 @@ export class ReportService {
 
           // Income posting amount is already GST-exclusive in Stripe pattern
           if (incomePosting) {
-            g1TotalSales += Math.abs(incomePosting.amount);
+            const exclusive = Math.abs(incomePosting.amount);
+            g1TotalSales += exclusive;
+            g1TotalSalesInclusive += exclusive + gstAmt;
           }
         }
 
@@ -444,12 +461,15 @@ export class ReportService {
           // Expense posting amount is already GST-exclusive in Stripe pattern
           const expensePosting = expensePostings[0];
           if (expensePosting) {
+            const exclusive = Math.abs(expensePosting.amount);
             const isCapital = expensePosting.account.name.toLowerCase().includes('capital') ||
                               expensePosting.account.name.toLowerCase().includes('asset');
             if (isCapital) {
-              g10CapitalPurchases += Math.abs(expensePosting.amount);
+              g10CapitalPurchases += exclusive;
+              g10CapitalPurchasesInclusive += exclusive + gstAmt;
             } else {
-              g11NonCapitalPurchases += Math.abs(expensePosting.amount);
+              g11NonCapitalPurchases += exclusive;
+              g11NonCapitalPurchasesInclusive += exclusive + gstAmt;
             }
           }
         }
@@ -464,10 +484,13 @@ export class ReportService {
     return {
       period: { start: startDate, end: endDate },
       g1TotalSales: round(g1TotalSales),
+      g1TotalSalesInclusive: round(g1TotalSalesInclusive),
       g2ExportSales: round(g2ExportSales),
       g3OtherGSTFree: round(g3OtherGSTFree),
       g10CapitalPurchases: round(g10CapitalPurchases),
+      g10CapitalPurchasesInclusive: round(g10CapitalPurchasesInclusive),
       g11NonCapitalPurchases: round(g11NonCapitalPurchases),
+      g11NonCapitalPurchasesInclusive: round(g11NonCapitalPurchasesInclusive),
       oneAGSTOnSales: round(oneAGSTOnSales),
       oneBGSTOnPurchases: round(oneBGSTOnPurchases),
       netGST: round(netGST),

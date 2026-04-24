@@ -443,9 +443,11 @@ describe('ReportService', () => {
         new Date('2025-01-31')
       );
 
-      // BAS calculation: gstExclusive = amount - gstAmount
-      const expectedG1 = saleExGST - saleGST;
-      expect(report.g1TotalSales).toBeCloseTo(expectedG1, 0); // Rounded to whole dollar
+      // Ledger stores the category posting at the GST-exclusive amount, with
+      // GST tracked separately. G1 (ex-GST) == saleExGST; G1 inclusive adds GST back.
+      expect(report.g1TotalSales).toBeCloseTo(saleExGST, 0);
+      expect(report.g1TotalSalesInclusive).toBeCloseTo(saleExGST + saleGST, 0);
+      expect(report.oneAGSTOnSales).toBeCloseTo(saleGST, 0);
     });
 
     it('should return zeros when no business postings exist', async () => {

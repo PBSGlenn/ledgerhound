@@ -172,11 +172,17 @@ export interface ProfitAndLoss {
 
 export interface BASDraft {
   period: { start: Date; end: Date };
+  // GST-exclusive totals
   g1TotalSales: number; // Total sales (GST-exclusive)
-  g2ExportSales: number; // Export sales
-  g3OtherGSTFree: number; // Other GST-free sales
-  g10CapitalPurchases: number; // Capital purchases
-  g11NonCapitalPurchases: number; // Non-capital purchases
+  g10CapitalPurchases: number; // Capital purchases (GST-exclusive)
+  g11NonCapitalPurchases: number; // Non-capital purchases (GST-exclusive)
+  // GST-inclusive totals — the ATO default for G10/G11 on the Full BAS form,
+  // and a valid choice for G1 when the "Does this amount include GST? Yes" option is selected.
+  g1TotalSalesInclusive: number;
+  g10CapitalPurchasesInclusive: number;
+  g11NonCapitalPurchasesInclusive: number;
+  g2ExportSales: number; // Export sales (no GST — inclusive = exclusive)
+  g3OtherGSTFree: number; // Other GST-free sales (no GST — inclusive = exclusive)
   oneAGSTOnSales: number; // 1A: GST on sales
   oneBGSTOnPurchases: number; // 1B: GST on purchases
   netGST: number; // Amount owed to/from ATO (rounded to whole dollars)

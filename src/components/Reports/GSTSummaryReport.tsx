@@ -82,8 +82,8 @@ export function GSTSummaryReport({ data }: GSTSummaryReportProps) {
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-700">
                   <th className="text-left py-2 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Category</th>
-                  <th className="text-right py-2 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Sales</th>
-                  <th className="text-right py-2 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Purchases</th>
+                  <th className="text-right py-2 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Sales (incl. GST)</th>
+                  <th className="text-right py-2 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">Purchases (incl. GST)</th>
                   <th className="text-right py-2 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">GST Collected</th>
                   <th className="text-right py-2 px-4 text-sm font-medium text-slate-600 dark:text-slate-400">GST Paid</th>
                 </tr>

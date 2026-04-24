@@ -161,7 +161,7 @@ Run: `npm test`
 - Run: `npm run test:e2e` (stop API server first with `Ctrl+C`)
 - Debug modes: `npm run test:e2e:ui`, `npm run test:e2e:headed`, `npm run test:e2e:debug`
 
-## Current Status (2026-04-18)
+## Current Status (2026-04-24)
 
 ### What's Working
 - Complete double-entry accounting engine with GST validation
@@ -184,6 +184,7 @@ Run: `npm test`
 - 419 unit tests (1 pre-existing failure), 16 E2E tests all passing
 
 ### Recent Changes (April 2026)
+- **BAS/GST report: fix double-subtracted GST + inclusive/exclusive toggle** (2026-04-24): Fixed a long-standing bug in `generateBASDraft` and `generateGSTSummary` where Pattern 1 (manual/CSV postings with `gstCode`+`gstAmount`) computed `gstExclusive = amount - gstAmount` on the category posting. Per the ledger convention documented in `transactionService.generateSplitPostings`, the category posting's `amount` is ALREADY GST-exclusive (GST lives in a separate posting to GST Collected/Paid), so subtracting `gstAmount` again produced G1/G10/G11 = ex-GST − GST (e.g. $90 for a $110 gross sale instead of $100). Pattern 2 (Stripe imports) was already correct. Fix: treat `amount` as ex-GST and compute inclusive = `amount + gstAmount` in Pattern 1 of both reports. Added `g1TotalSalesInclusive`, `g10CapitalPurchasesInclusive`, `g11NonCapitalPurchasesInclusive` to `BASDraft` so the report presents both conventions. UI: new GST-inclusive/exclusive toggle on the BAS Draft screen (defaults to **inclusive** because the ATO Full BAS expects GST-inclusive G10/G11, and a valid "Yes" answer for G1), with copy telling the user which "Does this amount include GST?" radio to pick on the ATO portal. GSTSummary `byCategory` now sums GST-inclusive totals and column headers say so. Updated the unit test that had encoded the buggy behavior (`expectedG1 = saleExGST - saleGST`). Files: `src/types/index.ts`, `src/lib/services/reportService.ts`, `src/components/Reports/BASDraftReport.tsx`, `src/components/Reports/GSTSummaryReport.tsx`, `src/lib/services/__tests__/reportService.test.ts`.
 - **Business/personal split ratios** (2026-04-18): New `SplitRatio` type and `SplitBusinessPersonalDialog` for mixed-use expenses. `generateSplitPostings()` in `transactionService` expands a total into paired personal/business postings with a separate GST Paid/Collected posting when `gstOnBusiness` is true. Memorized rules can store a SplitRatio in `defaultSplits` (JSON); import flow detects and expands it via `memorizedRuleService.getSplitRatio()`. Also fixed reconciliation ±1 day timezone buffer to apply in `getUnreconciledPostings` and `ReconciliationSession` loader so AEST-stored-as-UTC boundary dates aren't dropped. Files: `src/types/index.ts`, `src/lib/services/transactionService.ts`, `src/lib/services/memorizedRuleService.ts`, `src/lib/services/reconciliationService.ts`, `src/lib/services/importService.ts`, `src/components/Transaction/SplitBusinessPersonalDialog.tsx`, `src/components/Transaction/TransactionFormModal.tsx`, `src/components/Settings/MemorizedRulesManager.tsx`, `src/components/Reconciliation/ReconciliationSession.tsx`, `src-server/validation.ts`.
 
 ### Recent Changes (March 2026)
