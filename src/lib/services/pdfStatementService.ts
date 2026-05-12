@@ -139,18 +139,29 @@ export class PDFStatementService {
     }
 
     // Extract opening balance (format: "Opening balance at 8 Nov $4,113.69")
-    const openingMatch = text.match(/Opening\s+balance\s+at\s+\d{1,2}\s+\w{3}\s+\$?([\d,]+\.\d{2})/i);
+    // From May 2026, CommBank PDFs render the decimal point as a space (e.g. "$2,621 43"),
+    // so accept either "." or " " between dollars and cents and normalise later.
+    const openingMatch = text.match(/Opening\s+balance\s+at\s+\d{1,2}\s+\w{3}\s+\$?([\d,]+[.\s]\d{2})/i);
     if (openingMatch) {
-      info.openingBalance = parseFloat(openingMatch[1].replace(/,/g, ''));
+      info.openingBalance = this.parseAmount(openingMatch[1]);
     }
 
     // Extract closing balance (format: "Closing balance at 8 Dec $5,277.37")
-    const closingMatch = text.match(/Closing\s+balance\s+at\s+\d{1,2}\s+\w{3}\s+\$?([\d,]+\.\d{2})/i);
+    const closingMatch = text.match(/Closing\s+balance\s+at\s+\d{1,2}\s+\w{3}\s+\$?([\d,]+[.\s]\d{2})/i);
     if (closingMatch) {
-      info.closingBalance = parseFloat(closingMatch[1].replace(/,/g, ''));
+      info.closingBalance = this.parseAmount(closingMatch[1]);
     }
 
     return info;
+  }
+
+  /**
+   * Normalise a CommBank-style amount string into a number.
+   * Handles thousands separators and the "space as decimal point" rendering
+   * introduced in May 2026 PDFs (e.g. "2,621 43" -> 2621.43).
+   */
+  private parseAmount(amountStr: string): number {
+    return parseFloat(amountStr.replace(/,/g, '').replace(/\s+/g, '.'));
   }
 
   /**
@@ -283,8 +294,9 @@ export class PDFStatementService {
     // Examples:
     // "08 Nov Apple.Com/Bill Sydney 22.99"
     // "24 Nov Payment Received, Thank You 4,113.69-"
+    // "11 Apr Woolworths 3124 Chelsea 90 35"   (May 2026+ format: space instead of decimal)
     // "08 Dec Monthly Fee Waived" (no amount - skip these)
-    const transactionPattern = /^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(.+?)\s+([\d,]+\.\d{2})(-)?$/i;
+    const transactionPattern = /^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(.+?)\s+([\d,]+[.\s]\d{2})(-)?$/i;
 
     for (const line of lines) {
       const trimmedLine = line.trim();
@@ -308,9 +320,10 @@ export class PDFStatementService {
       // Extract interest/fee lines that don't have a date prefix
       // Format: "Interest charged on purchases Purchase Rate 20.990%p.a. 94.07"
       // Format: "Interest charged on cash advances Cash Advance Rate 21.990%p.a. 0.00"
-      const interestMatch = trimmedLine.match(/^(Interest charged on\s+\w+).*?([\d,]+\.\d{2})$/i);
+      // May 2026+ format uses spaces for decimals: "...20 990%p a 58 07"
+      const interestMatch = trimmedLine.match(/^(Interest charged on\s+\w+).*?([\d,]+[.\s]\d{2})$/i);
       if (interestMatch) {
-        const amount = parseFloat(interestMatch[2].replace(/,/g, ''));
+        const amount = this.parseAmount(interestMatch[2]);
         if (amount > 0) {
           // Use the statement end date for interest charges (they're calculated at statement close)
           transactions.push({
@@ -345,7 +358,7 @@ export class PDFStatementService {
         }
 
         const date = new Date(year, monthNum, parseInt(day));
-        const amount = parseFloat(amountStr.replace(/,/g, ''));
+        const amount = this.parseAmount(amountStr);
 
         // Credit card: purchases are debits (positive), payments/refunds are credits (negative)
         // CommBank marks credits with trailing "-"

@@ -455,4 +455,63 @@ describe('PDFStatementService', () => {
       expect(result.info.accountNumber).toBeUndefined();
     });
   });
+
+  describe('CommBank Ultimate Awards CC (May 2026+ space-as-decimal format)', () => {
+    // From May 2026, CommBank's PDF generator renders decimal points as spaces in
+    // credit card statements (e.g. "$2,621 43" instead of "$2,621.43"). The parser
+    // must accept both forms and normalise the amount.
+    const statementText = `Your Statement
+Ultimate Awards Credit Card
+5523 5082 0188 9606
+Statement Period 11 Apr 2026 - 8 May 2026
+Credit limit $12,500 00
+Opening balance at 11 Apr $2,621 43
+Closing balance at 8 May $3,855 77
+Date Transaction details Amount (A$)
+11 Apr Woolworths 3124 Chelsea 90 35
+14 Apr Trip Com Sydney 833 40
+24 Apr Payment Received, Thank You 2,645 00-
+30 Apr Palloys Pty Ltd 0285719288 515 37
+08 May Monthly Fee 35 00
+Interest charged on purchases Purchase Rate 20 990%p a 58 07
+Interest charged on cash advances Cash Advance Rate 21 990%p a 0 00`;
+
+    it('extracts info with space-as-decimal amounts', async () => {
+      const buffer = Buffer.from(statementText, 'utf-8');
+      const result = await service.parseStatement(buffer);
+
+      expect(result.info.accountNumber).toBe('5523508201889606');
+      expect(result.info.openingBalance).toBe(2621.43);
+      expect(result.info.closingBalance).toBe(3855.77);
+      expect(result.info.statementPeriod?.start.getDate()).toBe(11);
+      expect(result.info.statementPeriod?.end.getDate()).toBe(8);
+    });
+
+    it('extracts transactions with space-as-decimal amounts', async () => {
+      const buffer = Buffer.from(statementText, 'utf-8');
+      const result = await service.parseStatement(buffer);
+
+      // 5 dated lines (4 debits + 1 credit) + 1 interest charge ($0.00 is skipped)
+      expect(result.transactions).toHaveLength(6);
+
+      const woolies = result.transactions.find(t => t.description.includes('Woolworths'));
+      expect(woolies?.debit).toBe(90.35);
+
+      const trip = result.transactions.find(t => t.description.includes('Trip Com'));
+      expect(trip?.debit).toBe(833.40);
+
+      const payment = result.transactions.find(t => t.description.includes('Payment Received'));
+      expect(payment?.credit).toBe(2645.00);
+      expect(payment?.debit).toBeUndefined();
+
+      const palloys = result.transactions.find(t => t.description.includes('Palloys'));
+      expect(palloys?.debit).toBe(515.37);
+
+      const fee = result.transactions.find(t => t.description === 'Monthly Fee');
+      expect(fee?.debit).toBe(35.00);
+
+      const interest = result.transactions.find(t => t.description.startsWith('Interest charged'));
+      expect(interest?.debit).toBe(58.07);
+    });
+  });
 });
