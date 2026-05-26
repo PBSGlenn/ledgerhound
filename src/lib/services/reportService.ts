@@ -196,13 +196,21 @@ export class ReportService {
 
     for (const posting of businessPostings) {
       const isIncome = posting.account.type === AccountType.INCOME;
-      const gstAmount = Math.abs(posting.gstAmount ?? 0);
-      // Category posting amount is GST-exclusive; inclusive = amount + gstAmount.
-      const amountInclusive = Math.abs(posting.amount) + gstAmount;
+      const isExpense = posting.account.type === AccountType.EXPENSE;
+      const rawGstAmount = Math.abs(posting.gstAmount ?? 0);
+      // Sign convention: a negative amount on an EXPENSE category is a refund
+      // of a purchase (reduces input tax credits / G11). A positive amount on an
+      // INCOME category is a refund of a sale (reduces output tax / G1). We
+      // sign-preserve so refunds *reduce* the totals instead of inflating them.
+      const incomeDirection = posting.amount > 0 ? -1 : 1;
+      const expenseDirection = posting.amount < 0 ? -1 : 1;
+      const direction = isIncome ? incomeDirection : (isExpense ? expenseDirection : 1);
+      const gstAmount = direction * rawGstAmount;
+      const amountInclusive = direction * (Math.abs(posting.amount) + rawGstAmount);
 
       if (isIncome) {
         gstCollected += gstAmount;
-      } else if (posting.account.type === AccountType.EXPENSE) {
+      } else if (isExpense) {
         gstPaid += gstAmount;
       }
 
@@ -262,12 +270,14 @@ export class ReportService {
         const expensePostings = txn.postings.filter(p => p.account.type === AccountType.EXPENSE);
 
         if (gstCollectedPosting) {
-          const gstAmt = Math.abs(gstCollectedPosting.amount);
+          // GST Collected (LIABILITY): negative for normal sale, positive for refund.
+          const direction = gstCollectedPosting.amount > 0 ? -1 : 1;
+          const gstAmt = direction * Math.abs(gstCollectedPosting.amount);
           gstCollected += gstAmt;
 
           if (incomePosting) {
             const categoryName = incomePosting.account.name;
-            const salesAmount = Math.abs(incomePosting.amount) + gstAmt;
+            const salesAmount = direction * (Math.abs(incomePosting.amount) + Math.abs(gstCollectedPosting.amount));
             const catData = byCategory.get(categoryName) || { sales: 0, purchases: 0, gstCollected: 0, gstPaid: 0 };
             catData.sales += salesAmount;
             catData.gstCollected += gstAmt;
@@ -280,13 +290,15 @@ export class ReportService {
         }
 
         if (gstPaidPosting) {
-          const gstAmt = Math.abs(gstPaidPosting.amount);
+          // GST Paid (ASSET): positive for normal purchase, negative for refund.
+          const direction = gstPaidPosting.amount < 0 ? -1 : 1;
+          const gstAmt = direction * Math.abs(gstPaidPosting.amount);
           gstPaid += gstAmt;
 
           const expensePosting = expensePostings[0];
           if (expensePosting) {
             const categoryName = expensePosting.account.name;
-            const purchaseAmount = Math.abs(expensePosting.amount) + gstAmt;
+            const purchaseAmount = direction * (Math.abs(expensePosting.amount) + Math.abs(gstPaidPosting.amount));
             const catData = byCategory.get(categoryName) || { sales: 0, purchases: 0, gstCollected: 0, gstPaid: 0 };
             catData.purchases += purchaseAmount;
             catData.gstPaid += gstAmt;
@@ -360,15 +372,27 @@ export class ReportService {
       const isIncome = posting.account.type === AccountType.INCOME;
       const isExpense = posting.account.type === AccountType.EXPENSE;
       const gstCode = posting.gstCode;
-      const gstAmount = Math.abs(posting.gstAmount ?? 0);
+      const rawGstAmount = Math.abs(posting.gstAmount ?? 0);
       // Per the ledger convention (see transactionService.generateSplitPostings):
       // the income/expense category posting carries the GST-EXCLUSIVE amount, and
       // the GST component lives in a separate posting to GST Collected/Paid.
       // So `amount` here IS the ex-GST value; inclusive = amount + gstAmount.
-      const amountExGst = Math.abs(posting.amount);
-      const amountInclusive = amountExGst + gstAmount;
+      //
+      // Sign convention: income postings are credits (normally negative) and
+      // expense postings are debits (normally positive). A *refund* flips the
+      // sign — an expense refund posts a NEGATIVE amount to the expense
+      // category, and an income/sale refund posts a POSITIVE amount to the
+      // income category. These must REDUCE the corresponding BAS lines
+      // (decreasing adjustment), not increase them. So we sign-preserve here
+      // instead of taking absolute values.
+      const incomeDirection = posting.amount > 0 ? -1 : 1; // normal sale → +1, refund → -1
+      const expenseDirection = posting.amount < 0 ? -1 : 1; // normal purchase → +1, refund → -1
 
       if (isIncome && gstCode) {
+        const amountExGst = incomeDirection * Math.abs(posting.amount);
+        const gstAmount = incomeDirection * rawGstAmount;
+        const amountInclusive = amountExGst + gstAmount;
+
         oneAGSTOnSales += gstAmount;
         processedTransactionIds.add(posting.transactionId);
 
@@ -385,6 +409,10 @@ export class ReportService {
           g3OtherGSTFree += amountExGst;
         }
       } else if (isExpense && gstCode) {
+        const amountExGst = expenseDirection * Math.abs(posting.amount);
+        const gstAmount = expenseDirection * rawGstAmount;
+        const amountInclusive = amountExGst + gstAmount;
+
         oneBGSTOnPurchases += gstAmount;
         processedTransactionIds.add(posting.transactionId);
 
@@ -443,25 +471,31 @@ export class ReportService {
         const expensePostings = txn.postings.filter(p => p.account.type === AccountType.EXPENSE);
 
         if (gstCollectedPosting) {
-          const gstAmt = Math.abs(gstCollectedPosting.amount);
+          // GST Collected (LIABILITY) posts negative for a normal sale, positive
+          // for a sale refund. Sign-preserve so refunds reduce 1A/G1.
+          const direction = gstCollectedPosting.amount > 0 ? -1 : 1;
+          const gstAmt = direction * Math.abs(gstCollectedPosting.amount);
           oneAGSTOnSales += gstAmt;
 
           // Income posting amount is already GST-exclusive in Stripe pattern
           if (incomePosting) {
-            const exclusive = Math.abs(incomePosting.amount);
+            const exclusive = direction * Math.abs(incomePosting.amount);
             g1TotalSales += exclusive;
             g1TotalSalesInclusive += exclusive + gstAmt;
           }
         }
 
         if (gstPaidPosting) {
-          const gstAmt = Math.abs(gstPaidPosting.amount);
+          // GST Paid (ASSET) posts positive for a normal purchase, negative for
+          // a purchase refund. Sign-preserve so refunds reduce 1B/G11/G10.
+          const direction = gstPaidPosting.amount < 0 ? -1 : 1;
+          const gstAmt = direction * Math.abs(gstPaidPosting.amount);
           oneBGSTOnPurchases += gstAmt;
 
           // Expense posting amount is already GST-exclusive in Stripe pattern
           const expensePosting = expensePostings[0];
           if (expensePosting) {
-            const exclusive = Math.abs(expensePosting.amount);
+            const exclusive = direction * Math.abs(expensePosting.amount);
             const isCapital = expensePosting.account.name.toLowerCase().includes('capital') ||
                               expensePosting.account.name.toLowerCase().includes('asset');
             if (isCapital) {

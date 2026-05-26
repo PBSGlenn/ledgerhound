@@ -93,16 +93,16 @@ export function GSTSummaryReport({ data }: GSTSummaryReportProps) {
                   <tr key={idx} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/50">
                     <td className="py-2 px-4 text-slate-700 dark:text-slate-300">{item.categoryName}</td>
                     <td className="py-2 px-4 text-right font-mono text-slate-700 dark:text-slate-300">
-                      {item.sales > 0 ? formatCurrency(item.sales) : '-'}
+                      {item.sales !== 0 ? formatCurrency(item.sales) : '-'}
                     </td>
                     <td className="py-2 px-4 text-right font-mono text-slate-700 dark:text-slate-300">
-                      {item.purchases > 0 ? formatCurrency(item.purchases) : '-'}
+                      {item.purchases !== 0 ? formatCurrency(item.purchases) : '-'}
                     </td>
                     <td className="py-2 px-4 text-right font-mono text-green-600 dark:text-green-400">
-                      {item.gstCollected > 0 ? formatCurrency(item.gstCollected) : '-'}
+                      {item.gstCollected !== 0 ? formatCurrency(item.gstCollected) : '-'}
                     </td>
                     <td className="py-2 px-4 text-right font-mono text-red-600 dark:text-red-400">
-                      {item.gstPaid > 0 ? formatCurrency(item.gstPaid) : '-'}
+                      {item.gstPaid !== 0 ? formatCurrency(item.gstPaid) : '-'}
                     </td>
                   </tr>
                 ))}
@@ -131,10 +131,10 @@ export function GSTSummaryReport({ data }: GSTSummaryReportProps) {
                     <tr key={idx} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/50">
                       <td className="py-2 px-4 text-slate-700 dark:text-slate-300">{item.payee}</td>
                       <td className="py-2 px-4 text-right font-mono text-green-600 dark:text-green-400">
-                        {item.gstCollected > 0 ? formatCurrency(item.gstCollected) : '-'}
+                        {item.gstCollected !== 0 ? formatCurrency(item.gstCollected) : '-'}
                       </td>
                       <td className="py-2 px-4 text-right font-mono text-red-600 dark:text-red-400">
-                        {item.gstPaid > 0 ? formatCurrency(item.gstPaid) : '-'}
+                        {item.gstPaid !== 0 ? formatCurrency(item.gstPaid) : '-'}
                       </td>
                     </tr>
                   ))}

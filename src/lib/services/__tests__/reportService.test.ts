@@ -363,6 +363,68 @@ describe('ReportService', () => {
       expect(clientPayee).toBeDefined();
       expect(clientPayee?.gstCollected).toBeCloseTo(gst, 2);
     });
+
+    it('should net a purchase refund against the original purchase (gstPaid is reduced)', async () => {
+      // The expense-side refund reverses the input tax credit, so the period's
+      // gstPaid total should be zero when a purchase and full refund both fall
+      // inside the window.
+      const purchaseAmount = 110;
+      const purchaseGST = calculateGST(purchaseAmount);
+      const purchaseExGST = calculateAmountExGST(purchaseAmount);
+
+      await transactionService.createTransaction({
+        date: new Date('2025-05-01'),
+        payee: 'Office Depot',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: -purchaseAmount, isBusiness: false },
+          {
+            accountId: accounts.officeSupplies.id,
+            amount: purchaseExGST,
+            isBusiness: true,
+            gstCode: GSTCode.GST,
+            gstRate: 0.1,
+            gstAmount: purchaseGST,
+          },
+          { accountId: accounts.gstPaid.id, amount: purchaseGST, isBusiness: true },
+        ],
+      });
+
+      await transactionService.createTransaction({
+        date: new Date('2025-05-05'),
+        payee: 'Office Depot',
+        memo: 'Refund',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: purchaseAmount, isBusiness: false },
+          {
+            accountId: accounts.officeSupplies.id,
+            amount: -purchaseExGST,
+            isBusiness: true,
+            gstCode: GSTCode.GST,
+            gstRate: 0.1,
+            gstAmount: purchaseGST,
+          },
+          { accountId: accounts.gstPaid.id, amount: -purchaseGST, isBusiness: true },
+        ],
+      });
+
+      const report = await reportService.generateGSTSummary(
+        new Date('2025-05-01'),
+        new Date('2025-05-31')
+      );
+
+      expect(report.gstPaid).toBeCloseTo(0, 2);
+      expect(report.gstCollected).toBeCloseTo(0, 2);
+      expect(report.netGST).toBeCloseTo(0, 2);
+
+      // The category's net purchases and net GST Paid for the period also
+      // collapse to zero — the refund is *netted* against the purchase line.
+      const officeCategory = report.byCategory.find(
+        (c) => c.categoryName === 'Office Supplies'
+      );
+      expect(officeCategory).toBeDefined();
+      expect(officeCategory?.purchases).toBeCloseTo(0, 2);
+      expect(officeCategory?.gstPaid).toBeCloseTo(0, 2);
+    });
   });
 
   describe('generateBASDraft', () => {
@@ -464,6 +526,176 @@ describe('ReportService', () => {
       expect(result.oneBGSTOnPurchases).toBe(0);
       expect(result.g1TotalSales).toBe(0);
       expect(result.netGST).toBe(0);
+    });
+
+    it('should treat a purchase refund as a decreasing adjustment (reduces 1B and G11)', async () => {
+      // ATO treatment: a refund on a previously-claimed business purchase
+      // REDUCES the input tax credit (1B) and reduces non-capital purchases
+      // (G11), rather than appearing as new output tax. The refund is recorded
+      // as a NEGATIVE posting on the original expense category with a NEGATIVE
+      // posting to GST Paid, mirroring the original purchase in reverse.
+      const purchaseAmount = 220;
+      const purchaseGST = calculateGST(purchaseAmount);     // 20
+      const purchaseExGST = calculateAmountExGST(purchaseAmount); // 200
+
+      // Original purchase
+      await transactionService.createTransaction({
+        date: new Date('2025-02-01'),
+        payee: 'Office Depot',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: -purchaseAmount, isBusiness: false },
+          {
+            accountId: accounts.officeSupplies.id,
+            amount: purchaseExGST,
+            isBusiness: true,
+            gstCode: GSTCode.GST,
+            gstRate: 0.1,
+            gstAmount: purchaseGST,
+          },
+          { accountId: accounts.gstPaid.id, amount: purchaseGST, isBusiness: true },
+        ],
+      });
+
+      // Partial refund — full reversal of the same shape
+      await transactionService.createTransaction({
+        date: new Date('2025-02-05'),
+        payee: 'Office Depot',
+        memo: 'Refund — defective item',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: purchaseAmount, isBusiness: false },
+          {
+            accountId: accounts.officeSupplies.id,
+            amount: -purchaseExGST,
+            isBusiness: true,
+            gstCode: GSTCode.GST,
+            gstRate: 0.1,
+            gstAmount: purchaseGST,
+          },
+          { accountId: accounts.gstPaid.id, amount: -purchaseGST, isBusiness: true },
+        ],
+      });
+
+      const report = await reportService.generateBASDraft(
+        new Date('2025-02-01'),
+        new Date('2025-02-28')
+      );
+
+      // Net effect: purchase ↑ then refund ↓ = zero across the board.
+      expect(report.oneBGSTOnPurchases).toBeCloseTo(0, 0);
+      expect(report.g11NonCapitalPurchases).toBeCloseTo(0, 0);
+      expect(report.g11NonCapitalPurchasesInclusive).toBeCloseTo(0, 0);
+      expect(report.oneAGSTOnSales).toBeCloseTo(0, 0);
+      expect(report.g1TotalSales).toBeCloseTo(0, 0);
+    });
+
+    it('should treat a sale refund as a decreasing adjustment (reduces 1A and G1)', async () => {
+      // ATO treatment: a refund issued to a customer REDUCES output tax (1A)
+      // and reduces total sales (G1). Recorded as a POSITIVE posting to the
+      // income category with a POSITIVE posting to GST Collected.
+      const saleAmount = 330;
+      const saleGST = calculateGST(saleAmount);
+      const saleExGST = calculateAmountExGST(saleAmount);
+
+      await transactionService.createTransaction({
+        date: new Date('2025-03-01'),
+        payee: 'Client X',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: saleAmount, isBusiness: false },
+          {
+            accountId: accounts.salesIncome.id,
+            amount: -saleExGST,
+            isBusiness: true,
+            gstCode: GSTCode.GST,
+            gstRate: 0.1,
+            gstAmount: saleGST,
+          },
+          { accountId: accounts.gstCollected.id, amount: -saleGST, isBusiness: true },
+        ],
+      });
+
+      await transactionService.createTransaction({
+        date: new Date('2025-03-05'),
+        payee: 'Client X',
+        memo: 'Refund issued — service not delivered',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: -saleAmount, isBusiness: false },
+          {
+            accountId: accounts.salesIncome.id,
+            amount: saleExGST,
+            isBusiness: true,
+            gstCode: GSTCode.GST,
+            gstRate: 0.1,
+            gstAmount: saleGST,
+          },
+          { accountId: accounts.gstCollected.id, amount: saleGST, isBusiness: true },
+        ],
+      });
+
+      const report = await reportService.generateBASDraft(
+        new Date('2025-03-01'),
+        new Date('2025-03-31')
+      );
+
+      expect(report.oneAGSTOnSales).toBeCloseTo(0, 0);
+      expect(report.g1TotalSales).toBeCloseTo(0, 0);
+      expect(report.g1TotalSalesInclusive).toBeCloseTo(0, 0);
+      expect(report.oneBGSTOnPurchases).toBeCloseTo(0, 0);
+    });
+
+    it('should net partial refunds correctly in BAS', async () => {
+      // Half-refund scenario: $110 purchase then $55 refund → net $55 purchase,
+      // net $5 in 1B, net $50 in G11 (ex-GST), net $55 in G11 inclusive.
+      const fullPurchase = 110;
+      const fullGST = calculateGST(fullPurchase);          // 10
+      const fullExGST = calculateAmountExGST(fullPurchase); // 100
+
+      const partialRefund = 55;
+      const partialRefundGST = calculateGST(partialRefund);          // 5
+      const partialRefundExGST = calculateAmountExGST(partialRefund); // 50
+
+      await transactionService.createTransaction({
+        date: new Date('2025-04-01'),
+        payee: 'Office Depot',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: -fullPurchase, isBusiness: false },
+          {
+            accountId: accounts.officeSupplies.id,
+            amount: fullExGST,
+            isBusiness: true,
+            gstCode: GSTCode.GST,
+            gstRate: 0.1,
+            gstAmount: fullGST,
+          },
+          { accountId: accounts.gstPaid.id, amount: fullGST, isBusiness: true },
+        ],
+      });
+
+      await transactionService.createTransaction({
+        date: new Date('2025-04-10'),
+        payee: 'Office Depot',
+        memo: 'Half refund',
+        postings: [
+          { accountId: accounts.businessChecking.id, amount: partialRefund, isBusiness: false },
+          {
+            accountId: accounts.officeSupplies.id,
+            amount: -partialRefundExGST,
+            isBusiness: true,
+            gstCode: GSTCode.GST,
+            gstRate: 0.1,
+            gstAmount: partialRefundGST,
+          },
+          { accountId: accounts.gstPaid.id, amount: -partialRefundGST, isBusiness: true },
+        ],
+      });
+
+      const report = await reportService.generateBASDraft(
+        new Date('2025-04-01'),
+        new Date('2025-04-30')
+      );
+
+      expect(report.oneBGSTOnPurchases).toBeCloseTo(fullGST - partialRefundGST, 0);
+      expect(report.g11NonCapitalPurchases).toBeCloseTo(fullExGST - partialRefundExGST, 0);
+      expect(report.g11NonCapitalPurchasesInclusive).toBeCloseTo(fullPurchase - partialRefund, 0);
     });
   });
 

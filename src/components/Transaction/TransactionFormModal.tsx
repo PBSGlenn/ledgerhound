@@ -393,9 +393,22 @@ export function TransactionFormModal({
       const gstAmount = absGst * sign;
       const gstExclusive = absExclusive * sign;
 
-      // Determine which GST account to use based on amount sign
-      // Positive = expense (use GST Paid), Negative = income (use GST Collected)
-      const gstAccount = grossAmount >= 0 ? gstPaidAccount : gstCollectedAccount;
+      // Determine which GST account to use from the *category type*, not the
+      // amount sign. A negative amount on an EXPENSE category is a refund
+      // (reverses an input tax credit) and must use GST Paid — not GST Collected
+      // — per the ATO's "decreasing adjustment" treatment of purchase refunds.
+      // Sign-based selection is kept only as a fallback when the category
+      // hasn't been picked yet (the toggle UI shouldn't normally allow this).
+      const categoryType = getAccountType(split.accountId);
+      let gstAccount;
+      if (categoryType === 'EXPENSE') {
+        gstAccount = gstPaidAccount;
+      } else if (categoryType === 'INCOME') {
+        gstAccount = gstCollectedAccount;
+      } else {
+        // Unknown / not yet selected — fall back to the legacy sign-based pick.
+        gstAccount = grossAmount >= 0 ? gstPaidAccount : gstCollectedAccount;
+      }
 
       if (!gstAccount) {
         alert('GST Paid or GST Collected account not found. Please ensure these accounts exist.');
