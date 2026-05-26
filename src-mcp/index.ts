@@ -272,6 +272,31 @@ server.registerTool(
 );
 
 server.registerTool(
+  'delete_transaction',
+  {
+    title: 'Delete Transaction',
+    description: `Delete a transaction and all its postings atomically. Use this to remove malformed, duplicate, or erroneous transaction entries from the ledger.
+
+SAFETY: This endpoint will REFUSE to delete a transaction with any reconciled postings (locked by a finalised reconciliation). In that case, void the transaction instead, or unlock the reconciliation first.
+
+Use search_transactions or get_register to find the transaction ID before calling. Confirm the transaction's date, payee, and amount against what the user expects before deleting — deletion is permanent.`,
+    inputSchema: {
+      transactionId: z.string().describe('The UUID of the transaction to delete'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+  },
+  async ({ transactionId }) => {
+    try {
+      await api.deleteTransaction(transactionId);
+      return { content: [{ type: 'text', text: `Transaction ${transactionId} deleted (transaction and all its postings removed).` }] };
+    } catch (err) {
+      const msg = (err as Error).message;
+      return { content: [{ type: 'text', text: `Failed to delete transaction: ${msg}` }], isError: true };
+    }
+  }
+);
+
+server.registerTool(
   'get_uncategorized_summary',
   {
     title: 'Get Uncategorized Summary',

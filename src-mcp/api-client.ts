@@ -136,6 +136,10 @@ export async function categorizeTransaction(transactionId: string, newCategoryId
   return request('POST', `/api/transactions/${transactionId}/recategorize`, { newCategoryId });
 }
 
+export async function deleteTransaction(transactionId: string) {
+  return request('DELETE', `/api/transactions/${transactionId}`);
+}
+
 export async function getUncategorizedSummary() {
   return request('GET', '/api/transactions/uncategorized-summary');
 }
