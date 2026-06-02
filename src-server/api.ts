@@ -911,13 +911,36 @@ app.post('/api/transactions/bulk-recategorize', async (req, res) => {
 app.post('/api/transactions/:id/recategorize', async (req, res) => {
   try {
     const { id } = req.params;
-    const { oldAccountId, newAccountId } = req.body;
+    // The web UI sends { oldAccountId, newAccountId } (it knows the current category
+    // posting from the register row). The MCP tool only has { newCategoryId } and cannot
+    // know oldAccountId — so accept newCategoryId as an alias and infer oldAccountId from
+    // the transaction's single CATEGORY posting when it isn't supplied.
+    let { oldAccountId } = req.body;
+    const newAccountId = req.body.newAccountId ?? req.body.newCategoryId;
 
-    if (!oldAccountId || !newAccountId) {
-      return sendError(res, 400, 'oldAccountId and newAccountId are required');
+    if (!newAccountId) {
+      return sendError(res, 400, 'newAccountId (or newCategoryId) is required');
     }
 
     const prisma = getPrismaClient();
+
+    // Infer the category posting to move when the caller didn't name it explicitly.
+    if (!oldAccountId) {
+      const categoryPostings = await prisma.posting.findMany({
+        where: { transactionId: id, account: { kind: 'CATEGORY' } },
+      });
+      if (categoryPostings.length === 0) {
+        return sendError(res, 404, 'No category posting found on this transaction to recategorize');
+      }
+      if (categoryPostings.length > 1) {
+        return sendError(
+          res,
+          400,
+          'Transaction has multiple category postings (a split). Specify oldAccountId to choose which one to recategorize.'
+        );
+      }
+      oldAccountId = categoryPostings[0].accountId;
+    }
 
     // Find the posting to update
     const posting = await prisma.posting.findFirst({

@@ -199,15 +199,16 @@ server.registerTool(
     title: 'Search Transactions',
     description: 'Search for transactions across all accounts. Find transactions by payee name, memo, date range, tags, amount range, or business/personal status.',
     inputSchema: {
-      search: z.string().optional().describe('Search term for payee/memo'),
+      search: z.string().optional().describe('Search term matched against the payee name (case-insensitive substring)'),
       dateFrom: z.string().optional().describe('Start date (YYYY-MM-DD)'),
       dateTo: z.string().optional().describe('End date (YYYY-MM-DD)'),
-      accountId: z.string().optional().describe('Limit to specific account'),
-      tags: z.array(z.string()).optional().describe('Filter by tags'),
+      accountId: z.string().optional().describe('Limit to a specific real account (bank/card) UUID. Omit to search across all accounts.'),
+      categoryId: z.string().optional().describe('Filter to transactions categorized to this category UUID (matches a sibling category posting)'),
       businessOnly: z.boolean().optional().describe('Only business transactions'),
       personalOnly: z.boolean().optional().describe('Only personal transactions'),
-      minAmount: z.number().optional().describe('Minimum amount'),
-      maxAmount: z.number().optional().describe('Maximum amount'),
+      minAmount: z.number().optional().describe('Minimum amount, by absolute dollar value (e.g. 499 matches a -$500 posting)'),
+      maxAmount: z.number().optional().describe('Maximum amount, by absolute dollar value'),
+      limit: z.number().int().optional().describe('Max results to return (default 500)'),
     },
     annotations: { readOnlyHint: true },
   },
@@ -229,7 +230,14 @@ IMPORTANT RULES:
 - For income: positive amount on the bank account, negative amount on the income category.
 - For transfers between bank accounts: negative on source, positive on destination — no category needed.
 - Set isBusiness=true on postings that are business-related (enables GST tracking).
-- Use gstCode (GST, GST_FREE, INPUT_TAXED, EXPORT, OTHER) and gstAmount for business postings with GST.
+- Use gstCode (GST, GST_FREE, INPUT_TAXED, EXPORT, OTHER) for business postings with GST.
+
+GST CONVENTION (important): the category posting carries the GST-EXCLUSIVE amount plus gstCode/gstRate/gstAmount as metadata, and the GST itself lives in a SEPARATE posting to the GST Paid (purchases) or GST Collected (sales) account so the transaction still sums to zero.
+  Example — a $110 business expense incl. $10 GST, paid from a bank account:
+    { bank account,        -110.00 }
+    { expense category,    +100.00, isBusiness: true, gstCode: "GST", gstAmount: 10.00 }
+    { GST Paid (ASSET),    +10.00,  isBusiness: true }
+  gstRate defaults to 0.1 (Australian GST) and gstAmount defaults to amount × rate when you set gstCode="GST", so you usually only need gstCode on the category line.
 
 Use list_accounts and list_categories first to find the correct account/category IDs.`,
     inputSchema: {
@@ -240,16 +248,28 @@ Use list_accounts and list_categories first to find the correct account/category
       tags: z.array(z.string()).optional().describe('Optional tags'),
       postings: z.array(z.object({
         accountId: z.string().describe('Account or category UUID'),
-        amount: z.number().describe('Amount (positive=debit, negative=credit for ASSET/EXPENSE; reversed for LIABILITY/INCOME/EQUITY)'),
+        amount: z.number().describe('Amount (positive=debit, negative=credit for ASSET/EXPENSE; reversed for LIABILITY/INCOME/EQUITY). On a GST category line this is the GST-EXCLUSIVE amount.'),
         isBusiness: z.boolean().optional().describe('Whether this posting is business-related'),
         gstCode: z.string().optional().describe('GST code: GST, GST_FREE, INPUT_TAXED, EXPORT, OTHER'),
-        gstAmount: z.number().optional().describe('GST amount included (for GST code = GST)'),
+        gstRate: z.number().optional().describe('GST rate as a decimal (defaults to 0.1 when gstCode="GST")'),
+        gstAmount: z.number().optional().describe('GST amount on this line (defaults to |amount| × gstRate when gstCode="GST")'),
       })).describe('Array of postings that must sum to zero'),
     },
     annotations: { readOnlyHint: false },
   },
   async (data) => {
-    const result = await api.createTransaction(data);
+    // Fill in the GST metadata the server validator requires. Without this the gstRate
+    // field is easy to forget (and was previously not even forwarded), causing the
+    // "must have gstRate and gstAmount" validation error on every GST line.
+    const postings = data.postings.map((p) => {
+      if (p.gstCode === 'GST') {
+        const gstRate = p.gstRate ?? 0.1;
+        const gstAmount = p.gstAmount ?? Math.round(Math.abs(p.amount) * gstRate * 100) / 100;
+        return { ...p, gstRate, gstAmount };
+      }
+      return p;
+    });
+    const result = await api.createTransaction({ ...data, postings });
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
@@ -258,15 +278,16 @@ server.registerTool(
   'categorize_transaction',
   {
     title: 'Categorize Transaction',
-    description: 'Change the category of a single transaction. Use search_transactions or get_register to find the transaction ID, and search_categories or list_categories to find the target category ID.',
+    description: 'Change the category of a single transaction. The current category posting is detected automatically. Use search_transactions or get_register to find the transaction ID, and search_categories or list_categories to find the target category ID. For a split transaction with more than one category line, pass currentCategoryId to say which one to recategorize.',
     inputSchema: {
       transactionId: z.string().describe('The UUID of the transaction to recategorize'),
       newCategoryId: z.string().describe('The UUID of the new category'),
+      currentCategoryId: z.string().optional().describe('The UUID of the existing category to replace. Only needed for split transactions with multiple category lines; otherwise the single category posting is detected automatically.'),
     },
     annotations: { readOnlyHint: false },
   },
-  async ({ transactionId, newCategoryId }) => {
-    const result = await api.categorizeTransaction(transactionId, newCategoryId);
+  async ({ transactionId, newCategoryId, currentCategoryId }) => {
+    const result = await api.categorizeTransaction(transactionId, newCategoryId, currentCategoryId);
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );

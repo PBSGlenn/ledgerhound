@@ -102,13 +102,35 @@ export async function searchTransactions(filters: {
   dateFrom?: string;
   dateTo?: string;
   accountId?: string;
-  tags?: string[];
+  categoryId?: string;
   businessOnly?: boolean;
   personalOnly?: boolean;
   minAmount?: number;
   maxAmount?: number;
+  limit?: number;
 }) {
-  return request('POST', '/api/transactions/search', { scope: 'all', ...filters });
+  // The /search endpoint (searchTransactionsSchema + transactionService.searchTransactions)
+  // uses a different vocabulary than the MCP tool. Map carefully — the server silently
+  // strips unknown keys, so a mismatch here produces empty results with no error:
+  //   - scope: a real account UUID to limit the search, or the literal 'global' for all
+  //     accounts. NOTE: the service treats any scope !== 'global' as an accountId filter,
+  //     so the old `scope: 'all'` matched no account and returned [] for every query.
+  //   - payee: the free-text search term (MCP exposes it as `search`)
+  //   - amountMin/amountMax: matched against the ABSOLUTE posting value (>= 0)
+  //   - categoryId: filter to transactions with a sibling posting in this category
+  const body: Record<string, unknown> = {
+    scope: filters.accountId ?? 'global',
+  };
+  if (filters.search) body.payee = filters.search;
+  if (filters.dateFrom) body.dateFrom = filters.dateFrom;
+  if (filters.dateTo) body.dateTo = filters.dateTo;
+  if (filters.categoryId) body.categoryId = filters.categoryId;
+  if (filters.businessOnly) body.businessOnly = true;
+  if (filters.personalOnly) body.personalOnly = true;
+  if (filters.minAmount !== undefined) body.amountMin = Math.abs(filters.minAmount);
+  if (filters.maxAmount !== undefined) body.amountMax = Math.abs(filters.maxAmount);
+  if (filters.limit !== undefined) body.limit = filters.limit;
+  return request('POST', '/api/transactions/search', body);
 }
 
 export async function createTransaction(data: {
@@ -122,6 +144,7 @@ export async function createTransaction(data: {
     amount: number;
     isBusiness?: boolean;
     gstCode?: string;
+    gstRate?: number;
     gstAmount?: number;
   }>;
 }) {
@@ -132,8 +155,12 @@ export async function getTransaction(id: string) {
   return request('GET', `/api/transactions/${id}`);
 }
 
-export async function categorizeTransaction(transactionId: string, newCategoryId: string) {
-  return request('POST', `/api/transactions/${transactionId}/recategorize`, { newCategoryId });
+export async function categorizeTransaction(transactionId: string, newCategoryId: string, currentCategoryId?: string) {
+  // The server infers the current category posting when oldAccountId is omitted (the
+  // common single-category case). currentCategoryId disambiguates split transactions.
+  const body: Record<string, unknown> = { newCategoryId };
+  if (currentCategoryId) body.oldAccountId = currentCategoryId;
+  return request('POST', `/api/transactions/${transactionId}/recategorize`, body);
 }
 
 export async function deleteTransaction(transactionId: string) {
