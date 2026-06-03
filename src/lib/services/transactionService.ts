@@ -155,16 +155,29 @@ export class TransactionService {
         );
       }
 
-      // Validate GST calculation (amount is GST-exclusive, so GST = |amount| * rate)
-      // Use absolute value since gstAmount is always positive regardless of posting sign
-      const expectedGST = Math.abs(posting.amount * posting.gstRate);
-      const diff = Math.abs((posting.gstAmount ?? 0) - expectedGST);
+      // Plausibility check (not an exact-match check). The category posting's `amount`
+      // is GST-exclusive, so a *fully* GST-taxable line has GST = |amount| * rate. But
+      // many legitimate lines carry LESS than that: e.g. an insurance premium where GST
+      // applies to the base but the same line bundles GST-free stamp duty, a partial
+      // input-tax-credit apportionment, or an exact GST figure taken straight off a tax
+      // invoice. The user knows the real GST — we must accept their entered amount.
+      //
+      // We therefore only reject values that cannot be real GST:
+      //   - negative GST, or
+      //   - GST that EXCEEDS the maximum possible (rate × the GST-exclusive amount),
+      //     which catches the classic data-entry slip of putting the gross/total in the
+      //     GST field, or a misplaced decimal point.
+      // Anything from $0 up to the full rate is treated as a valid manual entry.
+      const absAmount = Math.abs(posting.amount);
+      const absGst = Math.abs(posting.gstAmount ?? 0);
+      const maxGST = absAmount * posting.gstRate;
 
-      // Allow for small rounding differences (±0.02), but throw error for larger discrepancies
-      if (diff > 0.02) {
+      // ±0.02 tolerance absorbs ordinary rounding at the upper bound.
+      if (absGst < -0.02 || absGst > maxGST + 0.02) {
         throw new Error(
-          `GST amount mismatch: expected ${expectedGST.toFixed(2)}, got ${posting.gstAmount?.toFixed(2)}. ` +
-          `Please check the GST calculation.`
+          `GST amount implausible: ${posting.gstAmount?.toFixed(2)} on a ${absAmount.toFixed(2)} line ` +
+          `(at ${(posting.gstRate * 100).toFixed(0)}% GST the most this line could carry is ${maxGST.toFixed(2)}). ` +
+          `Check the GST figure — it should be the tax portion only, not the gross amount.`
         );
       }
     }

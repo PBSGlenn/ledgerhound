@@ -305,6 +305,77 @@ describe('TransactionService', () => {
         expect(businessPosting?.gstAmount).toBeNull();
       });
 
+      it('should accept a manual GST amount below the 10% maximum (partial-GST line)', async () => {
+        // Real-world case (Guild Insurance): a line whose GST applies to only part of
+        // the amount — e.g. base premium is GST-taxable but bundled stamp duty is not —
+        // so the documented GST is LESS than 10% of the line. Must be accepted as entered.
+        const transactionData: CreateTransactionDTO = {
+          date: new Date('2026-06-03'),
+          payee: 'Guild Insurance',
+          memo: 'Premium $84.89 base + $8.49 GST + $7.47 stamp duty',
+          postings: [
+            {
+              accountId: accounts.businessChecking.id,
+              amount: -100.85,
+              isBusiness: true,
+            },
+            {
+              accountId: accounts.officeSupplies.id,
+              amount: 92.36, // base + stamp duty, GST-exclusive portion of the line
+              isBusiness: true,
+              gstCode: GSTCode.GST,
+              gstRate: 0.1,
+              gstAmount: 8.49, // documented GST — only 9.2% of the line, not a clean 10%
+            },
+            {
+              accountId: accounts.gstPaid.id,
+              amount: 8.49,
+              isBusiness: true,
+            },
+          ],
+        };
+
+        const transaction = await transactionService.createTransaction(transactionData);
+        expect(transaction.postings).toHaveLength(3);
+        expectPostingsSumToZero(transaction.postings);
+        const businessPosting = transaction.postings.find(
+          (p) => p.accountId === accounts.officeSupplies.id
+        );
+        expect(businessPosting?.gstAmount).toBeCloseTo(8.49, 2);
+      });
+
+      it('should reject an implausible GST amount that exceeds the 10% maximum', async () => {
+        // Classic data-entry slip: the gross/total typed into the GST field.
+        const transactionData: CreateTransactionDTO = {
+          date: new Date('2026-06-03'),
+          payee: 'Fat-fingered GST',
+          postings: [
+            {
+              accountId: accounts.businessChecking.id,
+              amount: -110,
+              isBusiness: true,
+            },
+            {
+              accountId: accounts.officeSupplies.id,
+              amount: 100,
+              isBusiness: true,
+              gstCode: GSTCode.GST,
+              gstRate: 0.1,
+              gstAmount: 100, // way over the $10 maximum for a $100 line
+            },
+            {
+              accountId: accounts.gstPaid.id,
+              amount: 10,
+              isBusiness: true,
+            },
+          ],
+        };
+
+        await expect(
+          transactionService.createTransaction(transactionData)
+        ).rejects.toThrow('implausible');
+      });
+
       it('should require date', async () => {
         const transactionData: any = {
           payee: 'Missing Date',
