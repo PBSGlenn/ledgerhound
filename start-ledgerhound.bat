@@ -41,7 +41,7 @@ echo.
 
 REM Start MCP HTTP server in background (for Cowork integration)
 echo Starting MCP HTTP server on http://localhost:3002/mcp
-start "Ledgerhound MCP" /min cmd /c "npx tsx src-mcp/index.ts --http"
+start "Ledgerhound MCP" /min cmd /c "node_modules\.bin\tsx.cmd src-mcp/index.ts --http"
 echo.
 
 REM Open browser after a short delay (in background)
@@ -52,4 +52,4 @@ echo Press Ctrl+C to stop.
 echo.
 
 REM Start the API server (blocks until stopped)
-call npx tsx src-server/api.ts
+call node_modules\.bin\tsx.cmd src-server/api.ts
