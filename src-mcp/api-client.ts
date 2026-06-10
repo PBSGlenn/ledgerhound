@@ -73,6 +73,37 @@ export async function listCategories() {
   return request('GET', '/api/categories');
 }
 
+export async function createCategory(data: {
+  name: string;
+  type: 'INCOME' | 'EXPENSE';
+  parentId?: string;
+  isBusinessDefault?: boolean;
+  defaultHasGst?: boolean;
+}) {
+  return request('POST', '/api/categories', data);
+}
+
+export async function updateCategory(
+  categoryId: string,
+  data: {
+    name?: string;
+    parentId?: string | null;
+    isBusinessDefault?: boolean;
+    defaultHasGst?: boolean;
+    atoLabel?: string | null;
+  }
+) {
+  return request('PUT', `/api/categories/${categoryId}`, data);
+}
+
+export async function deleteCategory(categoryId: string) {
+  return request('DELETE', `/api/categories/${categoryId}`);
+}
+
+export async function mergeCategories(sourceId: string, targetId: string) {
+  return request('POST', '/api/categories/merge', { sourceId, targetId });
+}
+
 // ── Transactions ──
 
 export async function getRegister(accountId: string, filters?: {

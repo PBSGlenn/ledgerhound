@@ -168,6 +168,88 @@ server.registerTool(
   }
 );
 
+server.registerTool(
+  'create_category',
+  {
+    title: 'Create Category',
+    description: 'Create a new category. Pass parentId to create a subcategory (it inherits the parent\'s business/GST defaults unless overridden); omit parentId for a top-level category. Use list_categories or search_categories first to find the parent ID and avoid duplicates.',
+    inputSchema: {
+      name: z.string().describe('Category name'),
+      type: z.enum(['INCOME', 'EXPENSE']).describe('Category type'),
+      parentId: z.string().optional().describe('UUID of the parent category (omit for top-level)'),
+      isBusinessDefault: z.boolean().optional().describe('Default new postings in this category to business (GST tracking)'),
+      defaultHasGst: z.boolean().optional().describe('Whether business postings in this category carry GST by default'),
+    },
+  },
+  async ({ name, type, parentId, isBusinessDefault, defaultHasGst }) => {
+    const data = await api.createCategory({ name, type, parentId, isBusinessDefault, defaultHasGst });
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  }
+);
+
+server.registerTool(
+  'rename_category',
+  {
+    title: 'Rename Category',
+    description: 'Rename a category. The stored full path of the category and all its subcategories is updated automatically.',
+    inputSchema: {
+      categoryId: z.string().describe('The UUID of the category to rename'),
+      newName: z.string().describe('The new category name'),
+    },
+  },
+  async ({ categoryId, newName }) => {
+    const data = await api.updateCategory(categoryId, { name: newName });
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  }
+);
+
+server.registerTool(
+  'move_category',
+  {
+    title: 'Move Category',
+    description: 'Move a category to a different parent, or to top level by passing newParentId: null. Refuses moves that would create a cycle or cross INCOME/EXPENSE types. Levels and full paths of the whole subtree are recomputed automatically.',
+    inputSchema: {
+      categoryId: z.string().describe('The UUID of the category to move'),
+      newParentId: z.string().nullable().describe('UUID of the new parent category, or null to make it top-level'),
+    },
+  },
+  async ({ categoryId, newParentId }) => {
+    const data = await api.updateCategory(categoryId, { parentId: newParentId });
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  }
+);
+
+server.registerTool(
+  'delete_category',
+  {
+    title: 'Delete Category',
+    description: 'Permanently delete a category. Refuses if the category has subcategories or any postings — use merge_categories to fold its transactions into another category first, or archive it in the app instead.',
+    inputSchema: {
+      categoryId: z.string().describe('The UUID of the category to delete'),
+    },
+  },
+  async ({ categoryId }) => {
+    await api.deleteCategory(categoryId);
+    return { content: [{ type: 'text', text: JSON.stringify({ success: true, deleted: categoryId }) }] };
+  }
+);
+
+server.registerTool(
+  'merge_categories',
+  {
+    title: 'Merge Categories',
+    description: 'Merge one category into another: all postings, memorized rules, and recurring bills pointing at the source category are re-pointed to the target, then the source category is deleted. Both must be the same type (INCOME or EXPENSE), and the source must have no subcategories. This permanently deletes the source category — confirm the IDs carefully.',
+    inputSchema: {
+      sourceCategoryId: z.string().describe('The UUID of the category to merge away (will be deleted)'),
+      targetCategoryId: z.string().describe('The UUID of the category that receives everything'),
+    },
+  },
+  async ({ sourceCategoryId, targetCategoryId }) => {
+    const data = await api.mergeCategories(sourceCategoryId, targetCategoryId);
+    return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] };
+  }
+);
+
 // ── Transaction Tools ──
 
 server.registerTool(

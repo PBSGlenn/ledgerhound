@@ -34,6 +34,15 @@ export class CategoryService {
   }
 
   /**
+   * Title-case root segment for stored fullPaths ("Expense", "Income") —
+   * matches the convention used by the seeded default categories
+   */
+  private rootPrefix(type: AccountType): string {
+    const s = String(type);
+    return s.charAt(0) + s.slice(1).toLowerCase();
+  }
+
+  /**
    * Get all categories as a flat list
    */
   async getAllCategories(options?: {
@@ -369,9 +378,23 @@ export class CategoryService {
     isBusinessDefault?: boolean;
     defaultHasGst?: boolean;
   }): Promise<CategoryNode> {
+    // Check for duplicate name within the same type and parent
+    const existing = await this.prisma.account.findFirst({
+      where: {
+        name: data.name,
+        type: data.type,
+        parentId: data.parentId ?? null,
+        kind: AccountKind.CATEGORY,
+      },
+    });
+
+    if (existing) {
+      throw new Error(`Category "${data.name}" already exists under this parent`);
+    }
+
     // Determine level and fullPath based on parent
     let level = 1;
-    let fullPath = `${data.type}/${data.name}`;
+    let fullPath = `${this.rootPrefix(data.type)}/${data.name}`;
     let inheritedIsBusinessDefault = false;
     let inheritedDefaultHasGst = true;
 
@@ -473,24 +496,49 @@ export class CategoryService {
     }
 
     if (data.parentId !== undefined) {
-      updateData.parentId = data.parentId;
+      if (data.parentId === id) {
+        throw new Error('Cannot move a category under itself');
+      }
 
       // Recalculate level and fullPath
       if (data.parentId) {
         const newParent = await this.prisma.account.findUnique({
           where: { id: data.parentId },
-          select: { level: true, fullPath: true },
+          select: { level: true, fullPath: true, type: true, kind: true },
         });
 
-        if (newParent) {
-          updateData.level = newParent.level + 1;
-          const newName = data.name ?? current.name;
-          updateData.fullPath = `${newParent.fullPath}/${newName}`;
+        if (!newParent) {
+          throw new Error('New parent category not found');
         }
+        if (newParent.kind !== AccountKind.CATEGORY) {
+          throw new Error('New parent must be a category');
+        }
+        if (newParent.type !== current.type) {
+          throw new Error('Cannot move a category between INCOME and EXPENSE');
+        }
+
+        // Refuse cycles: new parent must not be a descendant of this category
+        let ancestorId: string | null = data.parentId;
+        while (ancestorId) {
+          if (ancestorId === id) {
+            throw new Error('Cannot move a category under one of its own subcategories');
+          }
+          const ancestor: { parentId: string | null } | null = await this.prisma.account.findUnique({
+            where: { id: ancestorId },
+            select: { parentId: true },
+          });
+          ancestorId = ancestor?.parentId ?? null;
+        }
+
+        updateData.parentId = data.parentId;
+        updateData.level = newParent.level + 1;
+        const newName = data.name ?? current.name;
+        updateData.fullPath = `${newParent.fullPath}/${newName}`;
       } else {
+        updateData.parentId = null;
         updateData.level = 1;
         const newName = data.name ?? current.name;
-        updateData.fullPath = `${current.type}/${newName}`;
+        updateData.fullPath = `${this.rootPrefix(current.type)}/${newName}`;
       }
     } else if (data.name && current.fullPath) {
       // Name changed but parent didn't - update fullPath
@@ -514,7 +562,201 @@ export class CategoryService {
       },
     });
 
+    // Rename or move changes this node's path/level, so every descendant's
+    // stored fullPath/level prefix is now stale — recompute the subtree
+    if (updateData.fullPath !== undefined || updateData.level !== undefined) {
+      await this.repairSubtree(category.id, category.level, category.fullPath);
+    }
+
     return category;
+  }
+
+  /**
+   * Recompute level and fullPath for all descendants of a category
+   */
+  private async repairSubtree(
+    parentId: string,
+    parentLevel: number,
+    parentFullPath: string | null
+  ): Promise<void> {
+    const children = await this.prisma.account.findMany({
+      where: { parentId, kind: AccountKind.CATEGORY },
+      select: { id: true, name: true, type: true },
+    });
+
+    for (const child of children) {
+      const level = parentLevel + 1;
+      const fullPath = parentFullPath
+        ? `${parentFullPath}/${child.name}`
+        : `${this.rootPrefix(child.type)}/${child.name}`;
+
+      await this.prisma.account.update({
+        where: { id: child.id },
+        data: { level, fullPath },
+      });
+
+      await this.repairSubtree(child.id, level, fullPath);
+    }
+  }
+
+  /**
+   * Merge one category into another: re-point all postings, memorized rules,
+   * and recurring bills from source to target, then delete the source.
+   */
+  async mergeCategories(sourceId: string, targetId: string): Promise<{
+    postingsMoved: number;
+    rulesMoved: number;
+    billsMoved: number;
+  }> {
+    if (sourceId === targetId) {
+      throw new Error('Source and target categories must be different');
+    }
+
+    const [source, target] = await Promise.all([
+      this.prisma.account.findUnique({
+        where: { id: sourceId },
+        select: { id: true, name: true, type: true, kind: true },
+      }),
+      this.prisma.account.findUnique({
+        where: { id: targetId },
+        select: { id: true, name: true, type: true, kind: true },
+      }),
+    ]);
+
+    if (!source) throw new Error('Source category not found');
+    if (!target) throw new Error('Target category not found');
+    if (source.kind !== AccountKind.CATEGORY || target.kind !== AccountKind.CATEGORY) {
+      throw new Error('Both source and target must be categories');
+    }
+    if (source.type !== target.type) {
+      throw new Error('Cannot merge categories of different types (INCOME vs EXPENSE)');
+    }
+
+    const childCount = await this.prisma.account.count({
+      where: { parentId: sourceId },
+    });
+    if (childCount > 0) {
+      throw new Error('Cannot merge a category that has subcategories. Move or merge its subcategories first.');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const postings = await tx.posting.updateMany({
+        where: { accountId: sourceId },
+        data: { accountId: targetId },
+      });
+
+      const rules = await tx.memorizedRule.updateMany({
+        where: { defaultAccountId: sourceId },
+        data: { defaultAccountId: targetId },
+      });
+
+      const bills = await tx.recurringBill.updateMany({
+        where: { categoryAccountId: sourceId },
+        data: { categoryAccountId: targetId },
+      });
+
+      await tx.account.delete({ where: { id: sourceId } });
+
+      return {
+        postingsMoved: postings.count,
+        rulesMoved: rules.count,
+        billsMoved: bills.count,
+      };
+    });
+  }
+
+  /**
+   * Repair hierarchy metadata for all categories: recompute level and fullPath
+   * from the parentId chain, and renumber sortOrder within sibling groups that
+   * contain duplicates. Fixes categories created via code paths that skipped
+   * the metadata computation.
+   */
+  async repairHierarchy(): Promise<{ pathsRepaired: number; sortOrdersRepaired: number }> {
+    const categories = await this.prisma.account.findMany({
+      where: {
+        kind: AccountKind.CATEGORY,
+        // GST system accounts (ASSET/LIABILITY) carry hand-set paths like
+        // "GST/Paid" — leave them alone
+        type: { in: [AccountType.INCOME, AccountType.EXPENSE] },
+      },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        parentId: true,
+        level: true,
+        fullPath: true,
+        sortOrder: true,
+      },
+    });
+
+    const byId = new Map(categories.map((c) => [c.id, c]));
+
+    // Compute correct level + fullPath by walking up the parent chain
+    const computed = new Map<string, { level: number; fullPath: string }>();
+    const compute = (cat: (typeof categories)[number]): { level: number; fullPath: string } => {
+      const cached = computed.get(cat.id);
+      if (cached) return cached;
+
+      let result: { level: number; fullPath: string };
+      const parent = cat.parentId ? byId.get(cat.parentId) : undefined;
+      if (parent) {
+        const parentResult = compute(parent);
+        result = {
+          level: parentResult.level + 1,
+          fullPath: `${parentResult.fullPath}/${cat.name}`,
+        };
+      } else {
+        result = { level: 1, fullPath: `${this.rootPrefix(cat.type)}/${cat.name}` };
+      }
+
+      computed.set(cat.id, result);
+      return result;
+    };
+
+    let pathsRepaired = 0;
+    for (const cat of categories) {
+      const correct = compute(cat);
+      if (cat.level !== correct.level || cat.fullPath !== correct.fullPath) {
+        await this.prisma.account.update({
+          where: { id: cat.id },
+          data: { level: correct.level, fullPath: correct.fullPath },
+        });
+        pathsRepaired++;
+      }
+    }
+
+    // Renumber sortOrder within sibling groups that contain duplicates
+    let sortOrdersRepaired = 0;
+    const siblingGroups = new Map<string, typeof categories>();
+    for (const cat of categories) {
+      const key = `${cat.type}:${cat.parentId ?? 'root'}`;
+      const group = siblingGroups.get(key) ?? [];
+      group.push(cat);
+      siblingGroups.set(key, group);
+    }
+
+    for (const group of siblingGroups.values()) {
+      const orders = group.map((c) => c.sortOrder);
+      const hasDuplicates = new Set(orders).size !== orders.length;
+      if (!hasDuplicates) continue;
+
+      const sorted = [...group].sort(
+        (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)
+      );
+      for (let i = 0; i < sorted.length; i++) {
+        const newOrder = i + 1;
+        if (sorted[i].sortOrder !== newOrder) {
+          await this.prisma.account.update({
+            where: { id: sorted[i].id },
+            data: { sortOrder: newOrder },
+          });
+          sortOrdersRepaired++;
+        }
+      }
+    }
+
+    return { pathsRepaired, sortOrdersRepaired };
   }
 
   /**
@@ -595,4 +837,8 @@ export const categoryService = {
     categoryServiceInstance.deleteCategory(...args),
   archiveCategory: (...args: Parameters<CategoryService['archiveCategory']>) =>
     categoryServiceInstance.archiveCategory(...args),
+  mergeCategories: (...args: Parameters<CategoryService['mergeCategories']>) =>
+    categoryServiceInstance.mergeCategories(...args),
+  repairHierarchy: (...args: Parameters<CategoryService['repairHierarchy']>) =>
+    categoryServiceInstance.repairHierarchy(...args),
 };

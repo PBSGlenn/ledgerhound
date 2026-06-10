@@ -201,6 +201,11 @@ export const updateCategorySchema = z.object({
   atoLabel: z.string().nullable().optional(),
 });
 
+export const mergeCategoriesSchema = z.object({
+  sourceId: uuidSchema,
+  targetId: uuidSchema,
+});
+
 // ============================================================================
 // TRANSACTION SCHEMAS
 // ============================================================================

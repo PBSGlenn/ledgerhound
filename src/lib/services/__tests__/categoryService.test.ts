@@ -32,7 +32,7 @@ describe('CategoryService', () => {
       expect(category.name).toBe('Groceries');
       expect(category.type).toBe(AccountType.EXPENSE);
       expect(category.level).toBe(1);
-      expect(category.fullPath).toBe('EXPENSE/Groceries');
+      expect(category.fullPath).toBe('Expense/Groceries');
       expect(category.parentId).toBeNull();
     });
 
@@ -54,7 +54,7 @@ describe('CategoryService', () => {
       expect(child.name).toBe('Groceries');
       expect(child.parentId).toBe(parent.id);
       expect(child.level).toBe(2);
-      expect(child.fullPath).toBe('EXPENSE/Food & Dining/Groceries');
+      expect(child.fullPath).toBe('Expense/Food & Dining/Groceries');
     });
 
     it('should inherit parent business default', async () => {
@@ -471,7 +471,7 @@ describe('CategoryService', () => {
       });
 
       expect(updated.name).toBe('Grocery Shopping');
-      expect(updated.fullPath).toBe('EXPENSE/Grocery Shopping');
+      expect(updated.fullPath).toBe('Expense/Grocery Shopping');
     });
 
     it('should update category parent', async () => {
@@ -493,7 +493,7 @@ describe('CategoryService', () => {
 
       expect(updated.parentId).toBe(newParent.id);
       expect(updated.level).toBe(2);
-      expect(updated.fullPath).toBe('EXPENSE/Food & Dining/Groceries');
+      expect(updated.fullPath).toBe('Expense/Food & Dining/Groceries');
     });
 
     it('should update business default', async () => {
@@ -565,6 +565,308 @@ describe('CategoryService', () => {
         includeArchived: true,
       });
       expect(all.find((c) => c.id === category.id)).toBeDefined();
+    });
+  });
+
+  describe('createCategory duplicate check', () => {
+    it('should refuse a duplicate name under the same parent', async () => {
+      await categoryService.createCategory({
+        name: 'Groceries',
+        type: AccountType.EXPENSE,
+      });
+
+      await expect(
+        categoryService.createCategory({ name: 'Groceries', type: AccountType.EXPENSE })
+      ).rejects.toThrow('already exists');
+    });
+
+    it('should allow the same name under different parents', async () => {
+      const parentA = await categoryService.createCategory({
+        name: 'Business Travel',
+        type: AccountType.EXPENSE,
+      });
+      const parentB = await categoryService.createCategory({
+        name: 'Vacation & Travel',
+        type: AccountType.EXPENSE,
+      });
+
+      const a = await categoryService.createCategory({
+        name: 'Accommodation',
+        type: AccountType.EXPENSE,
+        parentId: parentA.id,
+      });
+      const b = await categoryService.createCategory({
+        name: 'Accommodation',
+        type: AccountType.EXPENSE,
+        parentId: parentB.id,
+      });
+
+      expect(a.fullPath).toBe('Expense/Business Travel/Accommodation');
+      expect(b.fullPath).toBe('Expense/Vacation & Travel/Accommodation');
+    });
+  });
+
+  describe('updateCategory subtree repair', () => {
+    it('should update descendant fullPaths on rename', async () => {
+      const parent = await categoryService.createCategory({
+        name: 'Travel',
+        type: AccountType.EXPENSE,
+      });
+      const child = await categoryService.createCategory({
+        name: 'Flights',
+        type: AccountType.EXPENSE,
+        parentId: parent.id,
+      });
+      const grandchild = await categoryService.createCategory({
+        name: 'Domestic',
+        type: AccountType.EXPENSE,
+        parentId: child.id,
+      });
+
+      await categoryService.updateCategory(parent.id, { name: 'Vacation & Travel' });
+
+      const updatedChild = await prisma.account.findUnique({ where: { id: child.id } });
+      const updatedGrandchild = await prisma.account.findUnique({ where: { id: grandchild.id } });
+
+      expect(updatedChild!.fullPath).toBe('Expense/Vacation & Travel/Flights');
+      expect(updatedGrandchild!.fullPath).toBe('Expense/Vacation & Travel/Flights/Domestic');
+    });
+
+    it('should update descendant levels and paths on move', async () => {
+      const oldParent = await categoryService.createCategory({
+        name: 'Uncategorized',
+        type: AccountType.EXPENSE,
+      });
+      const movee = await categoryService.createCategory({
+        name: 'Side Business',
+        type: AccountType.EXPENSE,
+        parentId: oldParent.id,
+      });
+      const child = await categoryService.createCategory({
+        name: 'Supplies',
+        type: AccountType.EXPENSE,
+        parentId: movee.id,
+      });
+
+      // Move to top level
+      const moved = await categoryService.updateCategory(movee.id, { parentId: null });
+
+      expect(moved.level).toBe(1);
+      expect(moved.fullPath).toBe('Expense/Side Business');
+
+      const updatedChild = await prisma.account.findUnique({ where: { id: child.id } });
+      expect(updatedChild!.level).toBe(2);
+      expect(updatedChild!.fullPath).toBe('Expense/Side Business/Supplies');
+    });
+
+    it('should refuse moving a category under itself', async () => {
+      const cat = await categoryService.createCategory({
+        name: 'Loop',
+        type: AccountType.EXPENSE,
+      });
+
+      await expect(
+        categoryService.updateCategory(cat.id, { parentId: cat.id })
+      ).rejects.toThrow('under itself');
+    });
+
+    it('should refuse moving a category under its own descendant', async () => {
+      const parent = await categoryService.createCategory({
+        name: 'Outer',
+        type: AccountType.EXPENSE,
+      });
+      const child = await categoryService.createCategory({
+        name: 'Inner',
+        type: AccountType.EXPENSE,
+        parentId: parent.id,
+      });
+
+      await expect(
+        categoryService.updateCategory(parent.id, { parentId: child.id })
+      ).rejects.toThrow('subcategories');
+    });
+
+    it('should refuse moving a category across INCOME/EXPENSE types', async () => {
+      const income = await categoryService.createCategory({
+        name: 'Salary',
+        type: AccountType.INCOME,
+      });
+      const expense = await categoryService.createCategory({
+        name: 'Rent',
+        type: AccountType.EXPENSE,
+      });
+
+      await expect(
+        categoryService.updateCategory(expense.id, { parentId: income.id })
+      ).rejects.toThrow('INCOME and EXPENSE');
+    });
+  });
+
+  describe('mergeCategories', () => {
+    async function createPostingFor(categoryId: string, amount: number) {
+      return prisma.transaction.create({
+        data: {
+          date: new Date('2026-01-15'),
+          payee: 'Test Payee',
+          postings: {
+            create: [
+              { accountId: categoryId, amount },
+            ],
+          },
+        },
+      });
+    }
+
+    it('should move postings to target and delete source', async () => {
+      const source = await categoryService.createCategory({
+        name: 'Misc Fees',
+        type: AccountType.EXPENSE,
+      });
+      const target = await categoryService.createCategory({
+        name: 'Bank Fees',
+        type: AccountType.EXPENSE,
+      });
+
+      await createPostingFor(source.id, -10);
+      await createPostingFor(source.id, -20);
+
+      const result = await categoryService.mergeCategories(source.id, target.id);
+
+      expect(result.postingsMoved).toBe(2);
+
+      const remaining = await prisma.account.findUnique({ where: { id: source.id } });
+      expect(remaining).toBeNull();
+
+      const targetPostings = await prisma.posting.count({ where: { accountId: target.id } });
+      expect(targetPostings).toBe(2);
+    });
+
+    it('should refuse merging into itself', async () => {
+      const cat = await categoryService.createCategory({
+        name: 'Solo',
+        type: AccountType.EXPENSE,
+      });
+
+      await expect(categoryService.mergeCategories(cat.id, cat.id)).rejects.toThrow(
+        'must be different'
+      );
+    });
+
+    it('should refuse merging categories of different types', async () => {
+      const income = await categoryService.createCategory({
+        name: 'Salary',
+        type: AccountType.INCOME,
+      });
+      const expense = await categoryService.createCategory({
+        name: 'Rent',
+        type: AccountType.EXPENSE,
+      });
+
+      await expect(categoryService.mergeCategories(income.id, expense.id)).rejects.toThrow(
+        'different types'
+      );
+    });
+
+    it('should refuse merging a category with subcategories', async () => {
+      const source = await categoryService.createCategory({
+        name: 'Parent',
+        type: AccountType.EXPENSE,
+      });
+      await categoryService.createCategory({
+        name: 'Child',
+        type: AccountType.EXPENSE,
+        parentId: source.id,
+      });
+      const target = await categoryService.createCategory({
+        name: 'Target',
+        type: AccountType.EXPENSE,
+      });
+
+      await expect(categoryService.mergeCategories(source.id, target.id)).rejects.toThrow(
+        'subcategories'
+      );
+    });
+  });
+
+  describe('repairHierarchy', () => {
+    it('should fix broken level and fullPath metadata', async () => {
+      // Simulate the bug: categories created without hierarchy metadata
+      const parent = await prisma.account.create({
+        data: {
+          name: 'Phone & Internet',
+          type: AccountType.EXPENSE,
+          kind: 'CATEGORY',
+          isReal: false,
+          level: 0,
+          fullPath: null,
+          sortOrder: 0,
+        },
+      });
+      const child = await prisma.account.create({
+        data: {
+          name: 'Mobile',
+          type: AccountType.EXPENSE,
+          kind: 'CATEGORY',
+          isReal: false,
+          parentId: parent.id,
+          level: 0,
+          fullPath: null,
+          sortOrder: 0,
+        },
+      });
+
+      const result = await categoryService.repairHierarchy();
+
+      expect(result.pathsRepaired).toBeGreaterThanOrEqual(2);
+
+      const fixedParent = await prisma.account.findUnique({ where: { id: parent.id } });
+      const fixedChild = await prisma.account.findUnique({ where: { id: child.id } });
+
+      expect(fixedParent!.level).toBe(1);
+      expect(fixedParent!.fullPath).toBe('Expense/Phone & Internet');
+      expect(fixedChild!.level).toBe(2);
+      expect(fixedChild!.fullPath).toBe('Expense/Phone & Internet/Mobile');
+    });
+
+    it('should renumber duplicate sortOrders within a sibling group', async () => {
+      for (const name of ['Alpha', 'Beta', 'Gamma']) {
+        await prisma.account.create({
+          data: {
+            name,
+            type: AccountType.EXPENSE,
+            kind: 'CATEGORY',
+            isReal: false,
+            level: 1,
+            fullPath: `EXPENSE/${name}`,
+            sortOrder: 0,
+          },
+        });
+      }
+
+      const result = await categoryService.repairHierarchy();
+      expect(result.sortOrdersRepaired).toBeGreaterThan(0);
+
+      const cats = await prisma.account.findMany({
+        where: { kind: 'CATEGORY', parentId: null, type: AccountType.EXPENSE },
+        orderBy: { sortOrder: 'asc' },
+      });
+      const orders = cats.map((c) => c.sortOrder);
+      expect(new Set(orders).size).toBe(orders.length);
+    });
+
+    it('should leave correct metadata untouched', async () => {
+      const parent = await categoryService.createCategory({
+        name: 'Healthy',
+        type: AccountType.EXPENSE,
+      });
+      await categoryService.createCategory({
+        name: 'Child',
+        type: AccountType.EXPENSE,
+        parentId: parent.id,
+      });
+
+      const result = await categoryService.repairHierarchy();
+      expect(result.pathsRepaired).toBe(0);
     });
   });
 });

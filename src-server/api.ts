@@ -22,6 +22,7 @@ import {
   updateAccountSchema,
   createCategorySchema,
   updateCategorySchema,
+  mergeCategoriesSchema,
   createTransactionSchema,
   updateTransactionSchema,
   reportDateRangeSchema,
@@ -348,14 +349,14 @@ app.post('/api/categories', async (req, res) => {
     const data = validateBody(createCategorySchema, req.body, res);
     if (!data) return;
 
-    const category = await accountService.createAccount({
+    // Must go through categoryService so level/fullPath/sortOrder are computed;
+    // accountService.createAccount skips hierarchy metadata entirely
+    const category = await categoryService.createCategory({
       name: data.name,
       type: data.type as AccountType,
+      parentId: data.parentId ?? undefined,
       isBusinessDefault: data.isBusinessDefault,
       defaultHasGst: data.defaultHasGst,
-      parentId: data.parentId,
-      isReal: false,
-      sortOrder: data.sortOrder,
     });
     res.status(201).json(category);
   } catch (error) {
@@ -523,6 +524,31 @@ app.post('/api/categories/:id/archive', async (req, res) => {
       return sendNotFound(res, 'Category');
     }
     return sendError(res, 400, message);
+  }
+});
+
+app.post('/api/categories/merge', async (req, res) => {
+  try {
+    const data = validateBody(mergeCategoriesSchema, req.body, res);
+    if (!data) return;
+
+    const result = await categoryService.mergeCategories(data.sourceId, data.targetId);
+    res.json(result);
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message.includes('not found')) {
+      return sendNotFound(res, 'Category');
+    }
+    return sendError(res, 400, message);
+  }
+});
+
+app.post('/api/categories/repair-hierarchy', async (_req, res) => {
+  try {
+    const result = await categoryService.repairHierarchy();
+    res.json(result);
+  } catch (error) {
+    return sendServerError(res, error);
   }
 });
 
